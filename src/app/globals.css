@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --pink: #FF6B7A;
+  --blue: #4A90E2;
+  --yellow: #FFC93C;
+  --purple: #7B61FF;
+  --green: #4CD964;
+  --orange: #FF9500;
+  --card-bg: #F5F5F5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-pink: var(--pink);
+  --color-blue: var(--blue);
+  --color-yellow: var(--yellow);
+  --color-purple: var(--purple);
+  --color-green: var(--green);
+  --color-orange: var(--orange);
+  --color-card-bg: var(--card-bg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Neubrutalism style utilities */
+.neo-border {
+  border: 3px solid #171717;
+}
+
+.neo-shadow {
+  box-shadow: 6px 6px 0px 0px #171717;
+}
+
+.neo-shadow-sm {
+  box-shadow: 4px 4px 0px 0px #171717;
+}
+
+.neo-shadow-hover:hover {
+  box-shadow: 8px 8px 0px 0px #171717;
+  transform: translate(-2px, -2px);
+}
+
+.neo-card {
+  border: 3px solid #171717;
+  border-radius: 16px;
+  box-shadow: 6px 6px 0px 0px #171717;
+  transition: all 0.2s ease;
+}
+
+.neo-card:hover {
+  box-shadow: 8px 8px 0px 0px #171717;
+  transform: translate(-2px, -2px);
+}
+
+.neo-btn {
+  border: 3px solid #171717;
+  border-radius: 12px;
+  box-shadow: 4px 4px 0px 0px #171717;
+  font-weight: 700;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.neo-btn:hover {
+  box-shadow: 6px 6px 0px 0px #171717;
+  transform: translate(-2px, -2px);
+}
+
+.neo-btn:active {
+  box-shadow: 2px 2px 0px 0px #171717;
+  transform: translate(2px, 2px);
+}
+
+.neo-btn-primary {
+  background-color: #171717;
+  color: white;
+}
+
+.neo-btn-secondary {
+  background-color: white;
+  color: #171717;
+}
+
+.neo-btn-pink {
+  background-color: #FF6B7A;
+  color: white;
+}
+
+.neo-btn-blue {
+  background-color: #4A90E2;
+  color: white;
+}
+
+.neo-btn-yellow {
+  background-color: #FFC93C;
+  color: #171717;
+}
+
+.neo-input {
+  border: 3px solid #171717;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-weight: 600;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.neo-input:focus {
+  box-shadow: 4px 4px 0px 0px #171717;
+}
+
+.highlight-pink {
+  background-color: #FF6B7A;
+  color: white;
+  padding: 2px 12px;
+}
+
+.highlight-blue {
+  background-color: #4A90E2;
+  color: white;
+  padding: 2px 12px;
+}
+
+.highlight-yellow {
+  background-color: #FFC93C;
+  color: #171717;
+  padding: 2px 12px;
+}
+
+.highlight-purple {
+  background-color: #7B61FF;
+  color: white;
+  padding: 2px 12px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-left: 3px solid #171717;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #171717;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #333;
+}
