@@ -115,7 +115,7 @@ export default function DataImportPage() {
   const [csvPreview, setCsvPreview] = useState<string[][]>([]);
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ importedCount: number; skipCount: number; total: number; errors?: string[] } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; total: number; actualCount: number; errors?: string[] } | null>(null);
   const [error, setError] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
 
