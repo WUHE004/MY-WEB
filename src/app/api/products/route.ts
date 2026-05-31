@@ -51,6 +51,9 @@ export async function POST(request: NextRequest) {
       inventory_value: Number(body.inventory_value) || 0,
       last_order_time: body.last_order_time || "",
       status: body.status || "active",
+      notes: body.notes || "",
+      season: body.season || "",
+      style_category: body.style_category || "",
     };
 
     const { data, error } = await supabase

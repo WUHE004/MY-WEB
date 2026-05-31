@@ -1,0 +1,33 @@
+-- 入库记录表
+CREATE TABLE IF NOT EXISTS inbound_records (
+  id SERIAL PRIMARY KEY,
+  inbound_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sale_id TEXT NOT NULL DEFAULT '',
+  photo TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL DEFAULT '',
+  manufacturer TEXT NOT NULL DEFAULT '',
+  size_80 INTEGER NOT NULL DEFAULT 0,
+  size_90 INTEGER NOT NULL DEFAULT 0,
+  size_95 INTEGER NOT NULL DEFAULT 0,
+  size_100 INTEGER NOT NULL DEFAULT 0,
+  size_105 INTEGER NOT NULL DEFAULT 0,
+  size_110 INTEGER NOT NULL DEFAULT 0,
+  size_120 INTEGER NOT NULL DEFAULT 0,
+  size_130 INTEGER NOT NULL DEFAULT 0,
+  size_140 INTEGER NOT NULL DEFAULT 0,
+  size_150 INTEGER NOT NULL DEFAULT 0,
+  size_160 INTEGER NOT NULL DEFAULT 0,
+  size_170 INTEGER NOT NULL DEFAULT 0,
+  size_180 INTEGER NOT NULL DEFAULT 0,
+  shelf_no TEXT NOT NULL DEFAULT '',
+  total_stock INTEGER NOT NULL DEFAULT 0,
+  cost_price REAL NOT NULL DEFAULT 0,
+  season TEXT NOT NULL DEFAULT '',
+  style_category TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbound_records_sale_id ON inbound_records(sale_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_records_date ON inbound_records(inbound_date DESC);
+CREATE INDEX IF NOT EXISTS idx_inbound_records_manufacturer ON inbound_records(manufacturer);

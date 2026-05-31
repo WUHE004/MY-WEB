@@ -9,15 +9,16 @@ import {
   Users,
   BarChart3,
   Upload,
+  Settings,
 } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "总览", icon: LayoutDashboard },
+  { href: "/", label: "首页", icon: LayoutDashboard },
   { href: "/products", label: "商品", icon: Package },
-  { href: "/links", label: "链接", icon: Link2 },
-  { href: "/account", label: "账号", icon: Users },
+  { href: "/links", label: "操作", icon: Link2 },
   { href: "/finance", label: "财务", icon: BarChart3 },
   { href: "/data-import", label: "导入", icon: Upload },
+  { href: "/profile", label: "信息", icon: Users },
 ];
 
 export function Navigation() {
@@ -28,9 +29,13 @@ export function Navigation() {
       {/* ---------- 桌面端：左侧竖向导航 ---------- */}
       <nav className="hidden md:flex flex-col fixed left-0 top-0 bottom-0 w-[72px] bg-white border-r-[3px] border-gray-900 z-50 py-4 px-2">
         <div className="flex items-center justify-center mb-6 mt-1">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-900">
-            <span className="text-white font-extrabold text-xs">K</span>
-          </div>
+          <Link
+            href="/members"
+            title="成员管理"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-900 hover:bg-gray-700 transition-colors"
+          >
+            <Settings className="h-5 w-5 text-white" />
+          </Link>
         </div>
 
         <div className="flex flex-col gap-1 flex-1">

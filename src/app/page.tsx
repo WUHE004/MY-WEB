@@ -5,90 +5,39 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import {
   Package,
-  Link2,
-  BarChart3,
-  Users,
-  DollarSign,
+  User,
   ArrowUpRight,
-  ArrowDownRight,
-  Table,
-  TrendingUp,
-  TrendingDown,
-  ChevronDown,
   RefreshCw,
+  LogIn,
+  ShoppingBag,
+  Flame,
+  ShoppingCart,
+  Edit3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from "recharts";
 
-const stats = [
-  {
-    title: "总商品数",
-    value: "1,284",
-    change: "+12.5%",
-    trend: "up",
-    icon: Package,
-    color: "bg-[#FF6B7A]",
-  },
-  {
-    title: "活跃链接",
-    value: "86",
-    change: "+5.2%",
-    trend: "up",
-    icon: Link2,
-    color: "bg-[#4A90E2]",
-  },
-  {
-    title: "本月营收",
-    value: "¥48,320",
-    change: "+18.3%",
-    trend: "up",
-    icon: DollarSign,
-    color: "bg-[#FFC93C]",
-  },
-  {
-    title: "运营账号",
-    value: "12",
-    change: "-2.1%",
-    trend: "down",
-    icon: Users,
-    color: "bg-[#7B61FF]",
-  },
+const hotProducts = [
+  { id: 1, name: "夏季短袖T恤", image: "/images/product-1.png", stock: 180, price: 49.9, sold: 342 },
+  { id: 2, name: "儿童运动裤", image: "/images/product-2.png", stock: 150, price: 59.9, sold: 289 },
+  { id: 3, name: "女童连衣裙", image: "/images/product-3.png", stock: 20, price: 89.9, sold: 256 },
+  { id: 4, name: "男童卫衣套装", image: "/images/product-4.png", stock: 95, price: 79.9, sold: 198 },
+  { id: 5, name: "婴儿连体衣", image: "/images/product-5.png", stock: 230, price: 39.9, sold: 176 },
+  { id: 6, name: "儿童羽绒服", image: "/images/product-6.png", stock: 45, price: 199.9, sold: 165 },
+  { id: 7, name: "亲子装T恤", image: "/images/product-7.png", stock: 78, price: 69.9, sold: 148 },
+  { id: 8, name: "儿童牛仔裤", image: "/images/product-8.png", stock: 120, price: 55.9, sold: 132 },
+  { id: 9, name: "女童裙子套装", image: "/images/product-9.png", stock: 33, price: 99.9, sold: 115 },
+  { id: 10, name: "儿童睡衣套装", image: "/images/product-10.png", stock: 210, price: 45.9, sold: 102 },
 ];
 
-const revenueData = [
-  { name: "1月", revenue: 32000, cost: 24000 },
-  { name: "2月", revenue: 35000, cost: 26000 },
-  { name: "3月", revenue: 38000, cost: 27000 },
-  { name: "4月", revenue: 42000, cost: 30000 },
-  { name: "5月", revenue: 40000, cost: 28000 },
-  { name: "6月", revenue: 48320, cost: 32000 },
-];
-
-const topProducts = [
-  { name: "无线蓝牙耳机 Pro", sales: 342, stock: 156, trend: "up" },
-  { name: "智能手表 Series 8", sales: 289, stock: 89, trend: "up" },
-  { name: "便携充电宝 20000mAh", sales: 256, stock: 234, trend: "down" },
-  { name: "机械键盘 RGB", sales: 198, stock: 67, trend: "up" },
-  { name: "降噪耳机 XM5", sales: 176, stock: 45, trend: "down" },
-];
-
-const recentActivities = [
-  { action: "新增商品", detail: "无线蓝牙耳机 Pro", time: "2分钟前", type: "add" },
-  { action: "链接更新", detail: "淘宝店铺-夏季促销", time: "15分钟前", type: "update" },
-  { action: "订单完成", detail: "订单 #202406001", time: "32分钟前", type: "order" },
-  { action: "库存预警", detail: "降噪耳机 XM5 库存不足", time: "1小时前", type: "warning" },
-  { action: "账号发布", detail: "小红书-新品测评", time: "2小时前", type: "post" },
+const recentOrders = [
+  { id: "DD20240601001", product: "夏季短袖T恤 x2", customer: "张女士", amount: "¥99.80", time: "2分钟前", status: "已发货" },
+  { id: "DD20240531002", product: "儿童运动裤 x1", customer: "李先生", amount: "¥59.90", time: "15分钟前", status: "待发货" },
+  { id: "DD20240531003", product: "女童连衣裙 x1", customer: "王女士", amount: "¥89.90", time: "32分钟前", status: "已完成" },
+  { id: "DD20240531004", product: "男童卫衣套装 x2", customer: "赵先生", amount: "¥159.80", time: "1小时前", status: "已发货" },
+  { id: "DD20240530005", product: "婴儿连体衣 x3", customer: "刘女士", amount: "¥119.70", time: "2小时前", status: "已完成" },
+  { id: "DD20240530006", product: "儿童羽绒服 x1", customer: "陈女士", amount: "¥199.90", time: "3小时前", status: "待发货" },
+  { id: "DD20240530007", product: "亲子装T恤 x2", customer: "孙先生", amount: "¥139.80", time: "5小时前", status: "已完成" },
 ];
 
 const containerVariants = {
@@ -105,15 +54,20 @@ const itemVariants = {
 };
 
 export default function DashboardPage() {
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [dropdownOpenDesktop, setDropdownOpenDesktop] = useState(false);
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [memberName, setMemberName] = useState<string | null>(null);
+  const [memberRole, setMemberRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    const name = localStorage.getItem("member_name");
+    const role = localStorage.getItem("member_role");
+    setMemberName(name);
+    setMemberRole(role);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
-    setError(null);
     try {
       const accessToken = typeof window !== "undefined" ? localStorage.getItem("wps_access_token") : null;
       const url = accessToken 
@@ -123,7 +77,6 @@ export default function DashboardPage() {
       const result = await response.json();
       setData(result);
     } catch (err) {
-      setError("获取数据失败，请稍后重试");
       console.error("Error fetching data:", err);
     } finally {
       setLoading(false);
@@ -132,20 +85,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    // 每30秒刷新一次数据
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Use fetched data or fallback to mock data
-  const salesData = (data?.salesData || revenueData) as Array<{ name: string; month: string; revenue: number; cost: number }>;
-  const topProductsData = (data?.topProducts || topProducts) as Array<{ name: string; sales: number; stock: number; trend: string }>;
-  const statsData = data?.stats || {
-    totalProducts: 1284,
-    activeLinks: 86,
-    monthlyRevenue: 48320,
-    operatingAccounts: 12,
-    todayRevenue: 48320,
+  const roleLabel: Record<string, string> = {
+    admin: "管理员",
+    operator: "后台操作",
+    customer: "顾客",
+  };
+  const roleColor: Record<string, string> = {
+    admin: "bg-[#FF6B7A]",
+    operator: "bg-[#FFC93C]",
+    customer: "bg-[#4A90E2]",
   };
 
   return (
@@ -158,41 +110,86 @@ export default function DashboardPage() {
         className="mb-8 lg:mb-12"
       >
         <div className="rounded-2xl lg:rounded-full border-[3px] border-gray-900 bg-white px-4 lg:px-10 py-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-          <div className="grid grid-cols-2 lg:flex lg:items-center lg:justify-evenly gap-3 lg:gap-0">
-            {stats.map((stat, index) => (
-              <div key={stat.title} className="flex items-center justify-between lg:justify-center gap-2 lg:gap-3">
-                <div className="flex flex-col">
-                  <span className="text-[10px] lg:text-xs font-bold text-gray-500">
-                    {stat.title}
-                  </span>
-                  <span className="text-base lg:text-lg font-extrabold text-gray-900">
-                    {stat.value}
-                  </span>
-                  <div className="flex items-center gap-0.5">
-                    {stat.trend === "up" ? (
-                      <ArrowUpRight className="h-3 w-3 text-green-600" />
-                    ) : (
-                      <ArrowDownRight className="h-3 w-3 text-red-500" />
-                    )}
-                    <span
-                      className={`text-[10px] lg:text-xs font-bold ${
-                        stat.trend === "up" ? "text-green-600" : "text-red-500"
-                      }`}
-                    >
-                      {stat.change}
-                    </span>
-                  </div>
+          <div className="grid grid-cols-3 items-center gap-2 lg:gap-0">
+            {/* 总商品数 */}
+            <div className="flex items-center justify-center gap-2 lg:gap-3">
+              <div className="flex flex-col">
+                <span className="text-[10px] lg:text-xs font-bold text-gray-500">总商品数</span>
+                <span className="text-base lg:text-lg font-extrabold text-gray-900">1,284</span>
+                <div className="flex items-center gap-0.5">
+                  <ArrowUpRight className="h-3 w-3 text-green-600" />
+                  <span className="text-[10px] lg:text-xs font-bold text-green-600">+12.5%</span>
                 </div>
-                <div
-                  className={`flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 ${stat.color} shrink-0`}
-                >
-                  <stat.icon className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
-                </div>
-                {index < stats.length - 1 && (
-                  <div className="hidden lg:block w-[2px] h-10 bg-gray-200 mx-4" />
+              </div>
+              <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
+                <Package className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+              </div>
+            </div>
+
+            {/* 用户信息 */}
+            <div className="flex items-center justify-center gap-2 lg:gap-3">
+              <div className="flex flex-col items-center text-center">
+                <span className="text-sm lg:text-base font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
+                  {memberName || "游客"}
+                </span>
+                {memberName && memberRole ? (
+                  <span className={`text-[10px] lg:text-xs font-bold text-white px-2 py-0.5 rounded-full mt-0.5 ${roleColor[memberRole] || "bg-gray-400"}`}>
+                    {roleLabel[memberRole] || memberRole}
+                  </span>
+                ) : (
+                  <span className="text-[10px] lg:text-xs font-bold text-gray-400 mt-0.5">
+                    未登录
+                  </span>
                 )}
               </div>
-            ))}
+              <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#4A90E2] shrink-0">
+                <User className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+              </div>
+            </div>
+
+            {/* 登录/个人信息 */}
+            {memberName ? (
+              <Link
+                href="/profile"
+                className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
+              >
+                <div className="flex flex-col">
+                  <span className="text-[10px] lg:text-xs font-bold text-gray-500">
+                    {memberName}
+                  </span>
+                  <span className="text-base lg:text-lg font-extrabold text-gray-900">
+                    完善信息
+                  </span>
+                  <span className="text-[10px] lg:text-xs font-bold text-[#7B61FF] flex items-center gap-0.5">
+                    <Edit3 className="h-3 w-3" />
+                    个人信息
+                  </span>
+                </div>
+                <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <Edit3 className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+                </div>
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
+              >
+                <div className="flex flex-col">
+                  <span className="text-[10px] lg:text-xs font-bold text-gray-500">
+                    账户
+                  </span>
+                  <span className="text-base lg:text-lg font-extrabold text-gray-900">
+                    登录
+                  </span>
+                  <span className="text-[10px] lg:text-xs font-bold text-[#7B61FF]">
+                    注册/登录
+                  </span>
+                </div>
+                <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <LogIn className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+                </div>
+              </Link>
+            )}
           </div>
         </div>
       </motion.div>
@@ -209,122 +206,44 @@ export default function DashboardPage() {
             <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4 mb-3">
               <div className="flex-shrink-0">
                 <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold text-gray-900 leading-[1.1] whitespace-nowrap">
-                  <span className="inline-block text-2xl sm:text-4xl lg:text-6xl">今日营业额</span>
-                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 align-middle">
-                    ¥48,320
+                  <span className="inline-block text-2xl sm:text-4xl lg:text-[60px] align-bottom">欢迎来到</span>
+                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-4xl sm:text-6xl lg:text-[100px] align-bottom">
+                    点冰童装
                   </span>
                 </h1>
                 <h2 className="mt-2 whitespace-nowrap flex items-baseline">
-                  <span className="inline-block bg-[#4A90E2] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-5xl sm:text-7xl lg:text-[9rem] font-extrabold leading-none">
-                    点冰
+                  <span className="inline-block bg-[#4A90E2] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-4xl sm:text-6xl lg:text-[6rem] font-extrabold leading-none">
+                    选购前
                   </span>
-                  <span className="text-4xl sm:text-6xl lg:text-8xl font-extrabold text-gray-900">加油</span>
+                  <span className="text-4xl sm:text-6xl lg:text-[85px] font-extrabold text-gray-900">登录哦</span>
                 </h2>
               </div>
               
-              {/* 手机端：标题下紧凑按钮 */}
-              <div className="lg:hidden mt-2 relative">
-                <button
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
+              {/* 手机端按钮 */}
+              <div className="lg:hidden mt-2">
+                <Link
+                  href="/products"
                   className="neo-btn neo-btn-primary flex items-center gap-2 px-5 py-2.5 text-sm"
                 >
-                  <Table className="h-4 w-4" />
-                  点冰出入库表
-                  <ChevronDown className={`h-3 w-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
-                </button>
-                
-                {dropdownOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="absolute top-full left-0 mt-2 w-44 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-50"
-                  >
-                    <div className="p-1.5">
-                      <Link
-                        href="https://www.kdocs.cn/wo/sl/v12CnUqU"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setDropdownOpen(false)}
-                        className="block w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors text-sm"
-                      >
-                        直播前选品
-                      </Link>
-                      <Link
-                        href="https://www.kdocs.cn/wo/sl/v129vGIo"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setDropdownOpen(false)}
-                        className="block w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors text-sm"
-                      >
-                        出入库
-                      </Link>
-                      <Link
-                        href="https://www.kdocs.cn/wo/sl/v13w0pRp"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setDropdownOpen(false)}
-                        className="block w-full text-left px-3 py-2 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors text-sm"
-                      >
-                        总仪表
-                      </Link>
-                    </div>
-                  </motion.div>
-                )}
+                  <ShoppingCart className="h-4 w-4" />
+                  去选购吧
+                </Link>
               </div>
             </div>
             
             <p className="text-sm lg:text-lg font-medium text-gray-700 mb-6 lg:mb-8 ml-1">
-              高效管理您的电商库存、推广链接、财务报表和账号运营
+              粉丝群里的商品都可以在这里选购哦
             </p>
             
             {/* 桌面端按钮 */}
-            <div className="relative hidden lg:inline-block">
-              <button
-                onClick={() => setDropdownOpenDesktop(!dropdownOpenDesktop)}
+            <div className="hidden lg:inline-block">
+              <Link
+                href="/products"
                 className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4"
               >
-                <Table className="h-5 w-5" />
-                点冰出入库表
-                <ChevronDown className={`h-4 w-4 transition-transform ${dropdownOpenDesktop ? "rotate-180" : ""}`} />
-              </button>
-              
-              {dropdownOpenDesktop && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute top-full left-0 mt-2 w-full rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-50"
-                >
-                  <div className="p-2">
-                    <Link
-                      href="https://www.kdocs.cn/wo/sl/v12CnUqU"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setDropdownOpenDesktop(false)}
-                      className="block w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors"
-                    >
-                      直播前选品
-                    </Link>
-                    <Link
-                      href="https://www.kdocs.cn/wo/sl/v129vGIo"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setDropdownOpenDesktop(false)}
-                      className="block w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors"
-                    >
-                      出入库
-                    </Link>
-                    <Link
-                      href="https://www.kdocs.cn/wo/sl/v13w0pRp"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setDropdownOpenDesktop(false)}
-                      className="block w-full text-left px-4 py-3 rounded-lg hover:bg-gray-100 font-bold text-gray-900 transition-colors"
-                    >
-                      总仪表
-                    </Link>
-                  </div>
-                </motion.div>
-              )}
+                <ShoppingCart className="h-5 w-5" />
+                去选购吧
+              </Link>
             </div>
           </motion.div>
 
@@ -350,7 +269,7 @@ export default function DashboardPage() {
                   ease: "easeInOut" 
                 }}
                 style={{ transformOrigin: "bottom bottom" }}
-                className="absolute top-1 sm:top-2 lg:top-4 left-1/2 -translate-x-1/2 w-full"
+                className="w-full"
               >
                 <img
                   src="/images/girl%202.png"
@@ -381,234 +300,130 @@ export default function DashboardPage() {
       </section>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 mb-8 lg:mb-10">
-        {/* Revenue Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6 mb-8 lg:mb-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="lg:col-span-2"
         >
           <Card>
             <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <CardTitle>营收趋势</CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={fetchData}
-                    disabled={loading}
-                    className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${loading ? "animate-spin" : ""}`} />
-                    {loading ? "刷新中..." : "刷新"}
-                  </button>
-                  <span className="flex items-center gap-1 text-xs sm:text-sm font-bold">
-                    <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#FF6B7A] border-[2px] border-gray-900" />
-                    营收
-                  </span>
-                  <span className="flex items-center gap-1 text-xs sm:text-sm font-bold">
-                    <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#4A90E2] border-[2px] border-gray-900" />
-                    成本
-                  </span>
-                  <span className="flex items-center gap-1 text-xs sm:text-sm font-bold">
-                    <span className="h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full bg-[#4CD964] border-[2px] border-gray-900" />
-                    库存
-                  </span>
-                </div>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Flame className="h-5 w-5 text-[#FF6B7A]" />
+                  热卖爆款
+                </CardTitle>
+                <button
+                  onClick={fetchData}
+                  disabled={loading}
+                  className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${loading ? "animate-spin" : ""}`} />
+                  {loading ? "刷新中..." : "刷新"}
+                </button>
               </div>
             </CardHeader>
             <CardContent>
-              {loading ? (
-                <div className="h-[250px] sm:h-[300px] flex items-center justify-center">
-                  <RefreshCw className="h-8 w-8 text-gray-400 animate-spin" />
+              <div className="lg:overflow-x-auto lg:pb-2">
+                <div className="grid grid-cols-2 gap-3 lg:flex lg:min-w-max lg:gap-3">
+                  {hotProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="w-full lg:w-[200px] lg:flex-shrink-0 rounded-xl border-[3px] border-gray-900 bg-white overflow-hidden shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all"
+                    >
+                      <div className="h-[120px] sm:h-[140px] lg:h-[160px] bg-gray-100 flex items-center justify-center">
+                        <img
+                          src={product.image}
+                          alt={product.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.style.display = "none";
+                            const parent = target.parentElement;
+                            if (parent && !parent.querySelector(".fallback")) {
+                              const fallback = document.createElement("div");
+                              fallback.className = "fallback flex items-center justify-center w-full h-full";
+                              fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-300"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><circle cx="12" cy="8" r="5"/></svg>`;
+                              parent.appendChild(fallback);
+                            }
+                          }}
+                        />
+                      </div>
+                      <div className="p-3">
+                        <p className="text-xs sm:text-sm font-extrabold text-gray-900 truncate mb-1.5">
+                          {product.name}
+                        </p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] sm:text-xs font-bold text-gray-500">
+                            库存: {product.stock}
+                          </span>
+                          <span className="text-xs sm:text-sm font-extrabold text-[#FF6B7A]">
+                            ¥{product.price}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                          <ShoppingBag className="h-3 w-3" />
+                          已售 {product.sold}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : error ? (
-                <div className="h-[250px] sm:h-[300px] flex items-center justify-center text-red-500 font-bold">
-                  {error}
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height={250}>
-                  <AreaChart data={salesData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                    <XAxis dataKey="month" tick={{ fontSize: 10, fontWeight: 700 }} />
-                    <YAxis tick={{ fontSize: 10, fontWeight: 700 }} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: "12px",
-                        border: "3px solid #171717",
-                        boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
-                        fontWeight: 700,
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="sales"
-                      stroke="#FF6B7A"
-                      fill="#FF6B7A"
-                      fillOpacity={0.2}
-                      strokeWidth={3}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="cost"
-                      stroke="#4A90E2"
-                      fill="#4A90E2"
-                      fillOpacity={0.2}
-                      strokeWidth={3}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="inventory"
-                      stroke="#4CD964"
-                      fill="#4CD964"
-                      fillOpacity={0.2}
-                      strokeWidth={3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
 
-        {/* Top Products */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <Card>
+          <Card className="h-[400px] flex flex-col">
             <CardHeader>
-              <CardTitle>热销商品</CardTitle>
+              <CardTitle>最近订单</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 lg:space-y-4">
-              {topProductsData.map((product, i) => (
-                <div
-                  key={product.name}
-                  className="flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2 lg:gap-3">
-                    <div className="flex h-7 w-7 lg:h-9 lg:w-9 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-gray-100 text-xs lg:text-sm font-extrabold">
-                      {i + 1}
-                    </div>
-                    <div>
-                      <p className="text-xs lg:text-sm font-bold text-gray-900 truncate max-w-[120px] lg:max-w-[160px]">
-                        {product.name}
-                      </p>
-                      <p className="text-[10px] lg:text-xs font-medium text-gray-500">
-                        库存: {product.stock}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {product.trend === "up" ? (
-                      <TrendingUp className="h-3 w-3 lg:h-4 lg:w-4 text-green-600" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3 lg:h-4 lg:w-4 text-red-500" />
-                    )}
-                    <span className="text-xs lg:text-sm font-bold text-gray-900">
-                      {product.sales}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Bottom Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
-        {/* Sales Bar Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>销售渠道分布</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart
-                  data={[
-                    { name: "淘宝", value: 45 },
-                    { name: "京东", value: 30 },
-                    { name: "拼多多", value: 15 },
-                    { name: "抖音", value: 25 },
-                    { name: "小红书", value: 20 },
-                  ]}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fontWeight: 700 }} />
-                  <YAxis tick={{ fontSize: 10, fontWeight: 700 }} />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "3px solid #171717",
-                      boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
-                      fontWeight: 700,
-                    }}
-                  />
-                  <Bar
-                    dataKey="value"
-                    fill="#FFC93C"
-                    stroke="#171717"
-                    strokeWidth={3}
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Recent Activities */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.7 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>最近动态</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {recentActivities.map((activity) => {
-                const typeColors: Record<string, string> = {
-                  add: "bg-[#4CD964]",
-                  update: "bg-[#4A90E2]",
-                  order: "bg-[#FFC93C]",
-                  warning: "bg-[#FF6B7A]",
-                  post: "bg-[#7B61FF]",
-                };
-                return (
-                  <div
-                    key={activity.detail + activity.time}
-                    className="flex items-start gap-3"
-                  >
+            <CardContent className="flex-1 overflow-hidden">
+              <div className="space-y-3 h-full overflow-y-auto">
+                {recentOrders.map((order) => {
+                  const statusColors: Record<string, string> = {
+                    "已发货": "bg-[#4A90E2]",
+                    "待发货": "bg-[#FFC93C]",
+                    "已完成": "bg-[#4CD964]",
+                  };
+                  return (
                     <div
-                      className={`mt-1 h-3 w-3 rounded-full border-[2px] border-gray-900 ${
-                        typeColors[activity.type]
-                      }`}
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-900">
-                          {activity.action}
-                        </span>
-                        <span className="text-xs font-medium text-gray-400">
-                          {activity.time}
-                        </span>
+                      key={order.id}
+                      className="flex items-center justify-between p-3 rounded-xl border-[2px] border-gray-200 hover:border-gray-900 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-bold text-gray-400">
+                            {order.id}
+                          </span>
+                          <span className={`text-[10px] font-bold text-white px-1.5 py-0.5 rounded ${statusColors[order.status] || "bg-gray-400"}`}>
+                            {order.status}
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm font-bold text-gray-900 truncate">
+                          {order.product}
+                        </p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[10px] font-medium text-gray-500">
+                            {order.customer}
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-400">
+                            {order.time}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-sm font-medium text-gray-600">
-                        {activity.detail}
-                      </p>
+                      <span className="text-sm font-extrabold text-gray-900 ml-3 shrink-0">
+                        {order.amount}
+                      </span>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </CardContent>
           </Card>
         </motion.div>
