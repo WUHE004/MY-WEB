@@ -223,7 +223,7 @@ export default function DashboardPage() {
               </div>
               
               {/* 手机端：标题下紧凑按钮 */}
-              <div className="lg:hidden mt-2">
+              <div className="lg:hidden mt-2 relative">
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="neo-btn neo-btn-primary flex items-center gap-2 px-5 py-2.5 text-sm"

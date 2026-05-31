@@ -1,23 +1,38 @@
 import { NextResponse } from "next/server";
-import { initDatabase } from "@/lib/schema";
-import { getMonthlyRevenue, getTransactions, getCategoryData, getPlatformRevenue } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
-  await initDatabase();
-  const monthlyData = getMonthlyRevenue();
-  const transactions = getTransactions();
-  const categoryData = getCategoryData();
-  const platformData = getPlatformRevenue();
+  const [
+    { data: monthlyData, error: mErr },
+    { data: transactions, error: tErr },
+    { data: categoryData, error: cErr },
+    { data: platformData, error: pErr },
+  ] = await Promise.all([
+    supabase.from("monthly_revenue").select("*").order("id"),
+    supabase.from("transactions").select("*").order("date", { ascending: false }),
+    supabase.from("category_data").select("*").order("id"),
+    supabase.from("platform_revenue").select("*").order("id"),
+  ]);
 
-  const totalRevenue = monthlyData.reduce((s, d) => s + d.revenue, 0);
-  const totalCost = monthlyData.reduce((s, d) => s + d.cost, 0);
+  if (mErr || tErr || cErr || pErr) {
+    return NextResponse.json(
+      { error: (mErr || tErr || cErr || pErr)?.message },
+      { status: 500 }
+    );
+  }
+
+  const totalRevenue = (monthlyData || []).reduce((s: number, d: { revenue: number }) => s + d.revenue, 0);
+  const totalCost = (monthlyData || []).reduce((s: number, d: { cost: number }) => s + d.cost, 0);
   const totalProfit = totalRevenue - totalCost;
 
   return NextResponse.json({
-    monthlyData,
-    transactions,
-    categoryData,
-    platformData,
+    monthlyData: (monthlyData || []).map((r: { month: string; revenue: number; cost: number }) => ({
+      ...r,
+      profit: r.revenue - r.cost,
+    })),
+    transactions: transactions || [],
+    categoryData: categoryData || [],
+    platformData: platformData || [],
     summary: { totalRevenue, totalCost, totalProfit },
   });
 }

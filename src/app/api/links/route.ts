@@ -1,19 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initDatabase } from "@/lib/schema";
-import { getLinks, createLink, updateLink, deleteLink } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
-  await initDatabase();
-  const links = getLinks();
-  return NextResponse.json(links);
+  const { data, error } = await supabase
+    .from("links")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {
-  await initDatabase();
   try {
     const body = await request.json();
     const id = body.id || Date.now().toString();
-    createLink({
+
+    const { error } = await supabase.from("links").insert({
       id,
       name: body.name || "",
       url: body.url || "",
@@ -23,32 +29,50 @@ export async function POST(request: NextRequest) {
       conversions: body.conversions || 0,
       status: body.status || "active",
     });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ id, ...body }, { status: 201 });
   } catch (error) {
-    console.error("Create link error:", error);
-    return NextResponse.json({ error: "创建失败" }, { status: 400 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
 
 export async function PUT(request: NextRequest) {
-  await initDatabase();
   try {
     const body = await request.json();
     const { id, ...data } = body;
     if (!id) return NextResponse.json({ error: "缺少ID" }, { status: 400 });
-    updateLink(id, data);
+
+    const { error } = await supabase
+      .from("links")
+      .update(data)
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Update link error:", error);
-    return NextResponse.json({ error: "更新失败" }, { status: 400 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  await initDatabase();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "缺少ID" }, { status: 400 });
-  deleteLink(id);
+
+  const { error } = await supabase.from("links").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
   return NextResponse.json({ success: true });
 }

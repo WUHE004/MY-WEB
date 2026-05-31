@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initDatabase } from "@/lib/schema";
-import { getDbSync, scheduleSave } from "@/lib/db";
-import type { SqlValue } from "sql.js";
+import { supabase } from "@/lib/supabase";
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.trim().split(/\r?\n/);
@@ -36,68 +34,43 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   return { headers, rows };
 }
 
-const TABLE_SCHEMAS: Record<string, { table: string; columns: string[]; autoColumns: string[] }> = {
-  products: {
-    table: "products",
-    columns: ["name", "sku", "category", "price", "stock", "status", "platform"],
-    autoColumns: ["id", "created_at", "updated_at"],
-  },
-  accounts: {
-    table: "accounts",
-    columns: ["name", "platform", "handle", "followers", "posts", "engagement", "status", "avatar", "growth"],
-    autoColumns: ["id", "created_at", "updated_at"],
-  },
-  links: {
-    table: "links",
-    columns: ["name", "url", "short_url", "platform", "clicks", "conversions", "status"],
-    autoColumns: ["id", "created_at", "updated_at"],
-  },
-  monthly_revenue: {
-    table: "monthly_revenue",
-    columns: ["month", "revenue", "cost"],
-    autoColumns: ["id"],
-  },
-  transactions: {
-    table: "transactions",
-    columns: ["type", "amount", "description", "date", "platform"],
-    autoColumns: ["id", "created_at"],
-  },
-  category_data: {
-    table: "category_data",
-    columns: ["name", "value", "color"],
-    autoColumns: ["id"],
-  },
-  platform_revenue: {
-    table: "platform_revenue",
-    columns: ["name", "revenue", "cost"],
-    autoColumns: ["id"],
-  },
-};
+const PRODUCT_COLUMNS = [
+  "sale_id", "manufacturer", "photo", "name",
+  "total_stock", "sold_qty", "remaining_stock", "shelf_no",
+  "size_80", "size_90", "size_95", "size_100", "size_105", "size_110",
+  "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180",
+  "stock_warning", "cost_price", "sell_price", "profit",
+  "return_qty", "return_rate", "inventory_value", "last_order_time",
+  "status",
+];
+
+const NUMBER_COLUMNS = [
+  "total_stock", "sold_qty", "remaining_stock",
+  "size_80", "size_90", "size_95", "size_100", "size_105", "size_110",
+  "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180",
+  "stock_warning", "cost_price", "sell_price", "profit",
+  "return_qty", "return_rate", "inventory_value"
+];
 
 export async function POST(request: NextRequest) {
-  await initDatabase();
-
   try {
     const body = await request.json();
-    const { table, csvContent, columnMap } = body as {
-      table: string;
+    const { csvContent, columnMap } = body as {
       csvContent: string;
       columnMap: Record<string, string>;
     };
-
-    const schema = TABLE_SCHEMAS[table];
-    if (!schema) {
-      return NextResponse.json({ error: "无效的表类型" }, { status: 400 });
-    }
 
     const { headers, rows } = parseCSV(csvContent);
     if (rows.length === 0) {
       return NextResponse.json({ error: "CSV 内容为空" }, { status: 400 });
     }
 
-    const columnIndexes: number[] = [];
     const dbColumns: string[] = [];
-    for (const dbCol of schema.columns) {
+    const columnIndexes: number[] = [];
+    const saleIdIndex = headers.indexOf(columnMap.sale_id || "");
+    const nameIndex = headers.indexOf(columnMap.name || "");
+
+    for (const dbCol of PRODUCT_COLUMNS) {
       const csvCol = columnMap[dbCol];
       if (csvCol) {
         const idx = headers.indexOf(csvCol);
@@ -112,43 +85,83 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未匹配到任何列" }, { status: 400 });
     }
 
-    const placeholders = dbColumns.map(() => "?").join(", ");
-    const insertSql = `INSERT OR REPLACE INTO ${schema.table} (${dbColumns.join(", ")}) VALUES (${placeholders})`;
-
-    let importedCount = 0;
+    let successCount = 0;
     let skipCount = 0;
+    const errors: string[] = [];
+    const batch: Record<string, unknown>[] = [];
 
     for (let r = 0; r < rows.length && r < 10000; r++) {
-      const values: SqlValue[] = [];
-      let hasValues = false;
-      for (const idx of columnIndexes) {
-        const val = rows[r][idx];
-        if (val !== undefined && val !== "") hasValues = true;
-        values.push(val || null);
-      }
-      if (hasValues) {
-        try {
-          const db = getDbSync();
-          db.run(insertSql, values);
-          importedCount++;
-        } catch {
-          skipCount++;
+      try {
+        const row = rows[r];
+        const saleId = saleIdIndex >= 0 ? (row[saleIdIndex] || "") : "";
+        const name = nameIndex >= 0 ? (row[nameIndex] || "") : "";
+
+        let id = "";
+        if (saleId) {
+          id = `sale_${saleId}`;
+        } else if (name) {
+          id = `name_${name}_${Date.now()}_${r}`;
+        } else {
+          id = `auto_${Date.now()}_${r}`;
         }
-      } else {
+
+        const record: Record<string, unknown> = { id };
+
+        for (let i = 0; i < dbColumns.length; i++) {
+          const dbCol = dbColumns[i];
+          const idx = columnIndexes[i];
+          const raw = row[idx];
+
+          if (raw !== undefined && raw !== "") {
+            if (NUMBER_COLUMNS.includes(dbCol)) {
+              const num = parseFloat(raw.replace(/[^0-9.-]/g, ""));
+              record[dbCol] = isNaN(num) ? null : num;
+            } else {
+              record[dbCol] = raw;
+            }
+          }
+        }
+
+        batch.push(record);
+
+        if (batch.length >= 500) {
+          const { error } = await supabase.from("products").upsert(batch, { onConflict: "id" });
+          if (error) {
+            errors.push(`批量导入错误: ${error.message}`);
+          }
+          batch.length = 0;
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push(`第 ${r + 2} 行: ${errorMsg}`);
         skipCount++;
+        if (skipCount > 20) break;
       }
     }
 
-    scheduleSave();
+    if (batch.length > 0) {
+      const { error } = await supabase.from("products").upsert(batch, { onConflict: "id" });
+      if (error) {
+        errors.push(`批量导入错误: ${error.message}`);
+      }
+    }
+
+    // 重新从数据库读取实际导入数量
+    const { count, data: actualData, error: countError } = await supabase
+      .from("products")
+      .select("*", { count: "exact", head: false })
+      .limit(0);
+
+    const actualCount = countError ? 0 : (count || 0);
 
     return NextResponse.json({
-      success: true,
-      importedCount,
-      skipCount,
+      success: errors.length === 0,
       total: rows.length,
+      actualCount,
+      errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
     });
   } catch (error) {
-    console.error("CSV import error:", error);
-    return NextResponse.json({ error: "导入失败" }, { status: 500 });
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: `导入失败: ${errorMsg}` }, { status: 500 });
   }
 }

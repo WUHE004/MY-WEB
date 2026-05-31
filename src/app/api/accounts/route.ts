@@ -1,19 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initDatabase } from "@/lib/schema";
-import { getAccounts, createAccount, updateAccount, deleteAccount } from "@/lib/queries";
+import { supabase } from "@/lib/supabase";
 
 export async function GET() {
-  await initDatabase();
-  const accounts = getAccounts();
-  return NextResponse.json(accounts);
+  const { data, error } = await supabase
+    .from("accounts")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {
-  await initDatabase();
   try {
     const body = await request.json();
     const id = body.id || Date.now().toString();
-    createAccount({
+
+    const { error } = await supabase.from("accounts").insert({
       id,
       name: body.name || "",
       platform: body.platform || "小红书",
@@ -25,32 +31,50 @@ export async function POST(request: NextRequest) {
       avatar: body.avatar || "bg-[#4A90E2]",
       growth: body.growth || 0,
     });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ id, ...body }, { status: 201 });
   } catch (error) {
-    console.error("Create account error:", error);
-    return NextResponse.json({ error: "创建失败" }, { status: 400 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
 
 export async function PUT(request: NextRequest) {
-  await initDatabase();
   try {
     const body = await request.json();
     const { id, ...data } = body;
     if (!id) return NextResponse.json({ error: "缺少ID" }, { status: 400 });
-    updateAccount(id, data);
+
+    const { error } = await supabase
+      .from("accounts")
+      .update(data)
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Update account error:", error);
-    return NextResponse.json({ error: "更新失败" }, { status: 400 });
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  await initDatabase();
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return NextResponse.json({ error: "缺少ID" }, { status: 400 });
-  deleteAccount(id);
+
+  const { error } = await supabase.from("accounts").delete().eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
   return NextResponse.json({ success: true });
 }
