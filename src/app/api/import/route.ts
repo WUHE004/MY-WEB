@@ -115,16 +115,27 @@ export async function POST(request: NextRequest) {
           if (raw !== undefined && raw !== "") {
             if (NUMBER_COLUMNS.includes(dbCol)) {
               const num = parseFloat(raw.replace(/[^0-9.-]/g, ""));
-              record[dbCol] = isNaN(num) ? null : num;
+              record[dbCol] = isNaN(num) ? 0 : num;
             } else {
               record[dbCol] = raw;
             }
           }
         }
 
+        // 确保所有必填字段都有默认值
+        for (const dbCol of PRODUCT_COLUMNS) {
+          if (!(dbCol in record)) {
+            if (NUMBER_COLUMNS.includes(dbCol)) {
+              record[dbCol] = 0;
+            } else {
+              record[dbCol] = "";
+            }
+          }
+        }
+
         batch.push(record);
 
-        if (batch.length >= 500) {
+        if (batch.length >= 50) {
           const { error } = await supabase.from("products").upsert(batch, { onConflict: "id" });
           if (error) {
             errors.push(`批量导入错误: ${error.message}`);
