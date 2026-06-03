@@ -19,13 +19,13 @@ export async function GET() {
       .select("sale_id");
 
     const inboundCount = inboundData
-      ? new Set(inboundData.map((r: { sale_id: string }) => r.sale_id).filter(Boolean)).size
+      ? new Set(inboundData.map((r: { sale_id: string }) => (r.sale_id || "").toUpperCase()).filter(Boolean)).size
       : 0;
     const salesCount = salesData
-      ? new Set(salesData.map((r: { sale_id: string }) => r.sale_id).filter(Boolean)).size
+      ? new Set(salesData.map((r: { sale_id: string }) => (r.sale_id || "").toUpperCase()).filter(Boolean)).size
       : 0;
     const returnCount = returnData
-      ? new Set(returnData.map((r: { sale_id: string }) => r.sale_id).filter(Boolean)).size
+      ? new Set(returnData.map((r: { sale_id: string }) => (r.sale_id || "").toUpperCase()).filter(Boolean)).size
       : 0;
 
     return NextResponse.json({

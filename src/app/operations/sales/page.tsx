@@ -64,6 +64,52 @@ export default function SalesPage() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
 
+  // 当 showScanner 变为 true 时启动扫描
+  useEffect(() => {
+    if (!showScanner) return;
+    let cancelled = false;
+
+    const initScanner = async () => {
+      setScanning(true);
+      setScanError("");
+      try {
+        // 等待 DOM 渲染
+        await new Promise((r) => setTimeout(r, 300));
+        if (cancelled) return;
+
+        const scanner = new Html5Qrcode("scanner-reader");
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 150 },
+          },
+          (decodedText) => {
+            if (cancelled) return;
+            setTrackingNumber(decodedText);
+            stopScanner();
+            setShowScanner(false);
+            setScanning(false);
+          },
+          () => {}
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Scanner error:", err);
+        setScanError("无法启动相机，请确保已授权相机权限并在HTTPS环境下访问");
+        setScanning(false);
+      }
+    };
+
+    initScanner();
+
+    return () => {
+      cancelled = true;
+      stopScanner();
+    };
+  }, [showScanner]);
+
   useEffect(() => {
     fetchInboundRecords();
   }, []);
@@ -189,38 +235,6 @@ export default function SalesPage() {
     const maxStock = getAvailableStock(size);
     const clamped = isNaN(num) ? 0 : Math.max(0, Math.min(num, maxStock));
     setSizes((prev) => ({ ...prev, [size]: clamped }));
-  };
-
-  // ===== 扫码功能 =====
-  const startScanner = async () => {
-    setShowScanner(true);
-    setScanError("");
-    setScanning(true);
-    try {
-      const scanner = new Html5Qrcode("scanner-reader");
-      scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 150 },
-        },
-        (decodedText) => {
-          // 成功扫描到条码
-          setTrackingNumber(decodedText);
-          stopScanner();
-          setShowScanner(false);
-          setScanning(false);
-        },
-        () => {
-          // 扫描中，忽略
-        }
-      );
-    } catch (err) {
-      console.error("Scanner error:", err);
-      setScanError("无法启动相机，请确保已授权相机权限");
-      setScanning(false);
-    }
   };
 
   const stopScanner = () => {
@@ -349,49 +363,21 @@ export default function SalesPage() {
             输入编号搜索已入库商品，自动关联照片、名称、进价、厂家
           </p>
           <div ref={dropdownRef} className="relative">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => handleSearch(e.target.value)}
-                  onBlur={handleBlur}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => {
-                    if (searchQuery.trim() && filteredRecords.length > 0 && !selectedRecord) {
-                      setShowDropdown(true);
-                    }
-                  }}
-                  placeholder="输入售卖编号或名称搜索..."
-                  className="neo-input w-full text-sm pl-10"
-                />
-              </div>
-              {/* 相机和照片按钮 */}
-              <Button
-                type="button"
-                onClick={startScanner}
-                disabled={scanning}
-                className="neo-btn px-3 h-[42px] bg-[#4A90E2] text-white"
-                title="拍照扫描面单号"
-              >
-                <Camera className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={scanning}
-                className="neo-btn px-3 h-[42px] bg-[#FFC93C] text-gray-900"
-                title="从相册识别面单号"
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleScanFromPhoto}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearch(e.target.value)}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                onFocus={() => {
+                  if (searchQuery.trim() && filteredRecords.length > 0 && !selectedRecord) {
+                    setShowDropdown(true);
+                  }
+                }}
+                placeholder="输入售卖编号或名称搜索..."
+                className="neo-input w-full text-sm pl-10"
               />
             </div>
 
@@ -577,12 +563,39 @@ export default function SalesPage() {
           <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
             面单号 <span className="text-xs font-normal text-gray-400">(可选)</span>
           </label>
-          <Input
-            value={trackingNumber}
-            onChange={(e) => setTrackingNumber(e.target.value)}
-            placeholder="输入快递面单号..."
-            className="text-sm"
-          />
+          <div className="flex gap-2">
+            <Input
+              value={trackingNumber}
+              onChange={(e) => setTrackingNumber(e.target.value)}
+              placeholder="输入或扫描快递面单号..."
+              className="text-sm flex-1"
+            />
+            <Button
+              type="button"
+              onClick={() => setShowScanner(true)}
+              disabled={scanning}
+              className="neo-btn px-3 h-[42px] bg-[#4A90E2] text-white"
+              title="拍照扫描面单号"
+            >
+              <Camera className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              className="neo-btn px-3 h-[42px] bg-[#FFC93C] text-gray-900"
+              title="从相册识别面单号"
+            >
+              <ImageIcon className="h-4 w-4" />
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleScanFromPhoto}
+            />
+          </div>
         </div>
 
         {/* Notes */}

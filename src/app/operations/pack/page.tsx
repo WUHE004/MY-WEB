@@ -68,6 +68,47 @@ export default function PackPage() {
     fetchPackRecords();
   }, []);
 
+  // 当 showScanner 变为 true 时启动扫描
+  useEffect(() => {
+    if (!showScanner) return;
+    let cancelled = false;
+
+    const initScanner = async () => {
+      setScanning(true);
+      setScanError("");
+      try {
+        await new Promise((r) => setTimeout(r, 300));
+        if (cancelled) return;
+
+        const scanner = new Html5Qrcode("pack-scanner-reader");
+        scannerRef.current = scanner;
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          (decodedText) => {
+            if (cancelled) return;
+            setTrackingNumber(decodedText);
+            stopScanner();
+            setShowScanner(false);
+            setScanning(false);
+          },
+          () => {}
+        );
+      } catch {
+        if (cancelled) return;
+        setScanError("无法启动相机，请确保已授权相机权限并在HTTPS环境下访问");
+        setScanning(false);
+      }
+    };
+
+    initScanner();
+
+    return () => {
+      cancelled = true;
+      stopScanner();
+    };
+  }, [showScanner]);
+
   const fetchPackRecords = async () => {
     try {
       const res = await fetch("/api/pack");
@@ -108,31 +149,6 @@ export default function PackPage() {
       setSearched(true);
     } finally {
       setSearching(false);
-    }
-  };
-
-  // 扫码功能
-  const startScanner = async () => {
-    setShowScanner(true);
-    setScanError("");
-    setScanning(true);
-    try {
-      const scanner = new Html5Qrcode("pack-scanner-reader");
-      scannerRef.current = scanner;
-      await scanner.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 150 } },
-        (decodedText) => {
-          setTrackingNumber(decodedText);
-          stopScanner();
-          setShowScanner(false);
-          setScanning(false);
-        },
-        () => {}
-      );
-    } catch {
-      setScanError("无法启动相机，请确保已授权相机权限");
-      setScanning(false);
     }
   };
 
@@ -291,7 +307,7 @@ export default function PackPage() {
               </div>
               <Button
                 type="button"
-                onClick={startScanner}
+                onClick={() => setShowScanner(true)}
                 disabled={scanning}
                 className="neo-btn px-3 h-[42px] bg-[#4A90E2] text-white"
                 title="扫码识别面单号"

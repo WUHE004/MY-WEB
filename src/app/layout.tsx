@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Navigation } from "@/components/navigation";
+import { HeartbeatProvider } from "@/components/heartbeat-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,10 +30,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col md:flex-row bg-white">
-        <Navigation />
-        <main className="flex-1 md:ml-[72px] pb-16 md:pb-0 min-h-screen">
-          {children}
-        </main>
+        <HeartbeatProvider>
+          <Navigation />
+          <main className="flex-1 md:ml-[72px] pb-16 md:pb-0 min-h-screen">
+            {children}
+          </main>
+        </HeartbeatProvider>
       </body>
     </html>
   );

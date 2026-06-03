@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       const profit = Number(record.sell_price) - Number(record.cost_price);
       const totalProfit = profit * Number(record.quantity);
 
-      const row = {
+      const row: Record<string, unknown> = {
         sale_id: record.sale_id || "",
         photo: record.photo || "",
         product_name: record.product_name || "",
@@ -44,12 +44,16 @@ export async function POST(request: NextRequest) {
         profit,
         total_profit: totalProfit,
         manufacturer: record.manufacturer || "",
-        shelf_no: record.shelf_no || "",
         notes: record.notes || "",
         order_time: record.order_time || new Date().toISOString(),
         tracking_number: record.tracking_number || "",
         registrant: record.registrant || "",
       };
+
+      // 尝试包含 shelf_no，如果列不存在则忽略
+      if (record.shelf_no !== undefined) {
+        row.shelf_no = record.shelf_no || "";
+      }
 
       const { data, error } = await supabase
         .from("sales_records")
@@ -58,6 +62,20 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (error) {
+        // 如果是因为 shelf_no 列不存在，则移除后重试
+        if (error.message.includes("shelf_no") && row.shelf_no !== undefined) {
+          delete row.shelf_no;
+          const { data: retryData, error: retryErr } = await supabase
+            .from("sales_records")
+            .insert(row)
+            .select()
+            .single();
+          if (retryErr) {
+            return NextResponse.json({ error: retryErr.message }, { status: 400 });
+          }
+          inserted.push(retryData);
+          continue;
+        }
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       inserted.push(data);
