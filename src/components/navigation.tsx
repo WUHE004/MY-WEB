@@ -98,7 +98,7 @@ export function Navigation() {
       </nav>
 
       {/* 手机端底部导航占位 */}
-      <div className="md:hidden h-14" />
+      <div className="md:hidden h-2" />
     </>
   );
 }

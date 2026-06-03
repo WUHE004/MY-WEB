@@ -114,22 +114,22 @@ export default function DashboardPage() {
             {/* 总商品数 */}
             <div className="flex items-center justify-center gap-2 lg:gap-3">
               <div className="flex flex-col">
-                <span className="text-[10px] lg:text-xs font-bold text-gray-500">总商品数</span>
-                <span className="text-base lg:text-lg font-extrabold text-gray-900">1,284</span>
+                <span className="text-[8px] lg:text-[10px] font-bold text-gray-500">总商品数</span>
+                <span className="text-xs lg:text-sm font-extrabold text-gray-900">1,284</span>
                 <div className="flex items-center gap-0.5">
                   <ArrowUpRight className="h-3 w-3 text-green-600" />
-                  <span className="text-[10px] lg:text-xs font-bold text-green-600">+12.5%</span>
+                  <span className="text-[8px] lg:text-[10px] font-bold text-green-600">+12.5%</span>
                 </div>
               </div>
-              <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
-                <Package className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+              <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
+                <Package className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
               </div>
             </div>
 
             {/* 用户信息 */}
             <div className="flex items-center justify-center gap-2 lg:gap-3">
               <div className="flex flex-col items-center text-center">
-                <span className="text-sm lg:text-base font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
+                <span className="text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
                   {memberName || "游客"}
                 </span>
                 {memberName && memberRole ? (
@@ -142,8 +142,8 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
-              <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#4A90E2] shrink-0">
-                <User className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+              <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#4A90E2] shrink-0">
+                <User className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
               </div>
             </div>
 
@@ -154,10 +154,10 @@ export default function DashboardPage() {
                 className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
               >
                 <div className="flex flex-col">
-                  <span className="text-[10px] lg:text-xs font-bold text-gray-500">
+                  <span className="text-[8px] lg:text-[10px] font-bold text-gray-500">
                     {memberName}
                   </span>
-                  <span className="text-base lg:text-lg font-extrabold text-gray-900">
+                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">
                     完善信息
                   </span>
                   <span className="text-[10px] lg:text-xs font-bold text-[#7B61FF] flex items-center gap-0.5">
@@ -165,8 +165,8 @@ export default function DashboardPage() {
                     个人信息
                   </span>
                 </div>
-                <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
-                  <Edit3 className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <Edit3 className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
                 </div>
               </Link>
             ) : (
@@ -178,15 +178,15 @@ export default function DashboardPage() {
                   <span className="text-[10px] lg:text-xs font-bold text-gray-500">
                     账户
                   </span>
-                  <span className="text-base lg:text-lg font-extrabold text-gray-900">
+                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">
                     登录
                   </span>
-                  <span className="text-[10px] lg:text-xs font-bold text-[#7B61FF]">
+                  <span className="text-[8px] lg:text-[10px] font-bold text-[#7B61FF]">
                     注册/登录
                   </span>
                 </div>
-                <div className="flex h-8 w-8 lg:h-10 lg:w-10 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
-                  <LogIn className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <LogIn className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
                 </div>
               </Link>
             )}
@@ -196,18 +196,19 @@ export default function DashboardPage() {
 
       {/* Hero Section */}
       <section className="mb-10 lg:mb-16">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12 items-center">
+        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-6 lg:gap-12 items-center">
           {/* Left Content */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
+            className="order-1 lg:order-1"
           >
-            <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4 mb-3">
+            <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4 mb-3 mt-6 lg:mt-0">
               <div className="flex-shrink-0">
-                <h1 className="text-3xl sm:text-5xl lg:text-7xl font-extrabold text-gray-900 leading-[1.1] whitespace-nowrap">
-                  <span className="inline-block text-2xl sm:text-4xl lg:text-[60px] align-bottom">欢迎来到</span>
-                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-4xl sm:text-6xl lg:text-[100px] align-bottom">
+                <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-gray-900 leading-[1.1] whitespace-nowrap">
+                  <span className="inline-block text-3xl sm:text-4xl lg:text-[60px] align-bottom">欢迎来到</span>
+                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-5xl sm:text-6xl lg:text-[100px] align-bottom">
                     点冰童装
                   </span>
                 </h1>
@@ -218,22 +219,22 @@ export default function DashboardPage() {
                   <span className="text-4xl sm:text-6xl lg:text-[85px] font-extrabold text-gray-900">登录哦</span>
                 </h2>
               </div>
-              
-              {/* 手机端按钮 */}
-              <div className="lg:hidden mt-2">
-                <Link
-                  href="/products"
-                  className="neo-btn neo-btn-primary flex items-center gap-2 px-5 py-2.5 text-sm"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                  去选购吧
-                </Link>
-              </div>
             </div>
             
-            <p className="text-sm lg:text-lg font-medium text-gray-700 mb-6 lg:mb-8 ml-1">
+            <p className="text-sm lg:text-lg font-medium text-gray-700 mb-6 lg:mb-8 ml-1 mt-4 lg:mt-0">
               粉丝群里的商品都可以在这里选购哦
             </p>
+            
+            {/* 手机端按钮 - 移到 p 下面 */}
+            <div className="lg:hidden flex justify-center mb-8">
+              <Link
+                href="/products"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-10 py-2.5 text-sm w-full max-w-xs"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                去选购吧
+              </Link>
+            </div>
             
             {/* 桌面端按钮 */}
             <div className="hidden lg:inline-block">
@@ -247,14 +248,14 @@ export default function DashboardPage() {
             </div>
           </motion.div>
 
-          {/* Right Image */}
+          {/* Right Image - 竖屏模式排在第二位 */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex justify-center lg:justify-end"
+            className="flex justify-center order-2 lg:order-2 lg:justify-end lg:mt-0 mt-8"
           >
-            <div className="relative w-[280px] sm:w-[380px] lg:w-[500px] h-[300px] sm:h-[420px] lg:h-[540px]">
+            <div className="relative w-[320px] sm:w-[420px] lg:w-[500px] h-[340px] sm:h-[460px] lg:h-[540px]">
               <img
                 src="/images/girl%201.png"
                 alt="Girl body"
@@ -286,7 +287,7 @@ export default function DashboardPage() {
                   ease: "easeInOut" 
                 }}
                 style={{ transformOrigin: "bottom center" }}
-                className="absolute bottom-[1px] right-[20px] sm:right-[30px] lg:right-[40px] w-[110px] sm:w-[150px] lg:w-[200px]"
+                className="absolute bottom-[1px] right-[20px] sm:right-[30px] lg:right-[40px] w-[120px] sm:w-[170px] lg:w-[200px]"
               >
                 <img
                   src="/images/girl%203.png"

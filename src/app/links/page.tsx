@@ -82,19 +82,21 @@ export default function LinksPage() {
             </CardContent>
           </Card>
         </Link>
-        <Card>
-          <CardContent className="p-3 lg:p-6 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] lg:text-sm font-bold text-gray-500">售卖登记</p>
-              <p className="text-lg lg:text-3xl font-extrabold">
-                {loading ? "..." : totalSold.toLocaleString()}
-              </p>
-            </div>
-            <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FFC93C]">
-              <ShoppingCart className="h-4 w-4 lg:h-6 lg:w-6 text-gray-900" />
-            </div>
-          </CardContent>
-        </Card>
+        <Link href="/operations/sales">
+          <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+            <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] lg:text-sm font-bold text-gray-500">售卖登记</p>
+                <p className="text-lg lg:text-3xl font-extrabold">
+                  {loading ? "..." : totalSold.toLocaleString()}
+                </p>
+              </div>
+              <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FFC93C]">
+                <ShoppingCart className="h-4 w-4 lg:h-6 lg:w-6 text-gray-900" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
         <Card>
           <CardContent className="p-3 lg:p-6 flex items-center justify-between">
             <div>

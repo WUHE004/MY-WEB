@@ -41,7 +41,13 @@ export default function ProfilePage() {
     setName(localStorage.getItem("member_name") || "");
     setPhone(localStorage.getItem("member_phone") || "");
     setMemberRole(localStorage.getItem("member_role") || "");
-    setMemberId(token.split(":")[0]);
+    // 解码 base64 token 获取真实 memberId
+    try {
+      const decodedToken = atob(token);
+      setMemberId(decodedToken.split(":")[0]);
+    } catch {
+      setMemberId("");
+    }
 
     fetchProfile();
   }, [router]);
