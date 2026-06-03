@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sales_records (
   profit REAL NOT NULL DEFAULT 0,
   total_profit REAL NOT NULL DEFAULT 0,
   manufacturer TEXT NOT NULL DEFAULT '',
+  shelf_no TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   order_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   tracking_number TEXT NOT NULL DEFAULT '',
@@ -19,6 +20,10 @@ CREATE TABLE IF NOT EXISTS sales_records (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- 添加 shelf_no 字段（如果表已存在）
+ALTER TABLE sales_records ADD COLUMN IF NOT EXISTS shelf_no TEXT NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS idx_sales_records_sale_id ON sales_records(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sales_records_date ON sales_records(registration_date DESC);
 CREATE INDEX IF NOT EXISTS idx_sales_records_registrant ON sales_records(registrant);
+CREATE INDEX IF NOT EXISTS idx_sales_records_tracking ON sales_records(tracking_number);

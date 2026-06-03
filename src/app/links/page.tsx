@@ -21,12 +21,20 @@ interface Product {
   return_qty: number;
 }
 
+interface Stats {
+  inboundCount: number;
+  salesCount: number;
+  returnCount: number;
+}
+
 export default function LinksPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [stats, setStats] = useState<Stats>({ inboundCount: 0, salesCount: 0, returnCount: 0 });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchProducts();
+    fetchStats();
   }, []);
 
   const fetchProducts = async () => {
@@ -40,6 +48,18 @@ export default function LinksPage() {
       console.error("Fetch products error:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch("/api/stats");
+      const data = await res.json();
+      if (!data.error) {
+        setStats(data);
+      }
+    } catch (err) {
+      console.error("Fetch stats error:", err);
     }
   };
 
@@ -73,8 +93,9 @@ export default function LinksPage() {
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">入库登记</p>
                 <p className="text-lg lg:text-3xl font-extrabold">
-                  {loading ? "..." : totalStock.toLocaleString()}
+                  {loading ? "..." : stats.inboundCount.toLocaleString()}
                 </p>
+                <p className="text-[10px] lg:text-xs text-gray-400 font-medium">款</p>
               </div>
               <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#4A90E2]">
                 <PackagePlus className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
@@ -88,8 +109,9 @@ export default function LinksPage() {
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">售卖登记</p>
                 <p className="text-lg lg:text-3xl font-extrabold">
-                  {loading ? "..." : totalSold.toLocaleString()}
+                  {loading ? "..." : stats.salesCount.toLocaleString()}
                 </p>
+                <p className="text-[10px] lg:text-xs text-gray-400 font-medium">单</p>
               </div>
               <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FFC93C]">
                 <ShoppingCart className="h-4 w-4 lg:h-6 lg:w-6 text-gray-900" />
@@ -103,8 +125,9 @@ export default function LinksPage() {
             <div>
               <p className="text-[10px] lg:text-sm font-bold text-gray-500">退货登记</p>
               <p className="text-lg lg:text-3xl font-extrabold">
-                {loading ? "..." : totalReturn.toLocaleString()}
+                {loading ? "..." : stats.returnCount.toLocaleString()}
               </p>
+              <p className="text-[10px] lg:text-xs text-gray-400 font-medium">单</p>
             </div>
             <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#4CD964]">
               <Undo2 className="h-4 w-4 lg:h-6 lg:w-6 text-white" />

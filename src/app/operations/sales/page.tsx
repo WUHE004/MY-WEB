@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Plus, Minus, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Plus, Minus, Search, AlertTriangle, Camera, Image as ImageIcon, X } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Html5Qrcode } from "html5-qrcode";
 
 const SIZE_OPTIONS = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
@@ -15,6 +16,7 @@ interface InboundRecord {
   name: string;
   manufacturer: string;
   cost_price: number;
+  shelf_no: string;
   size_80: number;
   size_90: number;
   size_95: number;
@@ -54,6 +56,13 @@ export default function SalesPage() {
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedRecordRef = useRef<InboundRecord | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  // 扫码相关状态
+  const [showScanner, setShowScanner] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
 
   useEffect(() => {
     fetchInboundRecords();
@@ -182,6 +191,66 @@ export default function SalesPage() {
     setSizes((prev) => ({ ...prev, [size]: clamped }));
   };
 
+  // ===== 扫码功能 =====
+  const startScanner = async () => {
+    setShowScanner(true);
+    setScanError("");
+    setScanning(true);
+    try {
+      const scanner = new Html5Qrcode("scanner-reader");
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 150 },
+        },
+        (decodedText) => {
+          // 成功扫描到条码
+          setTrackingNumber(decodedText);
+          stopScanner();
+          setShowScanner(false);
+          setScanning(false);
+        },
+        () => {
+          // 扫描中，忽略
+        }
+      );
+    } catch (err) {
+      console.error("Scanner error:", err);
+      setScanError("无法启动相机，请确保已授权相机权限");
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.stop().catch(() => {});
+      scannerRef.current = null;
+    }
+  };
+
+  const handleScanFromPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanning(true);
+    setScanError("");
+    try {
+      const scanner = new Html5Qrcode("scanner-reader-hidden");
+      const decodedText = await scanner.scanFile(file, true);
+      setTrackingNumber(decodedText);
+      setScanning(false);
+    } catch {
+      setScanError("未识别到条形码，请重试");
+      setScanning(false);
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedRecord) {
       alert("请选择有效的售卖编号");
@@ -217,6 +286,7 @@ export default function SalesPage() {
           profit,
           total_profit: profit * quantity,
           manufacturer: selectedRecord.manufacturer || "",
+          shelf_no: selectedRecord.shelf_no || "",
           notes: notes.trim(),
           order_time: orderTime || new Date().toISOString(),
           tracking_number: trackingNumber.trim(),
@@ -279,21 +349,49 @@ export default function SalesPage() {
             输入编号搜索已入库商品，自动关联照片、名称、进价、厂家
           </p>
           <div ref={dropdownRef} className="relative">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  onBlur={handleBlur}
+                  onKeyDown={handleKeyDown}
+                  onFocus={() => {
+                    if (searchQuery.trim() && filteredRecords.length > 0 && !selectedRecord) {
+                      setShowDropdown(true);
+                    }
+                  }}
+                  placeholder="输入售卖编号或名称搜索..."
+                  className="neo-input w-full text-sm pl-10"
+                />
+              </div>
+              {/* 相机和照片按钮 */}
+              <Button
+                type="button"
+                onClick={startScanner}
+                disabled={scanning}
+                className="neo-btn px-3 h-[42px] bg-[#4A90E2] text-white"
+                title="拍照扫描面单号"
+              >
+                <Camera className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={scanning}
+                className="neo-btn px-3 h-[42px] bg-[#FFC93C] text-gray-900"
+                title="从相册识别面单号"
+              >
+                <ImageIcon className="h-4 w-4" />
+              </Button>
               <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                onFocus={() => {
-                  if (searchQuery.trim() && filteredRecords.length > 0 && !selectedRecord) {
-                    setShowDropdown(true);
-                  }
-                }}
-                placeholder="输入售卖编号或名称搜索..."
-                className="neo-input w-full text-sm pl-10"
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleScanFromPhoto}
               />
             </div>
 
@@ -511,6 +609,38 @@ export default function SalesPage() {
           {submitting ? "提交中..." : "提交售卖"}
         </Button>
       </div>
+
+      {/* 扫码弹窗 */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-md w-full overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
+              <h3 className="text-lg font-extrabold">扫描面单号条形码</h3>
+              <button
+                onClick={() => {
+                  stopScanner();
+                  setShowScanner(false);
+                  setScanning(false);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div id="scanner-reader" className="w-full rounded-xl overflow-hidden border-2 border-gray-900" />
+              {scanError && (
+                <p className="mt-3 text-sm text-red-500 font-bold text-center">{scanError}</p>
+              )}
+              <p className="mt-3 text-xs text-gray-500 text-center">
+                将面单号条形码对准扫描框即可自动识别
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 隐藏的扫码容器（用于从照片识别） */}
+      <div id="scanner-reader-hidden" className="hidden" />
     </PageWrapper>
   );
 }
