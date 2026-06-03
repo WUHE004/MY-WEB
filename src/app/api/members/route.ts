@@ -17,7 +17,7 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, role, name, address, recipient, recipient_phone, douyin } = body as {
+    const { id, role, name, address, recipient, recipient_phone, douyin, password } = body as {
       id?: string;
       role?: string;
       name?: string;
@@ -25,6 +25,7 @@ export async function PUT(request: NextRequest) {
       recipient?: string;
       recipient_phone?: string;
       douyin?: string;
+      password?: string;
     };
 
     if (!id) {
@@ -43,6 +44,7 @@ export async function PUT(request: NextRequest) {
     if (recipient !== undefined) updates.recipient = recipient;
     if (recipient_phone !== undefined) updates.recipient_phone = recipient_phone;
     if (douyin !== undefined) updates.douyin = douyin;
+    if (password !== undefined) updates.password = password;
 
     const { error } = await supabase
       .from("members")

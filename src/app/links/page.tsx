@@ -97,7 +97,8 @@ export default function LinksPage() {
             </CardContent>
           </Card>
         </Link>
-        <Card>
+        <Link href="/operations/returns">
+        <Card className="cursor-pointer hover:-translate-y-1 transition-all">
           <CardContent className="p-3 lg:p-6 flex items-center justify-between">
             <div>
               <p className="text-[10px] lg:text-sm font-bold text-gray-500">退货登记</p>
@@ -110,6 +111,7 @@ export default function LinksPage() {
             </div>
           </CardContent>
         </Card>
+        </Link>
       </div>
 
       {/* Operation Buttons */}
