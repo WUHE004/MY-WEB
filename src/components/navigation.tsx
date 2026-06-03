@@ -16,7 +16,7 @@ const navItems = [
   { href: "/", label: "首页", icon: LayoutDashboard },
   { href: "/products", label: "商品", icon: Package },
   { href: "/links", label: "操作", icon: Link2 },
-  { href: "/finance", label: "财务", icon: BarChart3 },
+  { href: "/finance", label: "管理", icon: BarChart3 },
   { href: "/data-import", label: "导入", icon: Upload },
   { href: "/profile", label: "信息", icon: Users },
 ];

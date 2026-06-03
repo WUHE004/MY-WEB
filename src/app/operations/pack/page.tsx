@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Camera, X, Search, Package, CheckCircle, PauseCircle, Truck } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ArrowLeft, Camera, X, Search, Package, CheckCircle, PauseCircle, Truck, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ interface PackItem {
 }
 
 type TabMode = "find" | "pack";
+type PackFilter = "all" | "suspended" | "found" | "shipped";
 
 export default function PackPage() {
   const [activeTab, setActiveTab] = useState<TabMode>("find");
@@ -57,15 +58,43 @@ export default function PackPage() {
 
   // 打包模式
   const [packRecords, setPackRecords] = useState<PackRecord[]>([]);
+  const [packFilter, setPackFilter] = useState<PackFilter>("all");
 
   // 扫码
   const [showScanner, setShowScanner] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const trackingNumberRef = useRef("");
 
   useEffect(() => {
     fetchPackRecords();
+  }, []);
+
+  // 搜索面单号
+  const doSearch = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    setSearching(true);
+    setSearched(false);
+    setNotFound(false);
+    setSearchResults([]);
+
+    try {
+      const res = await fetch(`/api/sales-records?tracking_number=${encodeURIComponent(query.trim())}`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setSearchResults(data);
+        setSearched(true);
+      } else {
+        setNotFound(true);
+        setSearched(true);
+      }
+    } catch {
+      setNotFound(true);
+      setSearched(true);
+    } finally {
+      setSearching(false);
+    }
   }, []);
 
   // 当 showScanner 变为 true 时启动扫描
@@ -87,10 +116,14 @@ export default function PackPage() {
           { fps: 10, qrbox: { width: 250, height: 150 } },
           (decodedText) => {
             if (cancelled) return;
-            setTrackingNumber(decodedText);
+            const cleaned = decodedText.trim();
+            trackingNumberRef.current = cleaned;
+            setTrackingNumber(cleaned);
             stopScanner();
             setShowScanner(false);
             setScanning(false);
+            // 扫码后自动查找
+            setTimeout(() => doSearch(cleaned), 200);
           },
           () => {}
         );
@@ -107,7 +140,7 @@ export default function PackPage() {
       cancelled = true;
       stopScanner();
     };
-  }, [showScanner]);
+  }, [showScanner, doSearch]);
 
   const fetchPackRecords = async () => {
     try {
@@ -121,35 +154,8 @@ export default function PackPage() {
     }
   };
 
-  // 搜索面单号对应的售卖记录
-  const handleSearch = async () => {
-    const query = trackingNumber.trim();
-    if (!query) {
-      alert("请输入面单号");
-      return;
-    }
-
-    setSearching(true);
-    setSearched(false);
-    setNotFound(false);
-    setSearchResults([]);
-
-    try {
-      const res = await fetch(`/api/sales-records?tracking_number=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        setSearchResults(data);
-        setSearched(true);
-      } else {
-        setNotFound(true);
-        setSearched(true);
-      }
-    } catch {
-      setNotFound(true);
-      setSearched(true);
-    } finally {
-      setSearching(false);
-    }
+  const handleSearch = () => {
+    doSearch(trackingNumber);
   };
 
   const stopScanner = () => {
@@ -159,7 +165,6 @@ export default function PackPage() {
     }
   };
 
-  // 提交找货结果
   const handleSubmitFind = async (status: "found" | "suspended") => {
     const submitter = localStorage.getItem("member_name") || "未知";
     try {
@@ -199,7 +204,6 @@ export default function PackPage() {
     }
   };
 
-  // 打包操作：更新状态
   const handlePackAction = async (recordId: number, status: string) => {
     const packer = localStorage.getItem("member_name") || "未知";
     try {
@@ -214,17 +218,43 @@ export default function PackPage() {
       });
 
       if (res.ok) {
-        if (status === "shipped") {
-          alert("已发货");
-        } else if (status === "found") {
-          alert("已标记为找齐");
-        } else if (status === "suspended") {
-          alert("已挂起");
-        }
         fetchPackRecords();
       } else {
         const err = await res.json();
         alert("操作失败: " + (err.error || "未知错误"));
+      }
+    } catch {
+      alert("网络错误，请重试");
+    }
+  };
+
+  // 一键删除上次找货记录
+  const handleDeleteLast = async () => {
+    // 获取最近一条记录
+    const sorted = [...packRecords].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const lastRecord = sorted[0];
+    if (!lastRecord) {
+      alert("没有可删除的记录");
+      return;
+    }
+
+    const hasUnfinished = packRecords.some((r) => r.status === "suspended" || r.status === "found");
+    if (hasUnfinished) {
+      if (!confirm("还有未找齐/发货的商品，确定删除吗？")) return;
+    } else {
+      if (!confirm("确定删除最近一条找货记录吗？")) return;
+    }
+
+    try {
+      // 删除该记录及其关联的 pack_items
+      const res = await fetch(`/api/pack?id=${lastRecord.id}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchPackRecords();
+      } else {
+        const err = await res.json();
+        alert("删除失败: " + (err.error || "未知错误"));
       }
     } catch {
       alert("网络错误，请重试");
@@ -242,6 +272,17 @@ export default function PackPage() {
       default:
         return { text: "找货中", color: "bg-gray-100 text-gray-600 border-gray-300" };
     }
+  };
+
+  const filteredPackRecords = packFilter === "all"
+    ? packRecords
+    : packRecords.filter((r) => r.status === packFilter);
+
+  const filterCounts = {
+    all: packRecords.length,
+    suspended: packRecords.filter((r) => r.status === "suspended").length,
+    found: packRecords.filter((r) => r.status === "found").length,
+    shipped: packRecords.filter((r) => r.status === "shipped").length,
   };
 
   return (
@@ -269,8 +310,8 @@ export default function PackPage() {
               : "bg-white text-gray-700 hover:bg-gray-100"
           }`}
         >
-          <Package className="inline h-4 w-4 mr-1" />
-          找货
+          <Package className="inline h-4 w-4 mr-1 align-middle" />
+          <span className="align-middle">找货</span>
         </button>
         <button
           onClick={() => setActiveTab("pack")}
@@ -280,8 +321,8 @@ export default function PackPage() {
               : "bg-white text-gray-700 hover:bg-gray-100"
           }`}
         >
-          <Truck className="inline h-4 w-4 mr-1" />
-          打包
+          <Truck className="inline h-4 w-4 mr-1 align-middle" />
+          <span className="align-middle">打包</span>
         </button>
       </div>
 
@@ -305,22 +346,22 @@ export default function PackPage() {
                   className="neo-input w-full text-sm pl-10"
                 />
               </div>
-              <Button
+              <button
                 type="button"
                 onClick={() => setShowScanner(true)}
                 disabled={scanning}
-                className="neo-btn px-3 h-[42px] bg-[#4A90E2] text-white"
+                className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
                 title="扫码识别面单号"
               >
                 <Camera className="h-4 w-4" />
-              </Button>
-              <Button
+              </button>
+              <button
                 onClick={handleSearch}
                 disabled={searching || !trackingNumber.trim()}
-                className="neo-btn px-4 h-[42px] bg-[#FFC93C] text-gray-900 font-extrabold"
+                className="flex items-center justify-center h-[42px] px-4 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
               >
                 {searching ? "搜索中..." : "查找"}
-              </Button>
+              </button>
             </div>
           </div>
 
@@ -344,52 +385,23 @@ export default function PackPage() {
                     key={index}
                     className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
                   >
-                    {/* 商品图片 */}
                     <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
                       {item.photo ? (
-                        <img
-                          src={item.photo}
-                          alt={item.product_name}
-                          className="w-full h-full object-cover"
-                        />
+                        <img src={item.photo} alt={item.product_name} className="w-full h-full object-cover" />
                       ) : (
                         <Package className="h-12 w-12 text-gray-300" />
                       )}
                     </div>
                     <div className="p-4">
-                      <div className="text-sm font-extrabold text-gray-900 mb-1 truncate">
-                        {item.sale_id}
-                      </div>
-                      <div className="text-xs text-gray-500 mb-2 truncate">
-                        {item.product_name || "商品名称"}
-                      </div>
+                      <div className="text-sm font-extrabold text-gray-900 mb-1 truncate">{item.sale_id}</div>
+                      <div className="text-xs text-gray-500 mb-2 truncate">{item.product_name || "商品名称"}</div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="text-gray-400">售价:</span>{" "}
-                          <span className="font-extrabold text-red-500">¥{item.sell_price}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">尺码:</span>{" "}
-                          <span className="font-bold">{item.size}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">数量:</span>{" "}
-                          <span className="font-bold">{item.quantity}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">货架号:</span>{" "}
-                          <span className="font-bold">{item.shelf_no || "-"}</span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-gray-400">下单时间:</span>{" "}
-                          <span className="font-medium">
-                            {item.order_time ? new Date(item.order_time).toLocaleString("zh-CN") : "-"}
-                          </span>
-                        </div>
-                        <div className="col-span-2">
-                          <span className="text-gray-400">厂家:</span>{" "}
-                          <span className="font-medium">{item.manufacturer || "-"}</span>
-                        </div>
+                        <div><span className="text-gray-400">售价:</span> <span className="font-extrabold text-red-500">¥{item.sell_price}</span></div>
+                        <div><span className="text-gray-400">尺码:</span> <span className="font-bold">{item.size}</span></div>
+                        <div><span className="text-gray-400">数量:</span> <span className="font-bold">{item.quantity}</span></div>
+                        <div><span className="text-gray-400">货架号:</span> <span className="font-bold">{item.shelf_no || "-"}</span></div>
+                        <div className="col-span-2"><span className="text-gray-400">下单时间:</span> <span className="font-medium">{item.order_time ? new Date(item.order_time).toLocaleString("zh-CN") : "-"}</span></div>
+                        <div className="col-span-2"><span className="text-gray-400">厂家:</span> <span className="font-medium">{item.manufacturer || "-"}</span></div>
                       </div>
                     </div>
                   </div>
@@ -398,20 +410,20 @@ export default function PackPage() {
 
               {/* 操作按钮 */}
               <div className="flex gap-4">
-                <Button
+                <button
                   onClick={() => handleSubmitFind("found")}
-                  className="flex-1 py-4 text-base font-extrabold bg-[#4CD964] text-white border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                  className="flex items-center justify-center gap-2 flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all"
                 >
-                  <CheckCircle className="h-5 w-5 mr-2" />
-                  货已找齐
-                </Button>
-                <Button
+                  <CheckCircle className="h-4 w-4" />
+                  <span>货已找齐</span>
+                </button>
+                <button
                   onClick={() => handleSubmitFind("suspended")}
-                  className="flex-1 py-4 text-base font-extrabold bg-[#FFC93C] text-gray-900 border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                  className="flex items-center justify-center gap-2 flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all"
                 >
-                  <PauseCircle className="h-5 w-5 mr-2" />
-                  挂起
-                </Button>
+                  <PauseCircle className="h-4 w-4" />
+                  <span>挂起</span>
+                </button>
               </div>
             </div>
           )}
@@ -421,100 +433,113 @@ export default function PackPage() {
       {/* ===== 打包模式 ===== */}
       {activeTab === "pack" && (
         <div>
-          {packRecords.length === 0 ? (
+          {/* 筛选按钮 + 删除按钮 */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {(["all", "suspended", "found", "shipped"] as PackFilter[]).map((f) => {
+              const labels: Record<PackFilter, string> = { all: "全部", suspended: "已挂起", found: "已找齐", shipped: "已发货" };
+              const colors: Record<PackFilter, string> = {
+                all: "bg-gray-900 text-white",
+                suspended: "bg-[#FFC93C] text-gray-900",
+                found: "bg-[#4CD964] text-white",
+                shipped: "bg-[#4A90E2] text-white",
+              };
+              const count = filterCounts[f];
+              return (
+                <button
+                  key={f}
+                  onClick={() => setPackFilter(f)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${
+                    packFilter === f ? colors[f] + " shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {f === "suspended" && <PauseCircle className="h-3 w-3" />}
+                  {f === "found" && <CheckCircle className="h-3 w-3" />}
+                  {f === "shipped" && <Truck className="h-3 w-3" />}
+                  <span>{labels[f]}</span>
+                  <span className="ml-0.5 opacity-70">({count})</span>
+                </button>
+              );
+            })}
+            {/* 一键删除 */}
+            <button
+              onClick={handleDeleteLast}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border-[2px] border-red-400 bg-red-50 text-red-600 text-xs font-extrabold hover:bg-red-100 transition-all ml-auto"
+            >
+              <Trash2 className="h-3 w-3" />
+              <span>删除上次记录</span>
+            </button>
+          </div>
+
+          {filteredPackRecords.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
               <Package className="h-12 w-12 mx-auto mb-3" />
-              <p className="text-sm font-bold">暂无打包记录</p>
+              <p className="text-sm font-bold">暂无记录</p>
               <p className="text-xs">去「找货」模式搜索面单号并提交</p>
             </div>
           ) : (
-            packRecords.map((record) => {
+            filteredPackRecords.map((record) => {
               const st = statusLabel(record.status);
               return (
                 <div
                   key={record.id}
                   className="mb-6 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden"
                 >
-                  {/* 记录头部 */}
                   <div className="p-4 bg-gray-50 border-b-2 border-gray-200 flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-extrabold text-gray-900">
-                        面单号: {record.tracking_number}
-                      </div>
+                      <div className="text-sm font-extrabold text-gray-900">面单号: {record.tracking_number}</div>
                       <div className="text-xs text-gray-500 mt-1">
-                        提交人: {record.submitter} ·{" "}
-                        {new Date(record.created_at).toLocaleString("zh-CN")}
+                        提交人: {record.submitter} · {new Date(record.created_at).toLocaleString("zh-CN")}
                       </div>
                     </div>
-                    <span
-                      className={`px-3 py-1 rounded-lg border-2 text-xs font-extrabold ${st.color}`}
-                    >
-                      {st.text}
-                    </span>
+                    <span className={`px-3 py-1 rounded-lg border-2 text-xs font-extrabold ${st.color}`}>{st.text}</span>
                   </div>
-
-                  {/* 商品列表 */}
                   <div className="p-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
                       {record.items.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden"
-                        >
+                        <div key={idx} className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden">
                           <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
                             {item.photo ? (
-                              <img
-                                src={item.photo}
-                                alt={item.product_name}
-                                className="w-full h-full object-cover"
-                              />
+                              <img src={item.photo} alt={item.product_name} className="w-full h-full object-cover" />
                             ) : (
                               <Package className="h-12 w-12 text-gray-300" />
                             )}
                           </div>
                           <div className="p-3">
-                            <div className="text-xs font-extrabold text-gray-900 truncate">
-                              {item.sale_id}
-                            </div>
-                            <div className="text-xs text-gray-500 mt-1">
-                              尺码: {item.size} · 数量: {item.quantity} · ¥{item.sell_price}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-0.5">
-                              货架号: {item.shelf_no || "-"} · 厂家: {item.manufacturer || "-"}
-                            </div>
+                            <div className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</div>
+                            <div className="text-xs text-gray-500 mt-1">尺码: {item.size} · 数量: {item.quantity} · ¥{item.sell_price}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">货架号: {item.shelf_no || "-"} · 厂家: {item.manufacturer || "-"}</div>
                           </div>
                         </div>
                       ))}
                     </div>
 
-                    {/* 打包操作按钮 */}
                     {record.status !== "shipped" && (
                       <div className="flex gap-3">
                         {(record.status === "pending" || record.status === "suspended") && (
-                          <Button
+                          <button
                             onClick={() => handlePackAction(record.id, "found")}
-                            className="flex-1 py-3 text-sm font-extrabold bg-[#4CD964] text-white border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                            className="flex items-center justify-center gap-1.5 flex-1 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all"
                           >
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            找齐
-                          </Button>
+                            <CheckCircle className="h-4 w-4" />
+                            <span>找齐</span>
+                          </button>
                         )}
                         {record.status === "found" && (
-                          <Button
+                          <button
                             onClick={() => handlePackAction(record.id, "suspended")}
-                            className="flex-1 py-3 text-sm font-extrabold bg-[#FFC93C] text-gray-900 border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                            className="flex items-center justify-center gap-1.5 flex-1 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all"
                           >
-                            <PauseCircle className="h-4 w-4 mr-1" />
-                            挂起
-                          </Button>
+                            <PauseCircle className="h-4 w-4" />
+                            <span>挂起</span>
+                          </button>
                         )}
-                        <Button
+                        <button
                           onClick={() => handlePackAction(record.id, "shipped")}
-                          className="flex-1 py-3 text-sm font-extrabold bg-[#4A90E2] text-white border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                          className="flex items-center justify-center gap-1.5 flex-1 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all"
                         >
-                          <Truck className="h-4 w-4 mr-1" />
-                          发货
-                        </Button>
+                          <Truck className="h-4 w-4" />
+                          <span>发货</span>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -532,11 +557,7 @@ export default function PackPage() {
             <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
               <h3 className="text-lg font-extrabold">扫描面单号条形码</h3>
               <button
-                onClick={() => {
-                  stopScanner();
-                  setShowScanner(false);
-                  setScanning(false);
-                }}
+                onClick={() => { stopScanner(); setShowScanner(false); setScanning(false); }}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
               >
                 <X className="h-4 w-4" />
@@ -544,12 +565,8 @@ export default function PackPage() {
             </div>
             <div className="p-4">
               <div id="pack-scanner-reader" className="w-full rounded-xl overflow-hidden border-2 border-gray-900" />
-              {scanError && (
-                <p className="mt-3 text-sm text-red-500 font-bold text-center">{scanError}</p>
-              )}
-              <p className="mt-3 text-xs text-gray-500 text-center">
-                将面单号条形码对准扫描框即可自动识别
-              </p>
+              {scanError && <p className="mt-3 text-sm text-red-500 font-bold text-center">{scanError}</p>}
+              <p className="mt-3 text-xs text-gray-500 text-center">将面单号条形码对准扫描框即可自动识别</p>
             </div>
           </div>
         </div>

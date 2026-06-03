@@ -119,3 +119,40 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
+
+// DELETE: 删除打包记录及其关联商品
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ error: "记录ID不能为空" }, { status: 400 });
+    }
+
+    // 先删除关联的 pack_items
+    const { error: itemsErr } = await supabase
+      .from("pack_items")
+      .delete()
+      .eq("pack_id", Number(id));
+
+    if (itemsErr) {
+      return NextResponse.json({ error: itemsErr.message }, { status: 400 });
+    }
+
+    // 再删除 pack_records
+    const { error: recordErr } = await supabase
+      .from("pack_records")
+      .delete()
+      .eq("id", Number(id));
+
+    if (recordErr) {
+      return NextResponse.json({ error: recordErr.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
