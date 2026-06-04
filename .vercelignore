@@ -2,6 +2,7 @@ node_modules
 .next
 dist
 data
+photo
 .vercel
 .git
 *.tsbuildinfo

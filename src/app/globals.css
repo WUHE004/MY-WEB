@@ -131,6 +131,12 @@ body {
   padding: 2px 12px;
 }
 
+.highlight-green {
+  background-color: #22C55E;
+  color: white;
+  padding: 2px 12px;
+}
+
 .highlight-yellow {
   background-color: #FFC93C;
   color: #171717;

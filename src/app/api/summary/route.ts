@@ -81,6 +81,7 @@ export async function GET() {
         name: row.name || "",
         manufacturer: row.manufacturer || "",
         photo: row.photo || "",
+        shelf_no: row.shelf_no || "",
         ...sizeCounts,
       });
     }
@@ -108,6 +109,7 @@ export async function GET() {
           name: "",
           manufacturer: "",
           photo: "",
+          shelf_no: "",
         });
       }
 
@@ -144,6 +146,7 @@ export async function GET() {
           name: "",
           manufacturer: "",
           photo: "",
+          shelf_no: "",
         });
       }
 

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trackingNumber = searchParams.get("tracking_number");
+  const saleId = searchParams.get("sale_id");
 
   let query = supabase
     .from("sales_records")
@@ -12,6 +13,10 @@ export async function GET(request: NextRequest) {
 
   if (trackingNumber) {
     query = query.eq("tracking_number", trackingNumber);
+  }
+
+  if (saleId) {
+    query = query.eq("sale_id", saleId);
   }
 
   const { data, error } = await query;

@@ -53,6 +53,7 @@ export default function SalesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRecord, setSelectedRecord] = useState<InboundRecord | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [sellPriceFound, setSellPriceFound] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedRecordRef = useRef<InboundRecord | null>(null);
@@ -136,12 +137,34 @@ export default function SalesPage() {
     }
   };
 
+  // 从售出记录中查找该编号的售价
+  const fetchExistingSellPrice = async (saleId: string) => {
+    try {
+      const res = await fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const price = data[0].sell_price;
+        if (price != null && price > 0) {
+          setSellPrice(String(price));
+          setSellPriceFound(true);
+          return;
+        }
+      }
+      setSellPrice("");
+      setSellPriceFound(false);
+    } catch {
+      setSellPrice("");
+      setSellPriceFound(false);
+    }
+  };
+
   const handleSearch = (query: string) => {
     setSearchQuery(query);
     setNotFound(false);
     setSelectedRecord(null);
     selectedRecordRef.current = null;
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    setSellPriceFound(false);
 
     if (query.trim()) {
       const filtered = inboundRecords.filter(
@@ -164,6 +187,7 @@ export default function SalesPage() {
     setShowDropdown(false);
     setNotFound(false);
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    fetchExistingSellPrice(record.sale_id);
   };
 
   const handleBlur = () => {
@@ -179,6 +203,7 @@ export default function SalesPage() {
       setSelectedRecord(exactMatch);
       selectedRecordRef.current = exactMatch;
       setNotFound(false);
+      fetchExistingSellPrice(exactMatch.sale_id);
     } else {
       setNotFound(true);
     }
@@ -196,6 +221,7 @@ export default function SalesPage() {
         selectedRecordRef.current = exactMatch;
         setShowDropdown(false);
         setNotFound(false);
+        fetchExistingSellPrice(exactMatch.sale_id);
       } else {
         setSelectedRecord(null);
         selectedRecordRef.current = null;
@@ -320,6 +346,7 @@ export default function SalesPage() {
         selectedRecordRef.current = null;
         setSearchQuery("");
         setSellPrice("");
+        setSellPriceFound(false);
         setNotes("");
         setOrderTime("");
         setTrackingNumber("");
@@ -457,8 +484,9 @@ export default function SalesPage() {
             min="0"
             value={sellPrice}
             onChange={(e) => setSellPrice(e.target.value)}
-            placeholder="例如: 49.9"
+            placeholder={selectedRecord ? (sellPriceFound ? "已自动填入" : "未售卖请输入售价") : "请先选择售卖编号"}
             className="text-sm"
+            readOnly={sellPriceFound}
           />
           {selectedRecord && sellPrice && !isNaN(Number(sellPrice)) && (
             <p className="text-xs font-bold text-[#4CD964] mt-1">

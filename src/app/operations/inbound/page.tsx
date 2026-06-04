@@ -855,13 +855,13 @@ export default function InboundPage() {
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-yellow">入库登记</span>
         </h1>
-        <button
-          onClick={() => setShowImportDialog(true)}
+        <Link
+          href="/data-import"
           className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
           title="批量导入"
         >
           <Upload className="h-5 w-5 text-white" />
-        </button>
+        </Link>
       </div>
 
       <div className="max-w-2xl mx-auto">

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "src/app/api/import/supplement-photos/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
