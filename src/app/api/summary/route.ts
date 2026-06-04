@@ -22,31 +22,62 @@ interface SummaryRow {
 
 export async function GET() {
   try {
-    // 获取所有入库记录
-    const { data: inboundData, error: inboundErr } = await supabase
-      .from("inbound_records")
-      .select("*");
+    // 获取所有入库记录（分页获取，避免默认1000条限制）
+    let inboundData: Record<string, any>[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data: chunk, error: inboundErr } = await supabase
+        .from("inbound_records")
+        .select("*")
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order("inbound_date", { ascending: false });
 
-    if (inboundErr) {
-      return NextResponse.json({ error: inboundErr.message }, { status: 500 });
+      if (inboundErr) {
+        return NextResponse.json({ error: inboundErr.message }, { status: 500 });
+      }
+      if (!chunk || chunk.length === 0) break;
+      inboundData = inboundData.concat(chunk);
+      if (chunk.length < pageSize) break;
+      page++;
     }
 
-    // 获取所有售卖记录
-    const { data: salesData, error: salesErr } = await supabase
-      .from("sales_records")
-      .select("*");
+    // 获取所有售卖记录（分页获取）
+    let salesData: Record<string, any>[] = [];
+    page = 0;
+    while (true) {
+      const { data: chunk, error: salesErr } = await supabase
+        .from("sales_records")
+        .select("*")
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order("registration_date", { ascending: false });
 
-    if (salesErr) {
-      return NextResponse.json({ error: salesErr.message }, { status: 500 });
+      if (salesErr) {
+        return NextResponse.json({ error: salesErr.message }, { status: 500 });
+      }
+      if (!chunk || chunk.length === 0) break;
+      salesData = salesData.concat(chunk);
+      if (chunk.length < pageSize) break;
+      page++;
     }
 
-    // 获取所有退货记录
-    const { data: returnData, error: returnErr } = await supabase
-      .from("return_records")
-      .select("*");
+    // 获取所有退货记录（分页获取）
+    let returnData: Record<string, any>[] = [];
+    page = 0;
+    while (true) {
+      const { data: chunk, error: returnErr } = await supabase
+        .from("return_records")
+        .select("*")
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order("created_at", { ascending: false });
 
-    if (returnErr) {
-      return NextResponse.json({ error: returnErr.message }, { status: 500 });
+      if (returnErr) {
+        return NextResponse.json({ error: returnErr.message }, { status: 500 });
+      }
+      if (!chunk || chunk.length === 0) break;
+      returnData = returnData.concat(chunk);
+      if (chunk.length < pageSize) break;
+      page++;
     }
 
     // 按 sale_id 分组

@@ -188,12 +188,28 @@ export async function POST(request: NextRequest) {
 
         // 入库表：计算 total_stock，自动填入 registrant，匹配照片
         if (type === "inbound") {
+          // 确保所有 NOT NULL 字段有默认值
+          if (!record.sale_id) record.sale_id = "";
+          if (!record.manufacturer) record.manufacturer = "";
+          if (!record.photo) record.photo = "";
+          if (!record.name) record.name = "";
+          if (!record.shelf_no) record.shelf_no = "";
+          if (!record.season) record.season = "";
+          if (!record.style_category) record.style_category = "";
+          if (!record.notes) record.notes = "";
+          if (!record.inbound_date) record.inbound_date = new Date().toISOString();
+          if (record.cost_price === undefined) record.cost_price = 0;
+
+          // 确保所有尺码字段默认值为 0
+          for (const s of [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180]) {
+            if (record[`size_${s}`] === undefined) record[`size_${s}`] = 0;
+          }
+
           let totalStock = 0;
           for (const s of [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180]) {
             totalStock += Number(record[`size_${s}`]) || 0;
           }
           record.total_stock = totalStock;
-          if (!record.inbound_date) record.inbound_date = new Date().toISOString();
 
           // 照片匹配：根据 CSV 中 photo 字段的文件名，在 photoFilter 中查找上传后的 URL
           if (photoFilter && record.photo) {
@@ -215,23 +231,37 @@ export async function POST(request: NextRequest) {
             record.photo = lookup.photo || "";
             record.product_name = lookup.product_name || "";
             record.cost_price = lookup.cost_price || 0;
-          } else {
-            record.product_name = record.product_name || "";
           }
 
-          record.registrant = registrant || "";
+          // 确保所有 NOT NULL 字段有默认值
+          if (!record.sale_id) record.sale_id = "";
+          if (!record.photo) record.photo = "";
+          if (!record.product_name) record.product_name = "";
+          if (!record.manufacturer) record.manufacturer = "";
+          if (!record.notes) record.notes = "";
+          if (!record.tracking_number) record.tracking_number = "";
+          if (!record.registrant) record.registrant = registrant || "";
+          if (record.size === undefined) record.size = 0;
+          if (record.quantity === undefined) record.quantity = 0;
+          if (record.sell_price === undefined) record.sell_price = 0;
+          if (record.cost_price === undefined) record.cost_price = 0;
+          if (!record.order_time) record.order_time = new Date().toISOString();
 
           const sellPrice = Number(record.sell_price) || 0;
           const costPrice = Number(record.cost_price) || 0;
           const quantity = Number(record.quantity) || 0;
           record.profit = sellPrice - costPrice;
           record.total_profit = (sellPrice - costPrice) * quantity;
-          if (!record.order_time) record.order_time = new Date().toISOString();
         }
 
-        // 退货表：自动填入 registrant
+        // 退货表：自动填入 registrant，确保 NOT NULL 字段有默认值
         if (type === "returns") {
-          record.registrant = registrant || "";
+          if (!record.sale_id) record.sale_id = "";
+          if (!record.registrant) record.registrant = registrant || "";
+          if (!record.remarks) record.remarks = "";
+          if (record.size === undefined) record.size = 0;
+          if (record.quantity === undefined) record.quantity = 0;
+          if (record.return_price === undefined) record.return_price = 0;
         }
 
         batch.push(record);

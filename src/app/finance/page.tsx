@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -127,7 +127,55 @@ export default function FinancePage() {
   const [detailRecords, setDetailRecords] = useState<DetailRecord[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // 编辑模式
+  const [salesEditMode, setSalesEditMode] = useState(false);
+  const [returnsEditMode, setReturnsEditMode] = useState(false);
+  const [inboundEditMode, setInboundEditMode] = useState(false);
+  const [editSaveMsg, setEditSaveMsg] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
+  // 导出
+  const [exportModal, setExportModal] = useState(false);
+  const [exportFields, setExportFields] = useState<Set<string>>(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", "80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]));
+
+  // 入库编辑下拉选项（从设置加载）
+  const [editManufacturers, setEditManufacturers] = useState<string[]>(["大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家"]);
+  const [editShelfData, setEditShelfData] = useState<Record<string, number[]>>({ A: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], B: [1, 2], C: [1, 2, 3, 4, 5] });
+  const [editSeasonCategories] = useState<string[]>(["春季", "夏季", "秋季", "冬季", "四季通用"]);
+  const [editSizeStyles, setEditSizeStyles] = useState<string[]>(["T恤", "裤子", "裙子", "外套", "卫衣", "套装", "连体衣", "羽绒服", "衬衫", "内衣", "其他"]);
+  const [editNoSizeStyles, setEditNoSizeStyles] = useState<string[]>(["母婴", "日用", "配饰"]);
+
   useEffect(() => { fetchSummary(); }, []);
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.manufacturers && Array.isArray(data.manufacturers)) setEditManufacturers(data.manufacturers);
+        if (data.shelf_data && typeof data.shelf_data === "object") setEditShelfData(data.shelf_data as Record<string, number[]>);
+        if (data.size_styles && Array.isArray(data.size_styles)) setEditSizeStyles(data.size_styles);
+        if (data.no_size_styles && Array.isArray(data.no_size_styles)) setEditNoSizeStyles(data.no_size_styles);
+      })
+      .catch(() => {});
+  }, []);
+
+  // 生成所有货架号选项
+  const editShelfOptions = useMemo(() => {
+    const options: string[] = [];
+    const layers = [1, 2, 3, 4, 5];
+    for (const [row, nums] of Object.entries(editShelfData)) {
+      for (const num of nums) {
+        for (const layer of layers) {
+          options.push(`${row}-${num}-${layer}`);
+        }
+      }
+    }
+    return options.sort();
+  }, [editShelfData]);
+
+  // 所有款式选项（合并含尺码和不含尺码）
+  const editStyleOptions = useMemo(() => {
+    return [...editSizeStyles, ...editNoSizeStyles].sort();
+  }, [editSizeStyles, editNoSizeStyles]);
 
   const fetchSummary = async () => {
     try {
@@ -257,6 +305,123 @@ export default function FinancePage() {
   };
 
   const closeDetail = () => { setDetailType(null); setDetailSaleId(""); setDetailRecords([]); };
+
+  // 保存售出/退货编辑（按 sale_id + size 修改数量）
+  const saveEdit = async (type: "sales" | "returns", saleId: string, size: number, quantity: number) => {
+    setEditSaving(true);
+    setEditSaveMsg("");
+    try {
+      const endpoint = type === "sales" ? "/api/sales-records" : "/api/return-records";
+      const res = await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: saleId, size, quantity }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "更新失败");
+      setEditSaveMsg(`已保存: ${saleId} 尺码${size} → ${quantity}`);
+      // 刷新数据
+      if (type === "sales") fetchSalesAgg();
+      else fetchReturnAgg();
+      fetchSummary();
+    } catch (err) {
+      setEditSaveMsg(`保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setEditSaving(false);
+      setTimeout(() => setEditSaveMsg(""), 3000);
+    }
+  };
+
+  // 保存入库编辑
+  const saveInboundEdit = async (saleId: string, fields: Record<string, string | number>) => {
+    setEditSaving(true);
+    setEditSaveMsg("");
+    try {
+      const res = await fetch("/api/inbound-records", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: saleId, ...fields }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "更新失败");
+      setEditSaveMsg(`已保存: ${saleId}`);
+      fetchInboundAgg();
+      fetchSummary();
+    } catch (err) {
+      setEditSaveMsg(`保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
+    } finally {
+      setEditSaving(false);
+      setTimeout(() => setEditSaveMsg(""), 3000);
+    }
+  };
+
+  // 导出入库数据
+  const handleExport = () => {
+    const rows = filteredInbound;
+    const fields = Array.from(exportFields);
+    if (fields.length === 0 || rows.length === 0) return;
+
+    const headers = fields.map((f) => {
+      if (f === "sale_id") return "售卖编号";
+      if (f === "name") return "商品名称";
+      if (f === "manufacturer") return "厂家";
+      if (f === "shelf_no") return "货架号";
+      if (f === "cost_price") return "进价";
+      if (f === "season") return "季节";
+      if (f === "style_category") return "款式分类";
+      if (f === "notes") return "备注";
+      if (f === "inbound_date") return "入库日期";
+      if (f === "total_stock") return "总库存";
+      if (/^\d+$/.test(f)) return `尺码${f}`;
+      return f;
+    });
+
+    const csvRows = [headers.join(",")];
+    for (const row of rows) {
+      const values = fields.map((f) => {
+        if (/^\d+$/.test(f)) {
+          return String(row[`size_${f}`] || 0);
+        }
+        if (f === "total_stock") return String(row.total || 0);
+        const val = (row as Record<string, unknown>)[f];
+        if (val === null || val === undefined) return "";
+        const str = String(val);
+        // 包含逗号或引号则转义
+        return str.includes(",") || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
+      });
+      csvRows.push(values.join(","));
+    }
+
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csvRows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    a.href = url;
+    a.download = `入库数据_${dateStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setExportModal(false);
+  };
+
+  // 获取下拉选项
+  const manufacturerOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of inboundData) if (r.manufacturer) set.add(r.manufacturer);
+    return Array.from(set).sort();
+  }, [inboundData]);
+
+  const seasonOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of inboundData) if ((r as Record<string, unknown>).season) set.add((r as Record<string, unknown>).season as string);
+    return Array.from(set).sort();
+  }, [inboundData]);
+
+  const styleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of inboundData) if ((r as Record<string, unknown>).style_category) set.add((r as Record<string, unknown>).style_category as string);
+    return Array.from(set).sort();
+  }, [inboundData]);
 
   const sizeKindCount = (row: SummaryRow) => ALL_SIZES.filter((s) => Number(row[`size_${s}`]) > 0).length;
   const minSizeQty = (row: SummaryRow) => {
@@ -463,7 +628,7 @@ export default function FinancePage() {
         )}
       </div>
 
-      {/* 搜索 + 筛选按钮 */}
+      {/* 搜索 + 筛选按钮 + 编辑/导出 */}
       <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-2 mb-3 sm:mb-4">
         <div className="relative w-[140px] sm:w-[160px]">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 z-10" />
@@ -502,6 +667,48 @@ export default function FinancePage() {
             className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
               errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
             }`}>错误库存</button>
+        )}
+
+        {/* 编辑和导出按钮 */}
+        {viewMode === "sales" && (
+          <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
+            className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+              salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
+            }`}>
+            {salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+          </button>
+        )}
+        {viewMode === "returns" && (
+          <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
+            className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+              returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
+            }`}>
+            {returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+          </button>
+        )}
+        {viewMode === "inbound" && (
+          <>
+            <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
+              className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[2px_2px_0px_0px_rgba(59,130,246,0.3)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
+              }`}>
+              {inboundEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />修改</>}
+            </button>
+            <button onClick={() => setExportModal(true)}
+              className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto">
+              <Download className="h-3 w-3" />导出
+            </button>
+          </>
+        )}
+        {editSaveMsg && (
+          <span className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
+            {editSaveMsg}
+          </span>
+        )}
+        {editSaving && (
+          <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-blue-500 font-bold">
+            <RefreshCw className="h-3 w-3 animate-spin" />保存中...
+          </span>
         )}
       </div>
 
@@ -609,6 +816,24 @@ export default function FinancePage() {
                           <td className="px-1.5 py-2.5 text-center font-extrabold text-green-600">{row.total}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
+                            if (salesEditMode) {
+                              return (
+                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                  <input
+                                    type="number" min="0"
+                                    defaultValue={val || 0}
+                                    onBlur={(e) => {
+                                      const newVal = Number(e.target.value) || 0;
+                                      if (newVal !== val) saveEdit("sales", row.sale_id, s, newVal);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                    }}
+                                    className="w-12 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                                  />
+                                </td>
+                              );
+                            }
                             return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-red-500">¥{fmt(sp)}</td>
@@ -666,6 +891,24 @@ export default function FinancePage() {
                           <td className="px-1.5 py-2.5 text-center font-extrabold text-yellow-600">{row.total}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
+                            if (returnsEditMode) {
+                              return (
+                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                  <input
+                                    type="number" min="0"
+                                    defaultValue={val || 0}
+                                    onBlur={(e) => {
+                                      const newVal = Number(e.target.value) || 0;
+                                      if (newVal !== val) saveEdit("returns", row.sale_id, s, newVal);
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                    }}
+                                    className="w-12 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-yellow-500 focus:ring-1 focus:ring-yellow-500"
+                                  />
+                                </td>
+                              );
+                            }
                             return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
                           })}
                           <td className={`px-2 py-2.5 text-center font-bold text-xs ${returnRate > 0.3 ? "text-red-500" : "text-gray-700"}`}>{pct(returnRate)}</td>
@@ -697,19 +940,41 @@ export default function FinancePage() {
                     {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
                     <th className="px-2 py-2 text-center font-extrabold">进价</th>
                     <th className="px-2 py-2 text-center font-extrabold">厂家</th>
+                    <th className="px-2 py-2 text-center font-extrabold">货架号</th>
+                    <th className="px-2 py-2 text-center font-extrabold">季节</th>
+                    <th className="px-2 py-2 text-center font-extrabold">款式</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredInbound.length === 0 ? (
-                    <tr><td colSpan={5 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
+                    <tr><td colSpan={8 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
                     filteredInbound.map((row, idx) => {
                       const summaryRow = data.find((r) => r.sale_id === row.sale_id);
                       const photo = row.photo || summaryRow?.photo || "";
+                      const shelfNo = (row as Record<string, unknown>).shelf_no as string || "";
+                      const season = (row as Record<string, unknown>).season as string || "";
+                      const styleCat = (row as Record<string, unknown>).style_category as string || "";
                       return (
                         <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td className="px-2 py-2.5">
-                            <HoverImage src={photo} alt="" />
+                            {inboundEditMode ? (
+                              <div className="flex flex-col gap-1 items-center">
+                                <HoverImage src={photo} alt="" />
+                                <input
+                                  type="text" defaultValue={photo}
+                                  onBlur={(e) => {
+                                    const newVal = e.target.value.trim();
+                                    if (newVal !== photo) saveInboundEdit(row.sale_id, { photo: newVal });
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                  placeholder="图片URL"
+                                  className="w-20 text-[10px] border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                                />
+                              </div>
+                            ) : (
+                              <HoverImage src={photo} alt="" />
+                            )}
                           </td>
                           <td className="px-2 py-2.5 font-extrabold text-gray-900">
                             <div>{row.sale_id}</div>
@@ -719,10 +984,108 @@ export default function FinancePage() {
                           <td className="px-1.5 py-2.5 text-center font-extrabold text-blue-600">{row.total}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
+                            if (inboundEditMode) {
+                              return (
+                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                  <input
+                                    type="number" min="0"
+                                    defaultValue={val || 0}
+                                    onBlur={(e) => {
+                                      const newVal = Number(e.target.value) || 0;
+                                      if (newVal !== val) saveInboundEdit(row.sale_id, { [`size_${s}`]: newVal });
+                                    }}
+                                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                    className="w-12 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </td>
+                              );
+                            }
                             return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
                           })}
-                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">¥{fmt(row.cost_price || 0)}</td>
-                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.manufacturer || "-"}</td>
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">
+                            {inboundEditMode ? (
+                              <input
+                                type="number" min="0" step="0.01"
+                                defaultValue={row.cost_price || 0}
+                                onBlur={(e) => {
+                                  const newVal = Number(e.target.value) || 0;
+                                  if (newVal !== (row.cost_price || 0)) saveInboundEdit(row.sale_id, { cost_price: newVal });
+                                }}
+                                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                className="w-16 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                              />
+                            ) : (
+                              <>¥{fmt(row.cost_price || 0)}</>
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
+                            {inboundEditMode ? (
+                              <select
+                                defaultValue={row.manufacturer || ""}
+                                onChange={(e) => {
+                                  const newVal = e.target.value;
+                                  if (newVal !== (row.manufacturer || "")) saveInboundEdit(row.sale_id, { manufacturer: newVal });
+                                }}
+                                className="w-24 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="">-</option>
+                                {editManufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                              </select>
+                            ) : (
+                              row.manufacturer || "-"
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
+                            {inboundEditMode ? (
+                              <select
+                                defaultValue={shelfNo}
+                                onChange={(e) => {
+                                  const newVal = e.target.value;
+                                  if (newVal !== shelfNo) saveInboundEdit(row.sale_id, { shelf_no: newVal });
+                                }}
+                                className="w-24 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="">-</option>
+                                {editShelfOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            ) : (
+                              shelfNo || "-"
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
+                            {inboundEditMode ? (
+                              <select
+                                defaultValue={season}
+                                onChange={(e) => {
+                                  const newVal = e.target.value;
+                                  if (newVal !== season) saveInboundEdit(row.sale_id, { season: newVal });
+                                }}
+                                className="w-20 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="">-</option>
+                                {editSeasonCategories.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            ) : (
+                              season || "-"
+                            )}
+                          </td>
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
+                            {inboundEditMode ? (
+                              <select
+                                defaultValue={styleCat}
+                                onChange={(e) => {
+                                  const newVal = e.target.value;
+                                  if (newVal !== styleCat) saveInboundEdit(row.sale_id, { style_category: newVal });
+                                }}
+                                className="w-20 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                              >
+                                <option value="">-</option>
+                                {editStyleOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            ) : (
+                              styleCat || "-"
+                            )}
+                          </td>
                         </tr>
                       );
                     })
@@ -963,6 +1326,81 @@ export default function FinancePage() {
           </>
         )}
       </div>
+
+      {/* 导出弹窗 */}
+      {exportModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setExportModal(false)}>
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-lg w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
+              <h3 className="text-base font-extrabold">导出入库数据</h3>
+              <button onClick={() => setExportModal(false)} className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              <p className="text-xs text-gray-500 mb-3">选择要导出的字段和范围（当前筛选结果：{filteredInbound.length} 条记录）</p>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {[
+                  { key: "sale_id", label: "售卖编号" },
+                  { key: "name", label: "商品名称" },
+                  { key: "manufacturer", label: "厂家" },
+                  { key: "shelf_no", label: "货架号" },
+                  { key: "cost_price", label: "进价" },
+                  { key: "season", label: "季节" },
+                  { key: "style_category", label: "款式分类" },
+                  { key: "notes", label: "备注" },
+                  { key: "inbound_date", label: "入库日期" },
+                  { key: "total_stock", label: "总库存" },
+                  ...ALL_SIZES.map((s) => ({ key: String(s), label: `尺码${s}` })),
+                ].map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer hover:bg-gray-50 rounded px-1.5 py-1">
+                    <input
+                      type="checkbox"
+                      checked={exportFields.has(key)}
+                      onChange={() => {
+                        setExportFields((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key);
+                          else next.add(key);
+                          return next;
+                        });
+                      }}
+                      className="rounded border-gray-300"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setExportFields(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", ...ALL_SIZES.map(String)]))}
+                  className="text-xs px-2 py-1 rounded-lg border-2 border-gray-300 font-bold hover:bg-gray-50">全选</button>
+                <button onClick={() => setExportFields(new Set())}
+                  className="text-xs px-2 py-1 rounded-lg border-2 border-gray-300 font-bold hover:bg-gray-50">全不选</button>
+                <div className="flex-1" />
+                <button onClick={handleExport}
+                  disabled={exportFields.size === 0 || filteredInbound.length === 0}
+                  className="text-xs px-4 py-1.5 rounded-lg border-[2px] border-purple-500 bg-purple-500 text-white font-extrabold hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                  导出 CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 下拉选项 datalist */}
+      <datalist id="manufacturer-list">
+        {manufacturerOptions.map((v) => <option key={v} value={v} />)}
+      </datalist>
+      <datalist id="shelf-list">
+        {shelfRows.map((v) => <option key={v} value={v} />)}
+      </datalist>
+      <datalist id="season-list">
+        {seasonOptions.map((v) => <option key={v} value={v} />)}
+      </datalist>
+      <datalist id="style-list">
+        {styleOptions.map((v) => <option key={v} value={v} />)}
+      </datalist>
 
       {/* 明细弹窗 */}
       {detailType && (

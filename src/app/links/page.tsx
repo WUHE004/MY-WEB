@@ -70,7 +70,7 @@ export default function LinksPage() {
   const operationButtons = [
     { label: "打包找货", icon: Box, color: "bg-[#4A90E2]", href: "/operations/pack" },
     { label: "瑕疵出库", icon: AlertTriangle, color: "bg-[#FF6B7A]", href: "/operations/defect" },
-    { label: "货架调整", icon: Rows4, color: "bg-[#FFC93C]", href: "/operations/shelf" },
+    { label: "入库调整", icon: Rows4, color: "bg-[#FFC93C]", href: "/operations/adjust" },
   ];
 
   return (
