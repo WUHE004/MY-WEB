@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS members (
   recipient TEXT NOT NULL DEFAULT '',
   recipient_phone TEXT NOT NULL DEFAULT '',
   douyin TEXT NOT NULL DEFAULT '',
+  is_online BOOLEAN DEFAULT false,
+  last_online TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

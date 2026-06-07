@@ -21,6 +21,7 @@ interface SalesRecord {
 
 export default function ReturnsPage() {
   const [remarks, setRemarks] = useState("");
+  const [returnTime, setReturnTime] = useState("");
   const [sizes, setSizes] = useState<Record<number, number>>(
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
@@ -33,12 +34,14 @@ export default function ReturnsPage() {
   const [selectedSaleId, setSelectedSaleId] = useState("");
   const [selectedSaleInfo, setSelectedSaleInfo] = useState<SalesRecord[]>([]);
   const [notFound, setNotFound] = useState(false);
+  const [totalReturnCount, setTotalReturnCount] = useState(0);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedSaleIdRef = useRef("");
 
   useEffect(() => {
     fetchSalesRecords();
+    fetchTotalReturnCount();
   }, []);
 
   useEffect(() => {
@@ -50,6 +53,17 @@ export default function ReturnsPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const fetchTotalReturnCount = async () => {
+    try {
+      const res = await fetch("/api/returns-summary");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const total = data.reduce((sum: number, item: any) => sum + (Number(item.total_returned) || 0), 0);
+        setTotalReturnCount(total);
+      }
+    } catch { /* ignore */ }
+  };
 
   const fetchSalesRecords = async () => {
     try {
@@ -194,6 +208,7 @@ export default function ReturnsPage() {
           return_price: salesRecord ? salesRecord.sell_price : 0,
           remarks: remarks.trim(),
           registrant,
+          return_time: returnTime || new Date().toISOString(),
         };
       });
 
@@ -238,6 +253,7 @@ export default function ReturnsPage() {
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-yellow">退货登记</span>
         </h1>
+        <p className="text-lg lg:text-3xl font-extrabold text-yellow-600 ml-auto">{totalReturnCount} 件</p>
       </div>
 
       <div className="max-w-2xl mx-auto">
@@ -415,6 +431,19 @@ export default function ReturnsPage() {
               );
             })}
           </div>
+        </div>
+
+        {/* Return Time */}
+        <div className="mb-6">
+          <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
+            退货时间 <span className="text-xs font-normal text-gray-400">(可选)</span>
+          </label>
+          <input
+            type="datetime-local"
+            value={returnTime}
+            onChange={(e) => setReturnTime(e.target.value)}
+            className="neo-input w-full text-sm"
+          />
         </div>
 
         {/* Remarks */}

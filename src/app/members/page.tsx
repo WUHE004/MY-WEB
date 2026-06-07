@@ -66,6 +66,12 @@ export default function MembersPage() {
         setError(data.error);
       } else {
         setMembers(members.map((m) => (m.id === id ? { ...m, role: role as Member["role"] } : m)));
+        // 如果是当前登录用户被修改，更新 localStorage
+        const currentId = localStorage.getItem("member_id");
+        if (currentId === id) {
+          localStorage.setItem("member_role", role);
+          alert("权限已更新，请刷新页面生效");
+        }
       }
     } catch {
       setError("修改角色失败");

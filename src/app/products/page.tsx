@@ -59,6 +59,13 @@ export default function ProductsPage() {
   const [memberId, setMemberId] = useState<string>("");
   const [memberName, setMemberName] = useState("");
 
+  // 从URL中读取open参数
+  const getOpenProductId = () => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("open");
+  };
+
   // 下单弹窗
   const [orderForm, setOrderForm] = useState({
     customer: "",
@@ -124,6 +131,16 @@ export default function ProductsPage() {
 
       setProducts(filtered);
       setCache("products_cache", filtered);
+
+      // 如果URL带有open参数，自动打开对应商品
+      const openId = getOpenProductId();
+      if (openId) {
+        const target = filtered.find((p: SummaryProduct) => p.sale_id === openId);
+        if (target) {
+          setSelectedProduct(target);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+      }
 
       // 暂停售卖状态
       setIsPaused(settingsData?.pause_selling === true);
@@ -344,6 +361,9 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
             <span className="highlight-yellow">快来选购吧</span>
+            <span className="ml-2 text-base lg:text-lg font-bold text-gray-500 align-middle">
+              在售 <span className="text-2xl font-extrabold text-[#4CD964]">{products.length}</span> 件
+            </span>
           </h1>
           <p className="text-sm lg:text-lg text-gray-600 font-medium mt-1">
             粉丝团的商品都可以在这里下单哦

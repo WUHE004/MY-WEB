@@ -15,6 +15,7 @@ import {
   Loader2,
   Upload,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -55,6 +56,8 @@ export default function InboundPage() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [saleId, setSaleId] = useState("");
+  const [saleIdExists, setSaleIdExists] = useState(false);
+  const [checkingSaleId, setCheckingSaleId] = useState(false);
   const [name, setName] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [costPrice, setCostPrice] = useState("");
@@ -711,9 +714,24 @@ export default function InboundPage() {
     }
   };
 
+  const checkSaleId = async (id: string) => {
+    if (!id.trim()) return;
+    setCheckingSaleId(true);
+    try {
+      const res = await fetch(`/api/products?check_sale_id=${encodeURIComponent(id.trim())}`);
+      const data = await res.json();
+      setSaleIdExists(data.exists === true);
+    } catch { setSaleIdExists(false); }
+    finally { setCheckingSaleId(false); }
+  };
+
   const handleSubmit = async () => {
     if (!saleId.trim()) {
       alert("请输入售卖编号");
+      return;
+    }
+    if (saleIdExists) {
+      alert("该编号已入库，请勿重复登记！");
       return;
     }
     if (!manufacturer) {
@@ -741,7 +759,7 @@ export default function InboundPage() {
       sold_qty: 0,
       remaining_stock: totalQty,
       shelf_no: getShelfNo(),
-      size_80: sizes[80] || 0,
+      size_80: isNoSizeStyle ? standardSize : (sizes[80] || 0),
       size_90: sizes[90] || 0,
       size_95: sizes[95] || 0,
       size_100: sizes[100] || 0,
@@ -786,7 +804,7 @@ export default function InboundPage() {
         photo: photo || "",
         name: name.trim(),
         manufacturer,
-        size_80: sizes[80] || 0,
+        size_80: isNoSizeStyle ? standardSize : (sizes[80] || 0),
         size_90: sizes[90] || 0,
         size_95: sizes[95] || 0,
         size_100: sizes[100] || 0,
@@ -936,10 +954,18 @@ export default function InboundPage() {
               onChange={(e) => {
                 const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
                 setSaleId(val);
+                setSaleIdExists(false);
               }}
+              onBlur={(e) => checkSaleId(e.target.value)}
               placeholder="例如: WUHE001"
               className="text-sm"
             />
+            {checkingSaleId && <p className="text-xs text-gray-400 mt-1">正在检查编号...</p>}
+            {saleIdExists && (
+              <p className="text-xs text-red-500 font-bold mt-1 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" /> 该编号已入库，请勿重复登记！
+              </p>
+            )}
           </div>
 
           {/* Name */}

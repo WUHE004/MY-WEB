@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
         is_online: !offline,
         last_online: new Date().toISOString(),
       })
-      .eq("phone", member_id);
+      .eq("id", member_id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

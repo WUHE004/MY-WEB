@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { upsertSalesSummary } from "@/app/api/sales-summary/route";
+import { upsertReturnsSummary } from "@/app/api/returns-summary/route";
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.trim().split(/\r?\n/);
@@ -51,7 +53,7 @@ const INBOUND_NUMBER_COLUMNS = [
 // 售出清单字段映射（photo/product_name/cost_price从入库表查找，registrant自动填入）
 const SALES_COLUMNS = [
   "sale_id", "size", "quantity",
-  "sell_price", "manufacturer", "notes",
+  "sell_price", "notes",
   "order_time", "tracking_number",
 ];
 
@@ -61,7 +63,7 @@ const SALES_NUMBER_COLUMNS = [
 
 // 退货清单字段映射（registrant自动填入）
 const RETURNS_COLUMNS = [
-  "sale_id", "size", "quantity", "return_price", "remarks",
+  "sale_id", "size", "quantity", "return_price", "remarks", "return_time",
 ];
 
 const RETURNS_NUMBER_COLUMNS = [
@@ -127,8 +129,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未匹配到任何列" }, { status: 400 });
     }
 
-    // 售出模式：预先从入库表查询所有商品的 photo/product_name/cost_price
-    let inboundLookup: Record<string, { photo: string; product_name: string; cost_price: number }> = {};
+    // 售出模式：预先从入库表查询所有商品的 cost_price
+    let inboundCostLookup: Record<string, number> = {};
     if (type === "sales") {
       const saleIds = [...new Set(rows.map((row) => {
         const idx = columnIndexes[dbColumns.indexOf("sale_id")];
@@ -136,24 +138,19 @@ export async function POST(request: NextRequest) {
       }).filter(Boolean))];
 
       if (saleIds.length > 0) {
-        // 分批查询（每批最多200个）
         const batchSize = 200;
         for (let i = 0; i < saleIds.length; i += batchSize) {
           const batch = saleIds.slice(i, i + batchSize);
           const { data: inboundData } = await supabase
             .from("inbound_records")
-            .select("sale_id, photo, name, cost_price")
+            .select("sale_id, cost_price")
             .in("sale_id", batch);
 
           if (inboundData) {
             for (const item of inboundData) {
               const sid = (item.sale_id || "").toUpperCase();
-              if (!inboundLookup[sid]) {
-                inboundLookup[sid] = {
-                  photo: item.photo || "",
-                  product_name: item.name || "",
-                  cost_price: Number(item.cost_price) || 0,
-                };
+              if (!(sid in inboundCostLookup)) {
+                inboundCostLookup[sid] = Number(item.cost_price) || 0;
               }
             }
           }
@@ -165,6 +162,8 @@ export async function POST(request: NextRequest) {
     let skipCount = 0;
     const errors: string[] = [];
     const batch: Record<string, unknown>[] = [];
+    const affectedSaleIds = new Set<string>();
+    const affectedReturnIds = new Set<string>();
 
     for (let r = 0; r < rows.length && r < 10000; r++) {
       try {
@@ -191,8 +190,8 @@ export async function POST(request: NextRequest) {
           // 确保所有 NOT NULL 字段有默认值
           if (!record.sale_id) record.sale_id = "";
           if (!record.manufacturer) record.manufacturer = "";
-          if (!record.photo) record.photo = "";
-          if (!record.name) record.name = "";
+          if (!record.photo || record.photo === "0" || String(record.photo).trim() === "0") record.photo = "";
+          if (!record.name || record.name === "0" || String(record.name).trim() === "0") record.name = "";
           if (!record.shelf_no) record.shelf_no = "";
           if (!record.season) record.season = "";
           if (!record.style_category) record.style_category = "";
@@ -223,21 +222,14 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 售出表：从入库表查找 photo/product_name/cost_price，自动填入 registrant，计算 profit
+        // 售出表：从入库表查找 cost_price，自动填入 registrant，计算 profit
         if (type === "sales") {
           const saleId = String(record.sale_id || "").trim().toUpperCase();
-          const lookup = inboundLookup[saleId];
-          if (lookup) {
-            record.photo = lookup.photo || "";
-            record.product_name = lookup.product_name || "";
-            record.cost_price = lookup.cost_price || 0;
-          }
+          const costPrice = inboundCostLookup[saleId] || 0;
+          record.cost_price = costPrice;
 
           // 确保所有 NOT NULL 字段有默认值
           if (!record.sale_id) record.sale_id = "";
-          if (!record.photo) record.photo = "";
-          if (!record.product_name) record.product_name = "";
-          if (!record.manufacturer) record.manufacturer = "";
           if (!record.notes) record.notes = "";
           if (!record.tracking_number) record.tracking_number = "";
           if (!record.registrant) record.registrant = registrant || "";
@@ -245,13 +237,13 @@ export async function POST(request: NextRequest) {
           if (record.quantity === undefined) record.quantity = 0;
           if (record.sell_price === undefined) record.sell_price = 0;
           if (record.cost_price === undefined) record.cost_price = 0;
-          if (!record.order_time) record.order_time = new Date().toISOString();
+          if (!record.order_time || record.order_time === "0") record.order_time = new Date().toISOString();
 
           const sellPrice = Number(record.sell_price) || 0;
-          const costPrice = Number(record.cost_price) || 0;
+          const cp = Number(record.cost_price) || 0;
           const quantity = Number(record.quantity) || 0;
-          record.profit = sellPrice - costPrice;
-          record.total_profit = (sellPrice - costPrice) * quantity;
+          record.profit = sellPrice - cp;
+          record.total_profit = (sellPrice - cp) * quantity;
         }
 
         // 退货表：自动填入 registrant，确保 NOT NULL 字段有默认值
@@ -262,9 +254,17 @@ export async function POST(request: NextRequest) {
           if (record.size === undefined) record.size = 0;
           if (record.quantity === undefined) record.quantity = 0;
           if (record.return_price === undefined) record.return_price = 0;
+          if (!record.return_time || record.return_time === "0") record.return_time = new Date().toISOString();
         }
 
         batch.push(record);
+
+        if (type === "sales") {
+          affectedSaleIds.add(String(record.sale_id || "").toUpperCase());
+        }
+        if (type === "returns") {
+          affectedReturnIds.add(String(record.sale_id || "").toUpperCase());
+        }
 
         if (batch.length >= 50) {
           const { error } = await supabase.from(tableName).insert(batch);
@@ -289,6 +289,20 @@ export async function POST(request: NextRequest) {
         errors.push(`批量导入错误: ${error.message}`);
       } else {
         successCount += batch.length;
+      }
+    }
+
+    // 售出导入后异步更新售卖总表
+    if (type === "sales" && successCount > 0) {
+      for (const sid of affectedSaleIds) {
+        if (sid) upsertSalesSummary(sid).catch((e) => console.error("upsert sales summary error:", e));
+      }
+    }
+
+    // 退货导入后异步更新退货总表
+    if (type === "returns" && successCount > 0) {
+      for (const sid of affectedReturnIds) {
+        if (sid) upsertReturnsSummary(sid).catch((e) => console.error("upsert returns summary error:", e));
       }
     }
 

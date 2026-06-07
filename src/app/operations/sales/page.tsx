@@ -49,6 +49,7 @@ export default function SalesPage() {
 
   const [inboundRecords, setInboundRecords] = useState<InboundRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<InboundRecord[]>([]);
+  const [totalSoldCount, setTotalSoldCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRecord, setSelectedRecord] = useState<InboundRecord | null>(null);
@@ -113,6 +114,7 @@ export default function SalesPage() {
 
   useEffect(() => {
     fetchInboundRecords();
+    fetchTotalSoldCount();
   }, []);
 
   useEffect(() => {
@@ -124,6 +126,17 @@ export default function SalesPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const fetchTotalSoldCount = async () => {
+    try {
+      const res = await fetch("/api/sales-summary");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const total = data.reduce((sum: number, item: any) => sum + (Number(item.total_sold) || 0), 0);
+        setTotalSoldCount(total);
+      }
+    } catch { /* ignore */ }
+  };
 
   const fetchInboundRecords = async () => {
     try {
@@ -317,15 +330,12 @@ export default function SalesPage() {
         const profit = Number(sellPrice) - selectedRecord.cost_price;
         return {
           sale_id: selectedRecord.sale_id,
-          photo: selectedRecord.photo || "",
-          product_name: selectedRecord.name || "",
           size,
           quantity,
           sell_price: Number(sellPrice),
           cost_price: selectedRecord.cost_price,
           profit,
           total_profit: profit * quantity,
-          manufacturer: selectedRecord.manufacturer || "",
           shelf_no: selectedRecord.shelf_no || "",
           notes: notes.trim(),
           order_time: orderTime || new Date().toISOString(),
@@ -378,6 +388,7 @@ export default function SalesPage() {
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-yellow">售卖登记</span>
         </h1>
+        <p className="text-lg lg:text-3xl font-extrabold text-green-600 ml-auto">{totalSoldCount} 件</p>
       </div>
 
       <div className="max-w-2xl mx-auto">

@@ -2,27 +2,31 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Package,
   Link2,
   Users,
-  BarChart3,
-  Upload,
   Settings,
 } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "首页", icon: LayoutDashboard },
-  { href: "/products", label: "商品", icon: Package },
-  { href: "/links", label: "操作", icon: Link2 },
-  { href: "/finance", label: "管理", icon: BarChart3 },
-  { href: "/data-import", label: "导入", icon: Upload },
-  { href: "/profile", label: "信息", icon: Users },
+const allNavItems = [
+  { href: "/", label: "首页", icon: LayoutDashboard, roles: ["admin", "customer", "operator", ""] },
+  { href: "/products", label: "商品", icon: Package, roles: ["admin", "customer", "operator", ""] },
+  { href: "/links", label: "操作", icon: Link2, roles: ["admin", "operator"] },
+  { href: "/profile", label: "信息", icon: Users, roles: ["admin", "customer", "operator", ""] },
 ];
 
 export function Navigation() {
   const pathname = usePathname();
+  const [role, setRole] = useState("");
+
+  useEffect(() => {
+    setRole(localStorage.getItem("member_role") || "");
+  }, []);
+
+  const navItems = allNavItems.filter((item) => item.roles.includes(role));
 
   return (
     <>
@@ -96,9 +100,6 @@ export function Navigation() {
           })}
         </div>
       </nav>
-
-      {/* 手机端底部导航占位 */}
-      <div className="md:hidden h-2" />
     </>
   );
 }

@@ -9,7 +9,7 @@ export async function GET() {
       { data: links, error: lErr },
       { data: accounts, error: aErr },
     ] = await Promise.all([
-      supabase.from("products").select("*").order("created_at", { ascending: false }),
+      supabase.from("inbound_records").select("sale_id, name, total_stock").order("inbound_date", { ascending: false }),
       supabase.from("monthly_revenue").select("*").order("id"),
       supabase.from("links").select("*").eq("status", "active"),
       supabase.from("accounts").select("*").eq("status", "active"),
@@ -20,7 +20,7 @@ export async function GET() {
     }
 
     const totalRevenue = (monthly || []).reduce((s: number, d: { revenue: number }) => s + d.revenue, 0);
-    const totalProducts = (products || []).length;
+    const totalProducts = new Set((products || []).map((r: { sale_id: string }) => r.sale_id?.toUpperCase()).filter(Boolean)).size;
     const activeLinks = (links || []).length;
     const operatingAccounts = (accounts || []).length;
 
@@ -31,10 +31,10 @@ export async function GET() {
       profit: r.revenue - r.cost,
     }));
 
-    const topProducts = (products || []).map((p: { name: string; remaining_stock: number; stock_warning: number }) => ({
+    const topProducts = (products || []).map((p: { name: string; total_stock: number }) => ({
       name: p.name,
-      sales: p.remaining_stock,
-      trend: p.remaining_stock > p.stock_warning ? ("up" as const) : ("down" as const),
+      sales: p.total_stock || 0,
+      trend: "up" as const,
     }));
 
     return NextResponse.json({

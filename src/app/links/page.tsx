@@ -9,17 +9,13 @@ import {
   Box,
   AlertTriangle,
   Rows4,
+  Banknote,
+  TrendingUp,
+  Video,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
 import Link from "next/link";
-
-interface Product {
-  id: string;
-  total_stock: number;
-  sold_qty: number;
-  return_qty: number;
-}
 
 interface Stats {
   inboundCount: number;
@@ -27,29 +23,36 @@ interface Stats {
   returnCount: number;
 }
 
+interface LinkData {
+  latest_shipping_fee: number;
+  latest_platform_fee: number;
+  latest_date: string;
+  selected_count: number;
+}
+
 export default function LinksPage() {
-  const [products, setProducts] = useState<Product[]>([]);
   const [stats, setStats] = useState<Stats>({ inboundCount: 0, salesCount: 0, returnCount: 0 });
+  const [linkData, setLinkData] = useState<LinkData>({
+    latest_shipping_fee: 0,
+    latest_platform_fee: 0,
+    latest_date: "",
+    selected_count: 0,
+  });
   const [loading, setLoading] = useState(true);
+  const [isOperator, setIsOperator] = useState(false);
 
   useEffect(() => {
-    fetchProducts();
+    const role = localStorage.getItem("member_role") || "";
+    setIsOperator(role === "operator");
     fetchStats();
-  }, []);
+    fetchLinkData();
 
-  const fetchProducts = async () => {
-    try {
-      const res = await fetch("/api/products");
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setProducts(data);
-      }
-    } catch (err) {
-      console.error("Fetch products error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // 每 5 秒刷新选品数量
+    const interval = setInterval(() => {
+      fetchLinkData();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchStats = async () => {
     try {
@@ -63,9 +66,19 @@ export default function LinksPage() {
     }
   };
 
-  const totalStock = products.reduce((sum, p) => sum + (Number(p.total_stock) || 0), 0);
-  const totalSold = products.reduce((sum, p) => sum + (Number(p.sold_qty) || 0), 0);
-  const totalReturn = products.reduce((sum, p) => sum + (Number(p.return_qty) || 0), 0);
+  const fetchLinkData = async () => {
+    try {
+      const res = await fetch("/api/links");
+      const data = await res.json();
+      if (!data.error) {
+        setLinkData(data);
+      }
+    } catch (err) {
+      console.error("Fetch link data error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const operationButtons = [
     { label: "打包找货", icon: Box, color: "bg-[#4A90E2]", href: "/operations/pack" },
@@ -153,6 +166,72 @@ export default function LinksPage() {
           </motion.a>
         ))}
       </div>
+
+      {/* 后台操作台 - 仅管理员可见 */}
+      {!isOperator && (
+      <div className="mb-6 lg:mb-8">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
+          <span className="highlight-blue">后台操作台</span>
+        </h1>
+        <p className="text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
+          管理平台费用和直播选品
+        </p>
+        <div className="grid grid-cols-3 gap-3 lg:gap-6">
+          <Link href="/finance/shipping">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+              <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] lg:text-sm font-bold text-gray-500">快递费用</p>
+                  <p className="text-lg lg:text-3xl font-extrabold text-[#4A90E2]">
+                    {loading ? "..." : `¥${linkData.latest_shipping_fee.toFixed(0)}`}
+                  </p>
+                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">
+                    {linkData.latest_date ? `${linkData.latest_date} 快递费` : "管理运费"}
+                  </p>
+                </div>
+                <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#4A90E2]">
+                  <Banknote className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/finance/platform-fee">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+              <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] lg:text-sm font-bold text-gray-500">平台抽点</p>
+                  <p className="text-lg lg:text-3xl font-extrabold text-[#FF6B7A]">
+                    {loading ? "..." : `¥${linkData.latest_platform_fee.toFixed(0)}`}
+                  </p>
+                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">
+                    {linkData.latest_date ? `${linkData.latest_date} 抽点` : "统计抽成"}
+                  </p>
+                </div>
+                <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FF6B7A]">
+                  <TrendingUp className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/live/select">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+              <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] lg:text-sm font-bold text-gray-500">直播选品</p>
+                  <p className="text-lg lg:text-3xl font-extrabold text-[#FFC93C]">
+                    {loading ? "..." : linkData.selected_count}
+                  </p>
+                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">选品多少款</p>
+                </div>
+                <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FFC93C]">
+                  <Video className="h-4 w-4 lg:h-6 lg:w-6 text-gray-900" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+      </div>
+      )}
     </PageWrapper>
   );
 }

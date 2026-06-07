@@ -48,8 +48,8 @@ export async function POST(request: NextRequest) {
     const record = {
       inbound_date: body.inbound_date || new Date().toISOString(),
       sale_id: body.sale_id || "",
-      photo: body.photo || "",
-      name: body.name || "",
+      photo: (body.photo && body.photo !== "0" && String(body.photo).trim() !== "0") ? body.photo : "",
+      name: (body.name && body.name !== "0" && String(body.name).trim() !== "0") ? body.name : "",
       manufacturer: body.manufacturer || "",
       size_80: Number(body.size_80) || 0,
       size_90: Number(body.size_90) || 0,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { upsertSalesSummary } from "@/app/api/sales-summary/route";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
   const pageSize = 1000;
 
   if (trackingNumber || saleId) {
-    // 有筛选条件时，直接查询（结果通常不会超过1000条）
+    // 有筛选条件时，查询结果后关联产品信息（照片、厂家、货架号）
     let query = supabase
       .from("sales_records")
       .select("*")
@@ -29,6 +30,30 @@ export async function GET(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // 关联产品信息：照片、厂家、货架号
+    if (data && data.length > 0) {
+      const saleIds = [...new Set(data.map((r: any) => r.sale_id).filter(Boolean))];
+      if (saleIds.length > 0) {
+        const { data: products } = await supabase
+          .from("inbound_records")
+          .select("sale_id, photo, manufacturer, shelf_no, name")
+          .in("sale_id", saleIds);
+        if (products) {
+          const productMap = new Map(products.map((p: any) => [p.sale_id, p]));
+          for (const record of data) {
+            const product = productMap.get(record.sale_id);
+            if (product) {
+              record.photo = product.photo || "";
+              record.manufacturer = product.manufacturer || "";
+              record.shelf_no = product.shelf_no || "";
+              record.product_name = product.name || record.product_name || "";
+            }
+          }
+        }
+      }
+    }
+
     return NextResponse.json(data);
   }
 
@@ -64,17 +89,14 @@ export async function POST(request: NextRequest) {
 
       const row: Record<string, unknown> = {
         sale_id: record.sale_id || "",
-        photo: record.photo || "",
-        product_name: record.product_name || "",
         size: Number(record.size) || 0,
         quantity: Number(record.quantity) || 0,
         sell_price: Number(record.sell_price) || 0,
         cost_price: Number(record.cost_price) || 0,
         profit,
         total_profit: totalProfit,
-        manufacturer: record.manufacturer || "",
         notes: record.notes || "",
-        order_time: record.order_time || new Date().toISOString(),
+        order_time: (record.order_time && record.order_time !== "0") ? record.order_time : new Date().toISOString(),
         tracking_number: record.tracking_number || "",
         registrant: record.registrant || "",
       };
@@ -108,6 +130,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       inserted.push(data);
+
+      // 更新售卖总表
+      upsertSalesSummary(record.sale_id || "").catch((e) => console.error("upsert sales summary error:", e));
     }
 
     return NextResponse.json(inserted, { status: 201 });
@@ -132,7 +157,7 @@ export async function PUT(request: NextRequest) {
     // 查询当前该 sale_id + size 的总数量
     const { data: existing, error: fetchErr } = await supabase
       .from("sales_records")
-      .select("id, quantity, sell_price, cost_price, photo, product_name, manufacturer, tracking_number, order_time, registrant")
+      .select("id, quantity, sell_price, cost_price, tracking_number, order_time, registrant")
       .eq("sale_id", sale_id)
       .eq("size", Number(size))
       .order("registration_date", { ascending: false });
@@ -157,9 +182,6 @@ export async function PUT(request: NextRequest) {
         quantity: delta,
         sell_price: latest?.sell_price ?? 0,
         cost_price: latest?.cost_price ?? 0,
-        photo: latest?.photo ?? "",
-        product_name: latest?.product_name ?? "",
-        manufacturer: latest?.manufacturer ?? "",
         tracking_number: "",
         notes: "编辑补录",
         order_time: new Date().toISOString(),
@@ -175,6 +197,9 @@ export async function PUT(request: NextRequest) {
       if (insertErr) {
         return NextResponse.json({ error: insertErr.message }, { status: 400 });
       }
+
+      // 更新售卖总表
+      upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
       return NextResponse.json({ message: "已增加", delta, currentTotal, newTotal: newQty });
     } else {
@@ -203,6 +228,9 @@ export async function PUT(request: NextRequest) {
         }
         remaining -= toRemove;
       }
+
+      // 更新售卖总表
+      upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
       return NextResponse.json({ message: "已减少", delta, currentTotal, newTotal: newQty });
     }

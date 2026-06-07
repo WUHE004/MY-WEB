@@ -52,6 +52,7 @@ export default function LoginPage() {
           localStorage.setItem("member_name", data.name);
           localStorage.setItem("member_role", data.role);
           localStorage.setItem("member_phone", data.phone);
+          localStorage.setItem("member_id", data.id);
           router.push("/");
         }
       }

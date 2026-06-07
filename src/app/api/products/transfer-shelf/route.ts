@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     }
 
     const { data: updated, error } = await supabase
-      .from("products")
+      .from("inbound_records")
       .update({ shelf_no: toShelf })
       .eq("shelf_no", fromShelf)
       .select("id");

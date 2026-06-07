@@ -58,6 +58,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "手机号或密码错误" }, { status: 401 });
       }
 
+      // 更新在线状态
+      await supabase
+        .from("members")
+        .update({ is_online: true, last_online: new Date().toISOString() })
+        .eq("id", member.id);
+
       const token = Buffer.from(`${member.id}:${Date.now()}`).toString("base64");
 
       return NextResponse.json({
@@ -65,6 +71,7 @@ export async function POST(request: NextRequest) {
         name: member.name,
         role: member.role,
         phone: member.phone,
+        id: member.id,
       });
     }
 

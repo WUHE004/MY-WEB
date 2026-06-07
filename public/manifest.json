@@ -1,0 +1,18 @@
+{
+  "name": "点冰童装",
+  "short_name": "点冰童装",
+  "description": "点冰童装 - 精选优质童装，用心呵护每一个孩子",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#FF6B7A",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/images/girl.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

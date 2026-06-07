@@ -6,7 +6,7 @@ import { useState, useEffect } from "react";
 import {
   Package,
   User,
-  ArrowUpRight,
+  Monitor,
   RefreshCw,
   LogIn,
   ShoppingBag,
@@ -16,19 +16,6 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
-
-const hotProducts = [
-  { id: 1, name: "夏季短袖T恤", image: "/images/product-1.png", stock: 180, price: 49.9, sold: 342 },
-  { id: 2, name: "儿童运动裤", image: "/images/product-2.png", stock: 150, price: 59.9, sold: 289 },
-  { id: 3, name: "女童连衣裙", image: "/images/product-3.png", stock: 20, price: 89.9, sold: 256 },
-  { id: 4, name: "男童卫衣套装", image: "/images/product-4.png", stock: 95, price: 79.9, sold: 198 },
-  { id: 5, name: "婴儿连体衣", image: "/images/product-5.png", stock: 230, price: 39.9, sold: 176 },
-  { id: 6, name: "儿童羽绒服", image: "/images/product-6.png", stock: 45, price: 199.9, sold: 165 },
-  { id: 7, name: "亲子装T恤", image: "/images/product-7.png", stock: 78, price: 69.9, sold: 148 },
-  { id: 8, name: "儿童牛仔裤", image: "/images/product-8.png", stock: 120, price: 55.9, sold: 132 },
-  { id: 9, name: "女童裙子套装", image: "/images/product-9.png", stock: 33, price: 99.9, sold: 115 },
-  { id: 10, name: "儿童睡衣套装", image: "/images/product-10.png", stock: 210, price: 45.9, sold: 102 },
-];
 
 const recentOrders = [
   { id: "DD20240601001", product: "夏季短袖T恤 x2", customer: "张女士", amount: "¥99.80", time: "2分钟前", status: "已发货" },
@@ -58,13 +45,107 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [memberName, setMemberName] = useState<string | null>(null);
   const [memberRole, setMemberRole] = useState<string | null>(null);
+  const [hotProducts, setHotProducts] = useState<Array<{sale_id: string; name: string; total_sold: number; sell_price: number; photo: string; manufacturer: string}>>([]);
+  const [availableSaleIds, setAvailableSaleIds] = useState<Set<string>>(new Set());
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
     const name = localStorage.getItem("member_name");
     const role = localStorage.getItem("member_role");
     setMemberName(name);
     setMemberRole(role);
+
+    // 监听 PWA 安装事件
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
   }, []);
+
+  const fetchHotProducts = async () => {
+    try {
+      const res = await fetch("/api/sales-summary");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const top10 = data
+          .sort((a: {total_sold?: number}, b: {total_sold?: number}) => (b.total_sold || 0) - (a.total_sold || 0))
+          .slice(0, 10)
+          .map((s: {sale_id: string; name?: string; total_sold?: number; sell_price?: number; manufacturer?: string; photo?: string}) => ({
+            sale_id: s.sale_id,
+            name: s.name || s.sale_id,
+            total_sold: s.total_sold || 0,
+            sell_price: s.sell_price || 0,
+            photo: s.photo || "",
+            manufacturer: s.manufacturer || "",
+          }));
+        setHotProducts(top10);
+      }
+    } catch (err) {
+      console.error("Fetch hot products error:", err);
+    }
+  };
+
+  useEffect(() => {
+    const name = localStorage.getItem("member_name");
+    const role = localStorage.getItem("member_role");
+    setMemberName(name);
+    setMemberRole(role);
+    fetchHotProducts();
+    fetchAvailableProducts();
+  }, []);
+
+  const fetchAvailableProducts = async () => {
+    try {
+      const res = await fetch("/api/products");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAvailableSaleIds(new Set(data.map((p: { sale_id: string }) => p.sale_id)));
+      }
+    } catch (err) {
+      console.error("Fetch available products error:", err);
+    }
+  };
+
+  const handleHotProductClick = (saleId: string) => {
+    if (availableSaleIds.has(saleId)) {
+      window.location.href = `/products?open=${saleId}`;
+    } else {
+      alert("该商品暂停售卖");
+    }
+  };
+
+  const handleAddToDesktop = async () => {
+    // 移动端：使用 PWA 安装提示
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
+      if (result.outcome === "accepted") return;
+    }
+
+    // 桌面端：下载 .url 快捷方式文件
+    const siteName = "点冰童装";
+    const siteUrl = window.location.origin;
+    const iconUrl = `${siteUrl}/favicon.ico`;
+
+    const urlContent = `[InternetShortcut]\nURL=${siteUrl}\nIconFile=${iconUrl}\nIconIndex=0`;
+    const blob = new Blob([urlContent], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${siteName}.url`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    alert(`已下载"${siteName}.url"快捷方式文件，请将其保存到桌面即可。`);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -111,19 +192,20 @@ export default function DashboardPage() {
       >
         <div className="rounded-2xl lg:rounded-full border-[3px] border-gray-900 bg-white px-4 lg:px-10 py-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
           <div className="grid grid-cols-3 items-center gap-2 lg:gap-0">
-            {/* 总商品数 */}
+            {/* 固定到桌面 */}
             <div className="flex items-center justify-center gap-2 lg:gap-3">
-              <div className="flex flex-col">
-                <span className="text-[8px] lg:text-[10px] font-bold text-gray-500">总商品数</span>
-                <span className="text-xs lg:text-sm font-extrabold text-gray-900">1,284</span>
-                <div className="flex items-center gap-0.5">
-                  <ArrowUpRight className="h-3 w-3 text-green-600" />
-                  <span className="text-[8px] lg:text-[10px] font-bold text-green-600">+12.5%</span>
+              <button
+                onClick={handleAddToDesktop}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+              >
+                <div className="flex flex-col">
+                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">点击添加</span>
+                  <span className="text-[8px] lg:text-[10px] font-bold text-[#4A90E2]">桌面快捷方式</span>
                 </div>
-              </div>
-              <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
-                <Package className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
-              </div>
+                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
+                  <Monitor className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
+                </div>
+              </button>
             </div>
 
             {/* 用户信息 */}
@@ -154,13 +236,10 @@ export default function DashboardPage() {
                 className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
               >
                 <div className="flex flex-col">
-                  <span className="text-[8px] lg:text-[10px] font-bold text-gray-500">
+                  <span className="text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
                     {memberName}
                   </span>
-                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">
-                    完善信息
-                  </span>
-                  <span className="text-[10px] lg:text-xs font-bold text-[#7B61FF] flex items-center gap-0.5">
+                  <span className="text-[8px] lg:text-[10px] font-bold text-[#7B61FF] flex items-center gap-0.5">
                     <Edit3 className="h-3 w-3" />
                     个人信息
                   </span>
@@ -327,48 +406,44 @@ export default function DashboardPage() {
             <CardContent>
               <div className="lg:overflow-x-auto lg:pb-2">
                 <div className="grid grid-cols-2 gap-3 lg:flex lg:min-w-max lg:gap-3">
-                  {hotProducts.map((product) => (
-                    <div
-                      key={product.id}
-                      className="w-full lg:w-[200px] lg:flex-shrink-0 rounded-xl border-[3px] border-gray-900 bg-white overflow-hidden shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all"
-                    >
-                      <div className="h-[120px] sm:h-[140px] lg:h-[160px] bg-gray-100 flex items-center justify-center">
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = "none";
-                            const parent = target.parentElement;
-                            if (parent && !parent.querySelector(".fallback")) {
-                              const fallback = document.createElement("div");
-                              fallback.className = "fallback flex items-center justify-center w-full h-full";
-                              fallback.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-300"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><circle cx="12" cy="8" r="5"/></svg>`;
-                              parent.appendChild(fallback);
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="p-3">
-                        <p className="text-xs sm:text-sm font-extrabold text-gray-900 truncate mb-1.5">
-                          {product.name}
-                        </p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] sm:text-xs font-bold text-gray-500">
-                            库存: {product.stock}
-                          </span>
-                          <span className="text-xs sm:text-sm font-extrabold text-[#FF6B7A]">
-                            ¥{product.price}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-gray-400">
-                          <ShoppingBag className="h-3 w-3" />
-                          已售 {product.sold}
-                        </div>
-                      </div>
+                  {hotProducts.length === 0 ? (
+                    <div className="w-full flex items-center justify-center py-8">
+                      <p className="text-sm text-gray-400 font-bold">加载中...</p>
                     </div>
-                  ))}
+                  ) : (
+                    hotProducts.map((product, idx) => (
+                      <button
+                        key={product.sale_id}
+                        onClick={() => handleHotProductClick(product.sale_id)}
+                        className="w-full lg:w-[200px] lg:flex-shrink-0 rounded-xl border-[3px] border-gray-900 bg-white overflow-hidden shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all block text-left cursor-pointer"
+                      >
+                        <div className="h-[120px] sm:h-[140px] lg:h-[160px] bg-gray-100 flex items-center justify-center">
+                          {product.photo ? (
+                            <img src={product.photo} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <Package className="h-10 w-10 text-gray-300" />
+                          )}
+                        </div>
+                        <div className="p-3">
+                          <div className="flex items-center gap-1 mb-1">
+                            <span className={`inline-flex items-center justify-center h-4 w-4 rounded-full text-[8px] font-extrabold text-white ${
+                              idx === 0 ? "bg-[#FF6B7A]" : idx === 1 ? "bg-[#FFC93C]" : idx === 2 ? "bg-[#4A90E2]" : "bg-gray-400"
+                            }`}>{idx + 1}</span>
+                            <p className="text-xs sm:text-sm font-extrabold text-gray-900 truncate">{product.name}</p>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs sm:text-sm font-extrabold text-[#FF6B7A]">
+                              ¥{product.sell_price}
+                            </span>
+                          </div>
+                          <div className="mt-1.5 flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                            <ShoppingBag className="h-3 w-3" />
+                            已售 {product.total_sold}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             </CardContent>

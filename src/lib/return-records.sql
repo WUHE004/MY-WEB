@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS return_records (
   return_price REAL NOT NULL DEFAULT 0,
   remarks TEXT NOT NULL DEFAULT '',
   registrant TEXT NOT NULL DEFAULT '',
+  return_time TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
+const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
 
 function getCache<T>(key: string): T | null {
@@ -47,6 +48,8 @@ interface AggRow {
   manufacturer: string;
   photo: string;
   shelf_no: string;
+  season?: string;
+  style_category?: string;
   sell_price?: number;
   cost_price?: number;
   last_order_time?: string;
@@ -65,6 +68,7 @@ interface DetailRecord {
   return_price?: number;
   tracking_number?: string;
   order_time?: string;
+  return_time?: string;
   created_at?: string;
   name?: string;
   manufacturer?: string;
@@ -133,10 +137,32 @@ export default function FinancePage() {
   const [inboundEditMode, setInboundEditMode] = useState(false);
   const [editSaveMsg, setEditSaveMsg] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // 日期筛选
+  const [salesDateFilter, setSalesDateFilter] = useState("");
+  const [returnsDateFilter, setReturnsDateFilter] = useState("");
+  const [salesDates, setSalesDates] = useState<string[]>([]);
+  const [returnsDates, setReturnsDates] = useState<string[]>([]);
+  const [salesDateIds, setSalesDateIds] = useState<Set<string>>(new Set());
+  const [returnsDateIds, setReturnsDateIds] = useState<Set<string>>(new Set());
 
   // 导出
   const [exportModal, setExportModal] = useState(false);
   const [exportFields, setExportFields] = useState<Set<string>>(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", "80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]));
+  // 移动端展开卡片
+  const [expandedMobileCard, setExpandedMobileCard] = useState<string | null>(null);
+  // 移动端入库编辑弹窗
+  const [mobileEditModal, setMobileEditModal] = useState<{ sale_id: string; photo: string; name: string; manufacturer: string; shelf_no: string; season: string; style_category: string } | null>(null);
+  const [mobileShelfL1, setMobileShelfL1] = useState("");
+  const [mobileShelfL2, setMobileShelfL2] = useState("");
+  const [mobileShelfL3, setMobileShelfL3] = useState("");
+  // 售出/退货编辑悬浮窗
+  const [salesEditModal, setSalesEditModal] = useState<string | null>(null);
+  const [returnsEditModal, setReturnsEditModal] = useState<string | null>(null);
+  const [editSizeValues, setEditSizeValues] = useState<Record<number, number>>({});
+  // 售价/退货价下拉展开
+  const [expandedPriceRow, setExpandedPriceRow] = useState<string | null>(null);
 
   // 入库编辑下拉选项（从设置加载）
   const [editManufacturers, setEditManufacturers] = useState<string[]>(["大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家"]);
@@ -158,6 +184,23 @@ export default function FinancePage() {
       .catch(() => {});
   }, []);
 
+  // 日期筛选时获取对应 sale_ids
+  useEffect(() => {
+    if (!salesDateFilter) { setSalesDateIds(new Set()); return; }
+    fetch(`/api/sales-dates?type=sales&date=${salesDateFilter}`)
+      .then(r => r.json())
+      .then(data => setSalesDateIds(new Set(data.sale_ids || [])))
+      .catch(() => setSalesDateIds(new Set()));
+  }, [salesDateFilter]);
+
+  useEffect(() => {
+    if (!returnsDateFilter) { setReturnsDateIds(new Set()); return; }
+    fetch(`/api/sales-dates?type=returns&date=${returnsDateFilter}`)
+      .then(r => r.json())
+      .then(data => setReturnsDateIds(new Set(data.sale_ids || [])))
+      .catch(() => setReturnsDateIds(new Set()));
+  }, [returnsDateFilter]);
+
   // 生成所有货架号选项
   const editShelfOptions = useMemo(() => {
     const options: string[] = [];
@@ -177,6 +220,27 @@ export default function FinancePage() {
     return [...editSizeStyles, ...editNoSizeStyles].sort();
   }, [editSizeStyles, editNoSizeStyles]);
 
+  const syncSummary = async () => {
+    setSyncing(true);
+    setEditSaveMsg("");
+    try {
+      const res = await fetch("/api/sync-summary", { method: "POST" });
+      const result = await res.json();
+      if (result.error) {
+        setEditSaveMsg("同步失败: " + result.error);
+      } else {
+        setEditSaveMsg(`同步完成: 售出${result.sales_synced}款, 退货${result.returns_synced}款`);
+        fetchSummary();
+        fetchSalesAgg();
+        fetchReturnAgg();
+      }
+    } catch {
+      setEditSaveMsg("同步失败");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const fetchSummary = async () => {
     try {
       const res = await fetch("/api/summary");
@@ -191,63 +255,86 @@ export default function FinancePage() {
 
   const fetchSalesAgg = async () => {
     try {
-      const res = await fetch("/api/sales-records");
+      const res = await fetch("/api/sales-summary");
       const all = await res.json();
       if (!Array.isArray(all) || all.length === 0) { setSalesData([]); return; }
-      const map = new Map<string, AggRow>();
-      for (const row of all) {
-        const sid = (row.sale_id || "").toUpperCase();
-        if (!sid) continue;
-        if (!map.has(sid)) {
-          map.set(sid, {
-            sale_id: sid, total: 0, name: row.product_name || "", manufacturer: row.manufacturer || "",
-            photo: row.photo || "", shelf_no: row.shelf_no || "",
-            sell_price: 0, cost_price: 0, total_revenue: 0, last_order_time: "",
-          });
+      const result = all.map((row: Record<string, unknown>) => {
+        const agg: Record<string, unknown> & { total: number } = {
+          sale_id: (row.sale_id as string) || "",
+          total: (row.total_sold as number) || 0,
+          name: (row.name as string) || "",
+          manufacturer: (row.manufacturer as string) || "",
+          photo: (row.photo as string) || "",
+          shelf_no: (row.shelf_no as string) || "",
+          sell_price: 0,
+          cost_price: (row.cost_price as number) || 0,
+          total_revenue: (row.total_revenue as number) || 0,
+          last_order_time: "",
+          sell_price_info: row.sell_price_info || {},
+          sales_count: row.sales_count || 0,
+        };
+        // 解析各尺码
+        for (const s of ALL_SIZES) {
+          agg[`size_${s}`] = Number(row[`size_${s}`]) || 0;
         }
-        const e = map.get(sid)!;
-        const qty = Number(row.quantity) || 0;
-        const sz = Number(row.size) || 0;
-        e.total += qty;
-        const key = `size_${sz}`;
-        e[key] = (Number(e[key]) || 0) + qty;
-        // 使用最新的售价/进价/下单时间
-        e.sell_price = Number(row.sell_price) || e.sell_price || 0;
-        e.cost_price = Number(row.cost_price) || e.cost_price || 0;
-        e.total_revenue = (e.total_revenue || 0) + (Number(row.sell_price) || 0) * qty;
-        const ot = row.order_time || row.created_at || "";
-        if (ot && ot > (e.last_order_time || "")) e.last_order_time = ot;
-      }
-      setSalesData(Array.from(map.values()));
+        // 解析 sell_price_info 的售价
+        const info = row.sell_price_info as Record<string, string> | undefined;
+        if (info) {
+          const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+          if (prices.length > 0) {
+            agg.sell_price = prices[0]; // 最低售价
+          }
+          // 取最新下单时间
+          const times = Object.values(info).filter(Boolean);
+          if (times.length > 0) {
+            agg.last_order_time = times.sort().reverse()[0];
+          }
+        }
+        return agg as AggRow;
+      });
+      setSalesData(result);
     } catch { setSalesData([]); }
   };
 
   const fetchReturnAgg = async () => {
     try {
-      const res = await fetch("/api/return-records");
+      const res = await fetch("/api/returns-summary");
       const all = await res.json();
       if (!Array.isArray(all) || all.length === 0) { setReturnData([]); return; }
-      const map = new Map<string, AggRow>();
-      for (const row of all) {
-        const sid = (row.sale_id || "").toUpperCase();
-        if (!sid) continue;
-        if (!map.has(sid)) {
-          map.set(sid, {
-            sale_id: sid, total: 0, name: "", manufacturer: "", photo: "", shelf_no: "",
-            total_return_amount: 0, last_return_time: "",
-          });
+      const result = all.map((row: Record<string, unknown>) => {
+        const agg: Record<string, unknown> & { total: number } = {
+          sale_id: (row.sale_id as string) || "",
+          total: (row.total_returned as number) || 0,
+          name: (row.name as string) || "",
+          manufacturer: (row.manufacturer as string) || "",
+          photo: (row.photo as string) || "",
+          shelf_no: (row.shelf_no as string) || "",
+          return_price: 0,
+          total_return_amount: (row.total_return_amount as number) || 0,
+          last_return_time: "",
+          return_price_info: row.return_price_info || {},
+          return_count: row.return_count || 0,
+        };
+        // 解析各尺码
+        for (const s of ALL_SIZES) {
+          agg[`size_${s}`] = Number(row[`size_${s}`]) || 0;
         }
-        const e = map.get(sid)!;
-        const qty = Number(row.quantity) || 0;
-        const sz = Number(row.size) || 0;
-        e.total += qty;
-        const key = `size_${sz}`;
-        e[key] = (Number(e[key]) || 0) + qty;
-        e.total_return_amount = (e.total_return_amount || 0) + (Number(row.return_price) || 0) * qty;
-        const ct = row.created_at || "";
-        if (ct && ct > (e.last_return_time || "")) e.last_return_time = ct;
-      }
-      setReturnData(Array.from(map.values()));
+        // 解析 return_price_info 的退货价
+        const info = row.return_price_info as Record<string, string> | undefined;
+        if (info) {
+          const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+          if (prices.length > 0) {
+            agg.return_price = prices[0]; // 最低退货价
+          }
+          // 取最新退货时间
+          const times = Object.values(info).filter(Boolean);
+          if (times.length > 0) {
+            agg.last_return_time = times.sort().reverse()[0];
+          }
+        }
+        return agg as AggRow;
+      });
+      setReturnData(result);
     } catch { setReturnData([]); }
   };
 
@@ -264,6 +351,7 @@ export default function FinancePage() {
           map.set(sid, {
             sale_id: sid, total: 0, name: row.name || "", manufacturer: row.manufacturer || "",
             photo: row.photo || "", shelf_no: row.shelf_no || "",
+            season: row.season || "", style_category: row.style_category || "",
             sell_price: 0, cost_price: 0,
           });
         }
@@ -279,14 +367,30 @@ export default function FinancePage() {
     } catch { setInboundData([]); }
   };
 
+  const fetchSalesDates = async () => {
+    try {
+      const res = await fetch("/api/sales-dates?type=sales");
+      const data = await res.json();
+      setSalesDates(data.dates || []);
+    } catch { setSalesDates([]); }
+  };
+
+  const fetchReturnsDates = async () => {
+    try {
+      const res = await fetch("/api/sales-dates?type=returns");
+      const data = await res.json();
+      setReturnsDates(data.dates || []);
+    } catch { setReturnsDates([]); }
+  };
+
   const switchView = (mode: ViewMode) => {
     setViewMode(mode);
     setSearch("");
     setStockFilter("");
     setValueFilter("");
     setErrorFilter(false);
-    if (mode === "sales") fetchSalesAgg();
-    if (mode === "returns") fetchReturnAgg();
+    if (mode === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+    if (mode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
     if (mode === "inbound") fetchInboundAgg();
   };
 
@@ -321,8 +425,8 @@ export default function FinancePage() {
       if (!res.ok) throw new Error(result.error || "更新失败");
       setEditSaveMsg(`已保存: ${saleId} 尺码${size} → ${quantity}`);
       // 刷新数据
-      if (type === "sales") fetchSalesAgg();
-      else fetchReturnAgg();
+      if (type === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+      else { fetchReturnAgg(); fetchReturnsDates(); }
       fetchSummary();
     } catch (err) {
       setEditSaveMsg(`保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
@@ -467,8 +571,11 @@ export default function FinancePage() {
       const q = search.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
     }
+    if (salesDateFilter && salesDateIds.size > 0) {
+      result = result.filter((r) => salesDateIds.has(r.sale_id));
+    }
     return result;
-  }, [salesData, search]);
+  }, [salesData, search, salesDateFilter, salesDateIds]);
 
   const filteredReturns = useMemo(() => {
     let result = returnData;
@@ -476,8 +583,11 @@ export default function FinancePage() {
       const q = search.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q));
     }
+    if (returnsDateFilter && returnsDateIds.size > 0) {
+      result = result.filter((r) => returnsDateIds.has(r.sale_id));
+    }
     return result;
-  }, [returnData, search]);
+  }, [returnData, search, returnsDateFilter, returnsDateIds]);
 
   const filteredInbound = useMemo(() => {
     let result = inboundData;
@@ -501,34 +611,69 @@ export default function FinancePage() {
   }, [filteredSummary]);
 
   // 售出/退货汇总
-  const salesTotals = useMemo(() => ({
-    orderCount: filteredSales.length,
-    revenue: filteredSales.reduce((sum, r) => sum + (r.total_revenue || 0), 0),
-  }), [filteredSales]);
+  const salesTotals = useMemo(() => {
+    let totalSold = 0;
+    let profit = 0;
+    for (const r of filteredSales) {
+      const cp = (r.cost_price as number) || 0;
+      const total = r.total || 0;
+      const revenue = r.total_revenue || 0;
+      totalSold += total;
+      profit += revenue - cp * total;
+    }
+    let totalReturned = 0;
+    let returnLoss = 0;
+    for (const r of filteredReturns) {
+      totalReturned += r.total || 0;
+      returnLoss += (r.total_return_amount || 0);
+    }
+    return {
+      orderCount: filteredSales.length,
+      totalSold,
+      totalProfit: profit,
+      netProfit: profit - returnLoss,
+    };
+  }, [filteredSales, filteredReturns]);
 
   const returnTotals = useMemo(() => ({
     orderCount: filteredReturns.length,
+    totalReturned: filteredReturns.reduce((s, r) => s + (r.total || 0), 0),
     loss: filteredReturns.reduce((sum, r) => sum + (r.total_return_amount || 0), 0),
   }), [filteredReturns]);
 
   const shelfRows = useMemo(() => getShelfRows(data), [data]);
 
   if (loading) {
-    return <PageWrapper><div className="text-center py-20 text-gray-400">加载中...</div></PageWrapper>;
+    return (
+      <PageWrapper>
+        <div className="space-y-4">
+          <div className="h-8 w-40 bg-gray-200 rounded-lg animate-pulse" />
+          <div className="h-10 bg-gray-200 rounded-xl animate-pulse" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} className="h-48 bg-gray-200 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </PageWrapper>
+    );
   }
 
   const fmt = (n: number) => n.toFixed(2);
   const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
   const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : "入库登记清单";
+  const viewTitleShort = viewMode === "summary" ? "总表" : viewMode === "sales" ? "售出" : viewMode === "returns" ? "退货" : "入库";
   const highlightClass = viewMode === "summary" ? "highlight-blue" : viewMode === "sales" ? "highlight-green" : viewMode === "returns" ? "highlight-yellow" : "highlight-blue";
+  const titleBgClass = viewMode === "summary" ? "bg-[#4A90E2]" : viewMode === "sales" ? "bg-green-500" : viewMode === "returns" ? "bg-yellow-500" : "bg-[#4A90E2]";
 
   return (
     <PageWrapper>
       {/* Header + 视图切换按钮 */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
         <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
-          <span className={highlightClass}>{viewTitle}</span>
+          <span className={`lg:hidden px-2 py-0.5 rounded text-white font-extrabold ${titleBgClass}`}>{viewTitleShort}</span>
+          <span className={`hidden lg:inline ${highlightClass}`}>{viewTitle}</span>
         </h1>
         <div className="flex gap-1.5 sm:gap-2 shrink-0">
           <button onClick={() => switchView("summary")}
@@ -559,22 +704,36 @@ export default function FinancePage() {
       </div>
 
       {/* 统计栏 */}
-      <div className="flex flex-wrap items-center gap-3 sm:gap-4 mb-3 sm:mb-4 px-3 py-2 sm:px-4 sm:py-3 bg-white rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
         {viewMode === "summary" && (
           <>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between w-full lg:hidden">
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">入库</span>
+                <span className="text-xs sm:text-sm font-extrabold text-gray-900 ml-1">{totals.inbound_total}</span>
+              </div>
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">剩余</span>
+                <span className="text-xs sm:text-sm font-extrabold text-blue-600 ml-1">{totals.remaining}</span>
+              </div>
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">价值</span>
+                <span className="text-xs sm:text-sm font-extrabold text-red-500 ml-1">¥{fmt(totals.inventory_value)}</span>
+              </div>
+            </div>
+            <div className="hidden lg:flex items-center gap-2">
               <Warehouse className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
               <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
               <span className="text-sm sm:text-lg font-extrabold text-gray-900">{totals.inbound_total}</span>
             </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
+            <div className="hidden lg:flex flex-1" />
+            <div className="hidden lg:flex items-center gap-2">
               <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
               <span className="text-xs sm:text-sm text-gray-500 font-bold">剩余</span>
               <span className="text-sm sm:text-lg font-extrabold text-blue-600">{totals.remaining}</span>
             </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
+            <div className="hidden lg:flex flex-1" />
+            <div className="hidden lg:flex items-center gap-2">
               <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
               <span className="text-xs sm:text-sm text-gray-500 font-bold">价值</span>
               <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(totals.inventory_value)}</span>
@@ -583,31 +742,33 @@ export default function FinancePage() {
         )}
         {viewMode === "sales" && (
           <>
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-green-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">售出</span>
-              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{salesTotals.orderCount}单</span>
-            </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">盈利</span>
-              <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(salesTotals.revenue)}</span>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">售出</span>
+                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{salesTotals.orderCount}款</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">售买</span>
+                <span className="text-sm sm:text-lg font-extrabold text-green-600 ml-1">{salesTotals.totalSold}件</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">盈利</span>
+                <span className="text-sm sm:text-lg font-extrabold text-red-500 ml-1">¥{fmt(salesTotals.totalProfit)}</span>
+              </div>
             </div>
           </>
         )}
         {viewMode === "returns" && (
           <>
-            <div className="flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">退货</span>
-              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{returnTotals.orderCount}单</span>
-            </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">亏损</span>
-              <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(returnTotals.loss)}</span>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">退货</span>
+                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{returnTotals.orderCount}款</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">退回</span>
+                <span className="text-sm sm:text-lg font-extrabold text-yellow-600 ml-1">{returnTotals.totalReturned}件</span>
+              </div>
             </div>
           </>
         )}
@@ -630,72 +791,132 @@ export default function FinancePage() {
 
       {/* 搜索 + 筛选按钮 + 编辑/导出 */}
       <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-        <div className="relative w-[140px] sm:w-[160px]">
+        {/* 移动端：总表搜索占满一行，其他模式搜索和刷新并排 */}
+        <div className={`relative ${viewMode === "summary" ? "w-full lg:flex-1" : "flex-1"}`}>
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 z-10" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索..." className="neo-input w-full h-full text-xs sm:text-sm pl-10 py-1 sm:py-1.5"
+            placeholder="搜索..." className="neo-input w-full h-full text-xs sm:text-sm pl-10 py-0.5 sm:py-1"
           />
         </div>
 
-        {viewMode === "summary" && (
+        {/* 移动端：日期筛选 + 刷新按钮紧跟搜索框 */}
+        {(viewMode === "sales" || viewMode === "returns" || viewMode === "inbound") && (
           <>
-            <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
-              className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto">
-              <option value="">剩余库存</option>
-              <option value="tail">尾货</option>
-              <option value="low">不足5手</option>
-              <option value="mid">5手以上</option>
-              <option value="high">10手以上</option>
-            </select>
-            <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
-              className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto">
-              <option value="">库存价值</option>
-              <option value="0-100">0-100</option>
-              <option value="101-300">101-300</option>
-              <option value="301-500">301-500</option>
-              <option value="500+">500以上</option>
-            </select>
+            {viewMode === "sales" && (
+              <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)}
+                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                <option value="">全部日期</option>
+                {salesDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+              </select>
+            )}
+            {viewMode === "returns" && (
+              <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)}
+                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                <option value="">全部日期</option>
+                {returnsDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+              </select>
+            )}
+            <button onClick={() => {
+              if (viewMode === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+              if (viewMode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
+              if (viewMode === "inbound") fetchInboundAgg();
+            }}
+              className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all h-auto shrink-0">
+              <RefreshCw className="h-3 w-3" />刷新
+            </button>
+            {(viewMode === "sales" || viewMode === "returns") && (
+              <button onClick={syncSummary} disabled={syncing}
+                className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shrink-0 disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+              </button>
+            )}
           </>
         )}
 
-        {/* 剩余筛选按钮推至最右 */}
-        <div className="flex-1 lg:hidden" />
-
         {viewMode === "summary" && (
-          <button onClick={() => setErrorFilter(!errorFilter)}
-            className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-              errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
-            }`}>错误库存</button>
+          <>
+            {/* 移动端：筛选按钮换行占满 */}
+            <div className="flex gap-1.5 w-full lg:w-auto">
+              <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
+                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                <option value="">剩余库存</option>
+                <option value="tail">尾货</option>
+                <option value="low">不足5手</option>
+                <option value="mid">5手以上</option>
+                <option value="high">10手以上</option>
+              </select>
+              <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
+                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                <option value="">库存价值</option>
+                <option value="0-100">0-100</option>
+                <option value="101-300">101-300</option>
+                <option value="301-500">301-500</option>
+                <option value="500+">500以上</option>
+              </select>
+              <button onClick={() => setErrorFilter(!errorFilter)}
+                className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto flex-1 lg:flex-none ${
+                  errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
+                }`}>错误库存</button>
+            </div>
+          </>
         )}
 
-        {/* 编辑和导出按钮 */}
+        {/* 编辑和导出按钮 - 桌面端 */}
         {viewMode === "sales" && (
-          <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
-            className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-              salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
-            }`}>
-            {salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
-          </button>
+          <>
+            <select
+              value={salesDateFilter}
+              onChange={e => setSalesDateFilter(e.target.value)}
+              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+            >
+              <option value="">全部日期</option>
+              {salesDates.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
+              }`}>
+              {salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+            </button>
+            <button onClick={syncSummary} disabled={syncing}
+              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto disabled:opacity-50">
+              <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />同步数据
+            </button>
+          </>
         )}
         {viewMode === "returns" && (
-          <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
-            className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-              returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
-            }`}>
-            {returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
-          </button>
+          <>
+            <select
+              value={returnsDateFilter}
+              onChange={e => setReturnsDateFilter(e.target.value)}
+              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+            >
+              <option value="">全部日期</option>
+              {returnsDates.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
+              }`}>
+              {returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+            </button>
+          </>
         )}
         {viewMode === "inbound" && (
           <>
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
-              className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
                 inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[2px_2px_0px_0px_rgba(59,130,246,0.3)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
               }`}>
               {inboundEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />修改</>}
             </button>
             <button onClick={() => setExportModal(true)}
-              className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto">
+              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto">
               <Download className="h-3 w-3" />导出
             </button>
           </>
@@ -723,20 +944,21 @@ export default function FinancePage() {
                     <th className="px-2 py-2 text-left font-extrabold">图片</th>
                     <th className="px-2 py-2 text-left font-extrabold">售卖编号</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">入库</th>
-                    <th className="px-1.5 py-2 text-center font-extrabold cursor-pointer hover:bg-gray-700" title="点击查看售卖明细">售出</th>
-                    <th className="px-1.5 py-2 text-center font-extrabold cursor-pointer hover:bg-gray-700" title="点击查看退货明细">退货</th>
+                    <th className="px-1.5 py-2 text-center font-extrabold text-base cursor-pointer hover:bg-gray-700" title="点击查看售卖明细">售出</th>
+                    <th className="px-1.5 py-2 text-center font-extrabold text-base cursor-pointer hover:bg-gray-700" title="点击查看退货明细">退货</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">剩余</th>
                     {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
                     <th className="px-2 py-2 text-center font-extrabold">厂家</th>
                     <th className="px-2 py-2 text-center font-extrabold">进价</th>
                     <th className="px-2 py-2 text-center font-extrabold">售价</th>
-                    <th className="px-2 py-2 text-center font-extrabold">利润</th>
+                    <th className="px-2 py-2 text-center font-extrabold">退货率</th>
+                    <th className="px-2 py-2 text-center font-extrabold">利润率</th>
                     <th className="px-2 py-2 text-center font-extrabold">库存价值</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSummary.length === 0 ? (
-                    <tr><td colSpan={21 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
+                    <tr><td colSpan={25} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
                     filteredSummary.map((row, idx) => {
                       const isError = hasErrorStock(row);
@@ -750,9 +972,9 @@ export default function FinancePage() {
                             {row.name && <div className="text-xs text-gray-400 font-normal">{row.name}</div>}
                           </td>
                           <td className="px-1.5 py-2.5 text-center font-bold">{row.inbound_total}</td>
-                          <td className="px-1.5 py-2.5 text-center font-bold text-green-600 cursor-pointer hover:underline hover:text-green-800"
+                          <td className="px-1.5 py-2.5 text-center font-bold text-base text-green-600 cursor-pointer hover:underline hover:text-green-800"
                             onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)} title="点击查看售卖明细">{row.sold_total}</td>
-                          <td className="px-1.5 py-2.5 text-center font-bold text-yellow-600 cursor-pointer hover:underline hover:text-yellow-800"
+                          <td className="px-1.5 py-2.5 text-center font-bold text-base text-yellow-600 cursor-pointer hover:underline hover:text-yellow-800"
                             onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)} title="点击查看退货明细">{row.return_total}</td>
                           <td className="px-1.5 py-2.5 text-center font-extrabold text-blue-600">{row.remaining}</td>
                           {ALL_SIZES.map((s) => {
@@ -762,7 +984,8 @@ export default function FinancePage() {
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.manufacturer || "-"}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">¥{fmt(row.cost_price)}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-red-500">¥{fmt(row.sell_price)}</td>
-                          <td className="px-2 py-2.5 text-center font-extrabold text-red-500">¥{fmt(row.profits)}</td>
+                          <td className={`px-2 py-2.5 text-center font-bold text-xs ${row.return_total > 0 && row.sold_total > 0 && row.return_total / row.sold_total > 0.3 ? "text-red-500" : "text-gray-700"}`}>{pct(row.sold_total > 0 ? row.return_total / row.sold_total : 0)}</td>
+                          <td className={`px-2 py-2.5 text-center font-bold text-xs ${(row.sell_price as number - row.cost_price as number) >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0)}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-gray-700">¥{fmt(row.inventory_value)}</td>
                         </tr>
                       );
@@ -801,8 +1024,8 @@ export default function FinancePage() {
                       const summaryRow = data.find((r) => r.sale_id === row.sale_id);
                       const photo = row.photo || summaryRow?.photo || "";
                       const sp = row.sell_price || 0;
-                      const cp = row.cost_price || 0;
-                      const rate = cp > 0 ? ((sp - cp) / cp) : 0;
+                      const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
+                      const rate = sp > 0 ? ((sp - cp) / sp) : 0;
                       return (
                         <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td className="px-2 py-2.5">
@@ -840,7 +1063,7 @@ export default function FinancePage() {
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">¥{fmt(cp)}</td>
                           <td className={`px-2 py-2.5 text-center font-bold text-xs ${rate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(rate)}</td>
                           <td className="px-2 py-2.5 text-center text-xs text-gray-500">
-                            {row.last_order_time ? new Date(row.last_order_time).toLocaleDateString("zh-CN") : "-"}
+                            {salesDateFilter || (row.last_order_time ? new Date(row.last_order_time).toLocaleDateString("zh-CN") : "-")}
                           </td>
                         </tr>
                       );
@@ -913,7 +1136,7 @@ export default function FinancePage() {
                           })}
                           <td className={`px-2 py-2.5 text-center font-bold text-xs ${returnRate > 0.3 ? "text-red-500" : "text-gray-700"}`}>{pct(returnRate)}</td>
                           <td className="px-2 py-2.5 text-center text-xs text-gray-500">
-                            {row.last_return_time ? new Date(row.last_return_time).toLocaleDateString("zh-CN") : "-"}
+                            {returnsDateFilter || (row.last_return_time ? new Date(row.last_return_time).toLocaleDateString("zh-CN") : "-")}
                           </td>
                         </tr>
                       );
@@ -1107,64 +1330,64 @@ export default function FinancePage() {
             ) : (
               filteredSummary.map((row) => {
                 const isError = hasErrorStock(row);
+                const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
+                const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
                 return (
                   <div key={row.sale_id} className={`bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
-                    <div className="flex gap-3 mb-2">
-                      <div className="w-48 h-48 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                    <div className="flex gap-2">
+                      {/* 图片区域 */}
+                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {row.photo ? <img src={row.photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                       </div>
-                      <div className="flex-1 min-w-0 flex flex-col justify-between">
-                        <div>
-                          <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                          {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                          {row.manufacturer && <div className="text-[10px] text-gray-400">{row.manufacturer}</div>}
+                      {/* 右侧内容区 */}
+                      <div className="flex-1 min-w-0">
+                        {/* 编号 */}
+                        <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                        {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
+                        {/* 所有尺码 窄4列显示 */}
+                        <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                          {ALL_SIZES.map((s) => {
+                            const val = Number(row[`size_${s}`]) || 0;
+                            return (
+                              <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
+                                val < 0 ? "bg-red-50 border-red-300 text-red-600" :
+                                val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
+                                "bg-white border-gray-200 text-gray-300"
+                              }`}>{s}:{val}</span>
+                            );
+                          })}
                         </div>
-                        <div className="grid grid-cols-2 gap-1">
-                          <div className="text-center bg-gray-50 rounded p-1 border border-gray-200">
-                            <div className="text-[9px] text-gray-400">入库</div>
-                            <div className="text-[10px] font-extrabold">{row.inbound_total}</div>
-                          </div>
-                          <div className="text-center bg-blue-50 rounded p-1 border border-blue-200">
-                            <div className="text-[9px] text-gray-400">剩余</div>
-                            <div className="text-[10px] font-extrabold text-blue-600">{row.remaining}</div>
-                          </div>
-                          <div className="text-center bg-green-50 rounded p-1 border border-green-200 cursor-pointer"
+                        {/* 售出/退货 字体放大到和商品名一样大 */}
+                        <div className="flex gap-3 mt-1">
+                          <div className="cursor-pointer shrink-0"
                             onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}>
-                            <div className="text-[9px] text-gray-400">售出</div>
-                            <div className="text-[10px] font-extrabold text-green-600">{row.sold_total}</div>
+                            <span className="text-xs font-extrabold text-green-600">售出 {row.sold_total}</span>
+                            <span className={`text-xs font-bold ml-2 ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率 {pct(profitRate)}</span>
                           </div>
-                          <div className="text-center bg-yellow-50 rounded p-1 border border-yellow-200 cursor-pointer"
+                        </div>
+                        <div className="flex gap-3 mt-0.5">
+                          <div className="cursor-pointer shrink-0"
                             onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}>
-                            <div className="text-[9px] text-gray-400">退货</div>
-                            <div className="text-[10px] font-extrabold text-yellow-600">{row.return_total}</div>
+                            <span className="text-xs font-extrabold text-yellow-600">退货 {row.return_total}</span>
+                            <span className="text-xs font-bold ml-2 text-yellow-600">退货率 {pct(returnRate)}</span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* 尺码 - 一排横向展示 */}
-                    <div className="flex flex-wrap gap-1 mb-1.5">
-                      {ALL_SIZES.map((s) => {
-                        const val = Number(row[`size_${s}`]) || 0;
-                        return (
-                          <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded border font-bold shrink-0 ${
-                            val < 0 ? "bg-red-50 border-red-300 text-red-600" :
-                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
-                            "bg-white border-gray-200 text-gray-300"
-                          }`}>{s}:{val}</span>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex justify-between text-[10px] pt-1.5 border-t border-gray-200">
-                      <div className="flex items-center gap-2">
-                        {row.manufacturer && <span className="text-gray-500">{row.manufacturer}</span>}
-                        <span className="text-gray-400">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price)}</span></span>
-                        <span className="text-gray-400">售价: <span className="font-bold text-red-500">¥{fmt(row.sell_price)}</span></span>
+                    {/* 入库/剩余/价值 均匀排开 */}
+                    <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
+                      <div>
+                        <span className="text-gray-400">入库 </span>
+                        <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-red-500">利润: ¥{fmt(row.profits)}</span>
-                        {row.shelf_no && <span className="text-gray-400">{row.shelf_no}</span>}
+                      <div>
+                        <span className="text-gray-400">剩余 </span>
+                        <span className="font-extrabold text-gray-900">{row.remaining}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">价值 </span>
+                        <span className="font-extrabold text-red-500">¥{fmt(row.inventory_value)}</span>
                       </div>
                     </div>
                   </div>
@@ -1183,44 +1406,93 @@ export default function FinancePage() {
               filteredSales.map((row) => {
                 const summaryRow = data.find((r) => r.sale_id === row.sale_id);
                 const photo = row.photo || summaryRow?.photo || "";
+                const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
                 const sp = row.sell_price || 0;
-                const cp = row.cost_price || 0;
-                const rate = cp > 0 ? ((sp - cp) / cp) : 0;
+                const rate = sp > 0 ? ((sp - cp) / sp) : 0;
+                const remaining = (summaryRow?.remaining as number) || 0;
+                // 售价信息
+                const priceInfo = (row as Record<string, unknown>).sell_price_info as Record<string, string> | undefined;
+                const hasMultiPrice = priceInfo && Object.keys(priceInfo).length > 1;
+                const isPriceExpanded = expandedPriceRow === row.sale_id;
                 return (
-                  <div key={row.sale_id} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
-                    <div className="flex gap-3 mb-2">
-                      <div className="w-48 h-48 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                        {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                        {row.manufacturer && <div className="text-[10px] text-gray-400">{row.manufacturer}</div>}
-                        <div className="mt-1 text-center bg-green-50 rounded p-1.5 border border-green-200">
-                          <div className="text-[9px] text-gray-400">总售出</div>
-                          <div className="text-sm font-extrabold text-green-600">{row.total}</div>
+                  <div key={row.sale_id}>
+                    <div
+                      onClick={() => {
+                        // 打开编辑悬浮窗
+                        const vals: Record<number, number> = {};
+                        for (const s of ALL_SIZES) {
+                          vals[s] = Number(row[`size_${s}`]) || 0;
+                        }
+                        setEditSizeValues(vals);
+                        setSalesEditModal(row.sale_id);
+                      }}
+                      className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
+                    >
+                      <div className="flex gap-2">
+                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
-                        <div className="flex gap-2 mt-1 text-[10px]">
-                          <span className="text-gray-400">售价: <span className="font-bold text-red-500">¥{fmt(sp)}</span></span>
-                          <span className="text-gray-400">进价: <span className="font-bold text-gray-700">¥{fmt(cp)}</span></span>
-                          <span className={`font-bold ${rate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率: {pct(rate)}</span>
-                        </div>
-                        {row.last_order_time && (
-                          <div className="text-[10px] text-gray-400 mt-0.5">
-                            下单: {new Date(row.last_order_time).toLocaleDateString("zh-CN")}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            <div className="flex items-center gap-2 text-[10px] shrink-0 ml-1">
+                              <span className="text-gray-400">售出</span>
+                              <span className="font-extrabold text-green-600">{row.total}</span>
+                              <span className="text-gray-300">|</span>
+                              <span className="text-gray-400">剩余</span>
+                              <span className="font-extrabold">{remaining}</span>
+                            </div>
                           </div>
-                        )}
+                          {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
+                          {/* 尺码 4列显示 */}
+                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                            {ALL_SIZES.map((s) => {
+                              const val = Number(row[`size_${s}`]) || 0;
+                              return (
+                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
+                                  val > 0 ? "bg-green-50 border-green-300 text-green-700" : "bg-white border-gray-200 text-gray-300"
+                                }`}>{s}:{val || "-"}</span>
+                              );
+                            })}
+                          </div>
+                          {/* 售价（带方框，多价可下拉） */}
+                          <div className="mt-1">
+                            {hasMultiPrice ? (
+                              <div className="border-2 border-red-300 rounded-lg overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setExpandedPriceRow(isPriceExpanded ? null : row.sale_id); }}
+                                  className="w-full flex items-center justify-between px-2 py-1 bg-red-50 hover:bg-red-100 transition-colors"
+                                >
+                                  <span className="text-[10px] font-extrabold text-red-500">售价 ¥{fmt(sp)}</span>
+                                  <ChevronDown className={`h-3 w-3 text-red-400 transition-transform ${isPriceExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                                {isPriceExpanded && priceInfo && (
+                                  <div className="border-t border-red-200 bg-white divide-y divide-red-100">
+                                    {Object.entries(priceInfo).map(([price, time]) => (
+                                      <div key={price} className="flex justify-between px-2 py-1 text-[9px]">
+                                        <span className="font-bold text-red-500">¥{price}</span>
+                                        <span className="text-gray-400">{time ? new Date(time).toLocaleDateString("zh-CN") : "-"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-full border-2 border-red-300 rounded-lg px-2 py-1 bg-red-50">
+                                <span className="text-[10px] font-extrabold text-red-500">售价 ¥{fmt(sp)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mb-1.5">
-                      {ALL_SIZES.map((s) => {
-                        const val = Number(row[`size_${s}`]) || 0;
-                        return (
-                          <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded border font-bold shrink-0 ${
-                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
-                          }`}>{s}:{val || "-"}</span>
-                        );
-                      })}
+
+                      {/* 底部：进价 盈利 利润率 */}
+                      <div className="flex justify-between items-center text-[10px] mt-1.5 pt-1.5 border-t border-gray-200">
+                        <span className="text-gray-400">进价: <span className="font-bold text-gray-700">¥{fmt(cp)}</span></span>
+                        <span className="text-gray-400">盈利: <span className="font-bold text-red-500">¥{fmt(row.total * sp)}</span></span>
+                        <span className={`font-bold ${rate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率: {pct(rate)}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1240,39 +1512,90 @@ export default function FinancePage() {
                 const photo = summaryRow?.photo || "";
                 const soldTotal = summaryRow?.sold_total || 0;
                 const returnRate = soldTotal > 0 ? row.total / soldTotal : 0;
+                const remaining = (summaryRow?.remaining as number) || 0;
+                const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
+                // 退货价信息
+                const retPriceInfo = (row as Record<string, unknown>).return_price_info as Record<string, string> | undefined;
+                const rp = (row as Record<string, unknown>).return_price as number || 0;
+                const hasMultiPrice = retPriceInfo && Object.keys(retPriceInfo).length > 1;
+                const isPriceExpanded = expandedPriceRow === row.sale_id;
                 return (
-                  <div key={row.sale_id} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
-                    <div className="flex gap-3 mb-2">
-                      <div className="w-48 h-48 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                        {summaryRow?.name && <div className="text-xs text-gray-500 truncate">{summaryRow.name}</div>}
-                        {summaryRow?.manufacturer && <div className="text-[10px] text-gray-400">{summaryRow.manufacturer}</div>}
-                        <div className="mt-1 text-center bg-yellow-50 rounded p-1.5 border border-yellow-200">
-                          <div className="text-[9px] text-gray-400">总退货</div>
-                          <div className="text-sm font-extrabold text-yellow-600">{row.total}</div>
+                  <div key={row.sale_id}>
+                    <div
+                      onClick={() => {
+                        const vals: Record<number, number> = {};
+                        for (const s of ALL_SIZES) {
+                          vals[s] = Number(row[`size_${s}`]) || 0;
+                        }
+                        setEditSizeValues(vals);
+                        setReturnsEditModal(row.sale_id);
+                      }}
+                      className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
+                    >
+                      <div className="flex gap-2">
+                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
-                        <div className="flex gap-2 mt-1 text-[10px]">
-                          <span className={`font-bold ${returnRate > 0.3 ? "text-red-500" : "text-gray-700"}`}>退货率: {pct(returnRate)}</span>
-                        </div>
-                        {row.last_return_time && (
-                          <div className="text-[10px] text-gray-400 mt-0.5">
-                            退货: {new Date(row.last_return_time).toLocaleDateString("zh-CN")}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            <div className="flex items-center gap-2 text-[10px] shrink-0 ml-1">
+                              <span className="text-gray-400">退货</span>
+                              <span className="font-extrabold text-yellow-600">{row.total}</span>
+                              <span className="text-gray-300">|</span>
+                              <span className="text-gray-400">剩余</span>
+                              <span className="font-extrabold">{remaining}</span>
+                            </div>
                           </div>
-                        )}
+                          {summaryRow?.name && <div className="text-xs text-gray-500 truncate">{summaryRow.name}</div>}
+                          {/* 尺码 4列显示 */}
+                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                            {ALL_SIZES.map((s) => {
+                              const val = Number(row[`size_${s}`]) || 0;
+                              return (
+                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
+                                  val > 0 ? "bg-yellow-50 border-yellow-300 text-yellow-700" : "bg-white border-gray-200 text-gray-300"
+                                }`}>{s}:{val || "-"}</span>
+                              );
+                            })}
+                          </div>
+                          {/* 退货价（带方框，多价可下拉） */}
+                          <div className="mt-1">
+                            {hasMultiPrice ? (
+                              <div className="border-2 border-yellow-400 rounded-lg overflow-hidden">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setExpandedPriceRow(isPriceExpanded ? null : row.sale_id); }}
+                                  className="w-full flex items-center justify-between px-2 py-1 bg-yellow-50 hover:bg-yellow-100 transition-colors"
+                                >
+                                  <span className="text-[10px] font-extrabold text-yellow-600">退货价 ¥{fmt(rp)}</span>
+                                  <ChevronDown className={`h-3 w-3 text-yellow-500 transition-transform ${isPriceExpanded ? "rotate-180" : ""}`} />
+                                </button>
+                                {isPriceExpanded && retPriceInfo && (
+                                  <div className="border-t border-yellow-200 bg-white divide-y divide-yellow-100">
+                                    {Object.entries(retPriceInfo).map(([price, time]) => (
+                                      <div key={price} className="flex justify-between px-2 py-1 text-[9px]">
+                                        <span className="font-bold text-yellow-600">¥{price}</span>
+                                        <span className="text-gray-400">{time ? new Date(time).toLocaleDateString("zh-CN") : "-"}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-full border-2 border-yellow-400 rounded-lg px-2 py-1 bg-yellow-50">
+                                <span className="text-[10px] font-extrabold text-yellow-600">退货价 ¥{fmt(rp)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mb-1.5">
-                      {ALL_SIZES.map((s) => {
-                        const val = Number(row[`size_${s}`]) || 0;
-                        return (
-                          <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded border font-bold shrink-0 ${
-                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
-                          }`}>{s}:{val || "-"}</span>
-                        );
-                      })}
+
+                      {/* 底部：进价 退货率 */}
+                      <div className="flex justify-between items-center text-[10px] mt-1.5 pt-1.5 border-t border-gray-200">
+                        <span className="text-gray-400">进价: <span className="font-bold text-gray-700">¥{fmt(cp)}</span></span>
+                        <span className="font-bold text-yellow-600">退货率: {pct(returnRate)}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1290,34 +1613,83 @@ export default function FinancePage() {
               filteredInbound.map((row) => {
                 const summaryRow = data.find((r) => r.sale_id === row.sale_id);
                 const photo = row.photo || summaryRow?.photo || "";
+                const curSeason = (row as Record<string, unknown>).season as string || (summaryRow as Record<string, unknown>)?.season as string || "";
+                const curStyle = (row as Record<string, unknown>).style_category as string || (summaryRow as Record<string, unknown>)?.style_category as string || "";
+                const curMfr = (row as Record<string, unknown>).manufacturer as string || (summaryRow as Record<string, unknown>)?.manufacturer as string || "";
+                const curShelf = (row as Record<string, unknown>).shelf_no as string || (summaryRow as Record<string, unknown>)?.shelf_no as string || "";
+                const curName = row.name || (summaryRow as Record<string, unknown>)?.name as string || "";
                 return (
-                  <div key={row.sale_id} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
-                    <div className="flex gap-3 mb-2">
-                      <div className="w-48 h-48 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                        {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                        {row.manufacturer && <div className="text-[10px] text-gray-400">{row.manufacturer}</div>}
-                        <div className="mt-1 text-center bg-blue-50 rounded p-1.5 border border-blue-200">
-                          <div className="text-[9px] text-gray-400">总入库</div>
-                          <div className="text-sm font-extrabold text-blue-600">{row.total}</div>
+                  <div key={row.sale_id}>
+                    <div
+                      onClick={() => {
+                        // 解析货架号 - 兼容 "B02-4" 和 "B-2-4" 两种格式
+                        let l1 = "", l2 = "", l3 = "";
+                        if (curShelf) {
+                          const parts = curShelf.split("-");
+                          if (parts.length >= 2) {
+                            const zoneMatch = parts[0].match(/^([A-Za-z]+)(\d+)/);
+                            if (zoneMatch) {
+                              l1 = zoneMatch[1];
+                              l2 = String(parseInt(zoneMatch[2], 10));
+                              l3 = parts[1];
+                            } else {
+                              l1 = parts[0];
+                              l2 = parts[1];
+                              l3 = parts[2] || "";
+                            }
+                          }
+                        }
+                        setMobileShelfL1(l1);
+                        setMobileShelfL2(l2);
+                        setMobileShelfL3(l3);
+                        setMobileEditModal({
+                          sale_id: row.sale_id,
+                          photo,
+                          name: curName,
+                          manufacturer: curMfr,
+                          shelf_no: curShelf,
+                          season: curSeason,
+                          style_category: curStyle,
+                        });
+                      }}
+                      className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
+                    >
+                      <div className="flex gap-2 mb-2">
+                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
-                        <div className="flex gap-2 mt-1 text-[10px]">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</span>
+                            {curSeason && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold shrink-0">{curSeason}</span>}
+                            {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
+                          </div>
+                          {curName && <div className="text-xs text-gray-500 truncate">{curName}</div>}
+                          {/* 尺码 4列显示 */}
+                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                            {ALL_SIZES.map((s) => {
+                              const val = Number(row[`size_${s}`]) || 0;
+                              return (
+                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
+                                  val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
+                                }`}>{s}:{val || "-"}</span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      {/* 总入库和进价 - 无框 */}
+                      <div className="flex justify-between items-center text-[10px]">
+                        <div>
+                          <span className="text-gray-400">总入库: </span>
+                          <span className="font-extrabold text-blue-600">{row.total}</span>
+                        </div>
+                        <div className="flex gap-2">
                           <span className="text-gray-500">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price || 0)}</span></span>
+                          {curMfr && <span className="text-gray-400">{curMfr}</span>}
+                          {curShelf && <span className="text-gray-400">{curShelf}</span>}
                         </div>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1 mb-1.5">
-                      {ALL_SIZES.map((s) => {
-                        const val = Number(row[`size_${s}`]) || 0;
-                        return (
-                          <span key={s} className={`text-[10px] px-1.5 py-0.5 rounded border font-bold shrink-0 ${
-                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
-                          }`}>{s}:{val || "-"}</span>
-                        );
-                      })}
                     </div>
                   </div>
                 );
@@ -1326,6 +1698,323 @@ export default function FinancePage() {
           </>
         )}
       </div>
+
+      {/* 移动端入库编辑弹窗 */}
+      {mobileEditModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setMobileEditModal(null)}>
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 shadow-[0_-8px_30px_rgba(0,0,0,0.3)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-extrabold text-gray-900">编辑 {mobileEditModal.sale_id}</h3>
+              <button onClick={() => setMobileEditModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* 图片 */}
+            <div className="flex justify-center mb-3">
+              <div className="w-44 h-44 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100">
+                {mobileEditModal.photo ? <img src={mobileEditModal.photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* 厂家 */}
+              <div>
+                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">厂家</label>
+                <select
+                  value={mobileEditModal.manufacturer}
+                  onChange={(e) => setMobileEditModal({ ...mobileEditModal, manufacturer: e.target.value })}
+                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">-</option>
+                  {editManufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+
+              {/* 货架号 - 三级选择 */}
+              <div>
+                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">货架号</label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={mobileShelfL1}
+                    onChange={(e) => { setMobileShelfL1(e.target.value); setMobileShelfL2(""); setMobileShelfL3(""); }}
+                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="">排</option>
+                    {Object.keys(editShelfData).map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                  <select
+                    value={mobileShelfL2}
+                    onChange={(e) => { setMobileShelfL2(e.target.value); setMobileShelfL3(""); }}
+                    disabled={!mobileShelfL1}
+                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                  >
+                    <option value="">号</option>
+                    {mobileShelfL1 && (editShelfData[mobileShelfL1] || []).map((n) => <option key={n} value={String(n)}>{n}</option>)}
+                  </select>
+                  <select
+                    value={mobileShelfL3}
+                    onChange={(e) => setMobileShelfL3(e.target.value)}
+                    disabled={!mobileShelfL2}
+                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                  >
+                    <option value="">层</option>
+                    {DEFAULT_LAYERS.map((n) => <option key={n} value={String(n)}>{n}</option>)}
+                  </select>
+                </div>
+                {mobileShelfL1 && mobileShelfL2 && mobileShelfL3 && (
+                  <p className="text-[10px] text-gray-500 mt-1 font-bold">
+                    {mobileShelfL1}-{mobileShelfL2}-{mobileShelfL3}（{mobileShelfL1}货架第{mobileShelfL3}层）
+                  </p>
+                )}
+              </div>
+
+              {/* 季节 */}
+              <div>
+                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">季节</label>
+                <select
+                  value={mobileEditModal.season}
+                  onChange={(e) => setMobileEditModal({ ...mobileEditModal, season: e.target.value })}
+                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">-</option>
+                  {editSeasonCategories.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              {/* 款式 */}
+              <div>
+                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">款式</label>
+                <select
+                  value={mobileEditModal.style_category}
+                  onChange={(e) => setMobileEditModal({ ...mobileEditModal, style_category: e.target.value })}
+                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">-</option>
+                  <optgroup label="── 含尺码 ──">
+                    {editSizeStyles.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                  <optgroup label="── 不含尺码 ──">
+                    {editNoSizeStyles.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </optgroup>
+                </select>
+              </div>
+            </div>
+
+            {/* 保存按钮 */}
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setMobileEditModal(null)}
+                className="flex-1 py-2.5 rounded-xl border-2 border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  const shelfNo = mobileShelfL1 && mobileShelfL2 && mobileShelfL3
+                    ? `${mobileShelfL1}-${mobileShelfL2}-${mobileShelfL3}`
+                    : mobileEditModal.shelf_no;
+                  try {
+                    await saveInboundEdit(mobileEditModal.sale_id, {
+                      manufacturer: mobileEditModal.manufacturer,
+                      shelf_no: shelfNo,
+                      season: mobileEditModal.season,
+                      style_category: mobileEditModal.style_category,
+                    });
+                    setMobileEditModal(null);
+                  } catch {
+                    alert("保存失败");
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"
+              >
+                保存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 移动端售出编辑悬浮窗 */}
+      {salesEditModal && (() => {
+        const row = filteredSales.find((r) => r.sale_id === salesEditModal);
+        if (!row) return null;
+        const summaryRow = data.find((r) => r.sale_id === salesEditModal);
+        const photo = row.photo || summaryRow?.photo || "";
+        return (
+          <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setSalesEditModal(null)}>
+            <div
+              className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 shadow-[0_-8px_30px_rgba(0,0,0,0.3)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-extrabold text-gray-900">编辑售出 {row.sale_id}</h3>
+                <button onClick={() => setSalesEditModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {/* 商品大图 */}
+              <div className="flex justify-center mb-3">
+                <div className="w-40 h-40 rounded-xl border-2 border-gray-200 overflow-hidden bg-gray-100">
+                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                </div>
+              </div>
+              {/* 尺码输入 */}
+              <div className="grid grid-cols-4 gap-2">
+                {ALL_SIZES.map((s) => {
+                  const val = editSizeValues[s] || 0;
+                  return (
+                    <div key={s} className="rounded-xl border-[3px] border-gray-900 bg-white p-1">
+                      <div className={`text-center text-[10px] font-extrabold mb-0.5 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{s}</div>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditSizeValues({ ...editSizeValues, [s]: Math.max(0, val - 1) }); }}
+                          className="flex h-5 w-5 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={val}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value) || 0;
+                            setEditSizeValues({ ...editSizeValues, [s]: Math.max(0, v) });
+                          }}
+                          className={`w-full text-center text-xs font-extrabold border-none outline-none bg-transparent ${val > 0 ? "text-gray-900" : "text-gray-300"}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditSizeValues({ ...editSizeValues, [s]: val + 1 }); }}
+                          className="flex h-5 w-5 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setSalesEditModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={async () => {
+                    for (const s of ALL_SIZES) {
+                      const newVal = editSizeValues[s] || 0;
+                      const oldVal = Number(row[`size_${s}`]) || 0;
+                      if (newVal !== oldVal) {
+                        await saveEdit("sales", row.sale_id, s, newVal);
+                      }
+                    }
+                    setSalesEditModal(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"
+                >
+                  保存修改
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 移动端退货编辑悬浮窗 */}
+      {returnsEditModal && (() => {
+        const row = filteredReturns.find((r) => r.sale_id === returnsEditModal);
+        if (!row) return null;
+        const summaryRow = data.find((r) => r.sale_id === returnsEditModal);
+        const photo = summaryRow?.photo || "";
+        return (
+          <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setReturnsEditModal(null)}>
+            <div
+              className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 shadow-[0_-8px_30px_rgba(0,0,0,0.3)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-extrabold text-gray-900">编辑退货 {row.sale_id}</h3>
+                <button onClick={() => setReturnsEditModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {/* 商品大图 */}
+              <div className="flex justify-center mb-3">
+                <div className="w-40 h-40 rounded-xl border-2 border-gray-200 overflow-hidden bg-gray-100">
+                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                </div>
+              </div>
+              {/* 尺码输入 */}
+              <div className="grid grid-cols-4 gap-2">
+                {ALL_SIZES.map((s) => {
+                  const val = editSizeValues[s] || 0;
+                  return (
+                    <div key={s} className="rounded-xl border-[3px] border-gray-900 bg-white p-1">
+                      <div className={`text-center text-[10px] font-extrabold mb-0.5 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{s}</div>
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditSizeValues({ ...editSizeValues, [s]: Math.max(0, val - 1) }); }}
+                          className="flex h-5 w-5 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
+                        >
+                          <Minus className="h-2.5 w-2.5" />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={val}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value) || 0;
+                            setEditSizeValues({ ...editSizeValues, [s]: Math.max(0, v) });
+                          }}
+                          className={`w-full text-center text-xs font-extrabold border-none outline-none bg-transparent ${val > 0 ? "text-gray-900" : "text-gray-300"}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setEditSizeValues({ ...editSizeValues, [s]: val + 1 }); }}
+                          className="flex h-5 w-5 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
+                        >
+                          <Plus className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setReturnsEditModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={async () => {
+                    for (const s of ALL_SIZES) {
+                      const newVal = editSizeValues[s] || 0;
+                      const oldVal = Number(row[`size_${s}`]) || 0;
+                      if (newVal !== oldVal) {
+                        await saveEdit("returns", row.sale_id, s, newVal);
+                      }
+                    }
+                    setReturnsEditModal(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"
+                >
+                  保存修改
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 导出弹窗 */}
       {exportModal && (
@@ -1442,7 +2131,10 @@ export default function FinancePage() {
                         {detailType === "sales" && <td className="px-2 py-1.5 text-xs">{r.tracking_number || "-"}</td>}
                         {detailType === "returns" && <td className="px-2 py-1.5 text-center text-red-500 font-bold">¥{r.return_price}</td>}
                         <td className="px-2 py-1.5 text-xs text-gray-500">
-                          {r.order_time || r.created_at ? new Date((r.order_time || r.created_at)!).toLocaleString("zh-CN") : "-"}
+                          {detailType === "returns"
+                            ? (r.return_time || r.created_at ? new Date((r.return_time || r.created_at)!).toLocaleString("zh-CN") : "-")
+                            : (r.order_time || r.created_at ? new Date((r.order_time || r.created_at)!).toLocaleString("zh-CN") : "-")
+                          }
                         </td>
                       </tr>
                     ))}

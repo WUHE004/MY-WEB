@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { upsertReturnsSummary } from "@/app/api/returns-summary/route";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
         return_price: Number(record.return_price) || 0,
         remarks: record.remarks || "",
         registrant: record.registrant || "",
+        return_time: (record.return_time && record.return_time !== "0") ? record.return_time : new Date().toISOString(),
       };
 
       const { data, error } = await supabase
@@ -70,6 +72,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       inserted.push(data);
+
+      // 更新退货总表
+      upsertReturnsSummary(record.sale_id || "").catch((e) => console.error("upsert returns summary error:", e));
     }
 
     return NextResponse.json(inserted, { status: 201 });
@@ -120,6 +125,7 @@ export async function PUT(request: NextRequest) {
         return_price: latest?.return_price ?? 0,
         remarks: "编辑补录",
         registrant: "管理员",
+        return_time: new Date().toISOString(),
       };
 
       const { error: insertErr } = await supabase
@@ -129,6 +135,9 @@ export async function PUT(request: NextRequest) {
       if (insertErr) {
         return NextResponse.json({ error: insertErr.message }, { status: 400 });
       }
+
+      // 更新退货总表
+      upsertReturnsSummary(sale_id).catch((e) => console.error("upsert returns summary error:", e));
 
       return NextResponse.json({ message: "已增加", delta, currentTotal, newTotal: newQty });
     } else {
@@ -151,6 +160,9 @@ export async function PUT(request: NextRequest) {
         }
         remaining -= toRemove;
       }
+
+      // 更新退货总表
+      upsertReturnsSummary(sale_id).catch((e) => console.error("upsert returns summary error:", e));
 
       return NextResponse.json({ message: "已减少", delta, currentTotal, newTotal: newQty });
     }

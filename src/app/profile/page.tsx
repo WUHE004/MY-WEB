@@ -131,6 +131,15 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
+    const phone = localStorage.getItem("member_phone");
+    // 调用 API 更新在线状态
+    if (phone) {
+      fetch("/api/members/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      }).catch(() => {});
+    }
     localStorage.removeItem("member_token");
     localStorage.removeItem("member_name");
     localStorage.removeItem("member_role");
