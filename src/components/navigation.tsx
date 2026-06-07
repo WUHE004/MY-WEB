@@ -9,12 +9,18 @@ import {
   Link2,
   Users,
   Settings,
+  BarChart3,
+  PieChart,
+  Upload,
 } from "lucide-react";
 
 const allNavItems = [
   { href: "/", label: "首页", icon: LayoutDashboard, roles: ["admin", "customer", "operator", ""] },
   { href: "/products", label: "商品", icon: Package, roles: ["admin", "customer", "operator", ""] },
   { href: "/links", label: "操作", icon: Link2, roles: ["admin", "operator"] },
+  { href: "/finance", label: "管理", icon: BarChart3, roles: ["admin"] },
+  { href: "/dashboard", label: "仪表", icon: PieChart, roles: ["admin"] },
+  { href: "/data-import", label: "导入", icon: Upload, roles: ["admin"] },
   { href: "/profile", label: "信息", icon: Users, roles: ["admin", "customer", "operator", ""] },
 ];
 
@@ -24,6 +30,28 @@ export function Navigation() {
 
   useEffect(() => {
     setRole(localStorage.getItem("member_role") || "");
+  }, []);
+
+  // 定期检查角色变更（管理员给成员提升权限后，该成员端自动刷新）
+  useEffect(() => {
+    const memberId = localStorage.getItem("member_id");
+    if (!memberId) return;
+
+    const checkRole = async () => {
+      try {
+        const res = await fetch(`/api/members/role?member_id=${encodeURIComponent(memberId)}`);
+        const data = await res.json();
+        if (data.role && data.role !== localStorage.getItem("member_role")) {
+          localStorage.setItem("member_role", data.role);
+          window.location.reload();
+        }
+      } catch {
+        // 忽略网络错误
+      }
+    };
+
+    const interval = setInterval(checkRole, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   const navItems = allNavItems.filter((item) => item.roles.includes(role));
