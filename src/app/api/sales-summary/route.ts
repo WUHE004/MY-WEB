@@ -127,7 +127,18 @@ export async function GET() {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
       if (!chunk || chunk.length === 0) break;
-      allData = allData.concat(chunk);
+      // 从 sell_price_info 中计算最高售价
+      const processed = chunk.map((row: Record<string, unknown>) => {
+        const info = row.sell_price_info as Record<string, string> | null;
+        if (info && Object.keys(info).length > 0) {
+          const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+          if (prices.length > 0) {
+            return { ...row, sell_price: Math.max(...prices) };
+          }
+        }
+        return row;
+      });
+      allData = allData.concat(processed);
       if (chunk.length < pageSize) break;
       page++;
     }

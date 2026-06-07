@@ -128,23 +128,6 @@ export function Navigation() {
               </Link>
             );
           })}
-          {role === "admin" && (
-            <Link
-              href="/members"
-              className={`flex flex-col items-center justify-center gap-0.5 rounded-xl px-3 py-1.5 min-w-0 transition-all ${
-                pathname === "/members" ? "text-gray-900" : "text-gray-400"
-              }`}
-            >
-              <div
-                className={`flex items-center justify-center rounded-lg p-1 transition-all ${
-                  pathname === "/members" ? "bg-gray-900 text-white" : ""
-                }`}
-              >
-                <Settings className="h-5 w-5" />
-              </div>
-              <span className="text-[10px] font-extrabold leading-none">成员</span>
-            </Link>
-          )}
         </div>
       </nav>
     </>
