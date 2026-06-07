@@ -115,7 +115,7 @@ export default function DashboardPage() {
     if (availableSaleIds.has(saleId)) {
       window.location.href = `/products?open=${saleId}`;
     } else {
-      alert("该商品暂停售卖");
+      alert("该商品暂停售卖啦");
     }
   };
 

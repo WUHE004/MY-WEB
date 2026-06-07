@@ -184,6 +184,21 @@ export default function LiveSelectPage() {
     return products.filter((p) => selectedIds.includes(p.sale_id));
   }, [products, selectedIds]);
 
+  // 所有用户已选的商品（用于已选栏展示）
+  const allSelectedProducts = useMemo(() => {
+    const allIds = new Set<string>();
+    for (const m of memberSelections) {
+      for (const sid of m.sale_ids) {
+        allIds.add(sid);
+      }
+    }
+    // 也加入当前用户的选品
+    for (const sid of selectedIds) {
+      allIds.add(sid);
+    }
+    return products.filter((p) => allIds.has(p.sale_id));
+  }, [products, selectedIds, memberSelections]);
+
   const toggleSelect = (saleId: string) => {
     if (!isAdmin) {
       alert("仅管理员可以选品");
@@ -412,24 +427,34 @@ export default function LiveSelectPage() {
         </div>
 
         {/* 选品/取消选品按钮 */}
-        <button
-          onClick={() => toggleSelect(product.sale_id)}
-          className={`w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${
-            isSelected
-              ? "bg-gray-300 text-gray-500 border-gray-400"
-              : "bg-[#4A90E2] text-white hover:bg-[#3A80D2]"
-          }`}
-        >
-          {isSelected ? (
+        {isSelected ? (
+          <button
+            onClick={() => toggleSelect(product.sale_id)}
+            className="w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-400 text-xs font-extrabold bg-gray-300 text-gray-500 transition-all"
+          >
             <span className="flex items-center justify-center gap-1">
               <X className="h-3 w-3" />取消选品
             </span>
-          ) : (
+          </button>
+        ) : selectors.length > 0 ? (
+          <button
+            onClick={() => toggleSelect(product.sale_id)}
+            className="w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-400 text-xs font-extrabold bg-gray-200 text-gray-400 transition-all"
+          >
+            <span className="flex items-center justify-center gap-1">
+              <Check className="h-3 w-3" />已选品
+            </span>
+          </button>
+        ) : (
+          <button
+            onClick={() => toggleSelect(product.sale_id)}
+            className="w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold bg-[#4A90E2] text-white hover:bg-[#3A80D2] transition-all"
+          >
             <span className="flex items-center justify-center gap-1">
               <Check className="h-3 w-3" />选品
             </span>
-          )}
-        </button>
+          </button>
+        )}
       </div>
     );
   };
@@ -620,7 +645,7 @@ export default function LiveSelectPage() {
             </button>
           </div>
 
-          {selectedProducts.length === 0 ? (
+          {allSelectedProducts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Package className="h-12 w-12 text-gray-300" />
               <p className="font-bold text-gray-500 text-sm">暂无已选商品</p>
@@ -628,11 +653,11 @@ export default function LiveSelectPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {selectedProducts.map((product) => (
+              {allSelectedProducts.map((product) => (
                 <ProductCard
                   key={product.sale_id}
                   product={product}
-                  isSelected={true}
+                  isSelected={selectedIds.includes(product.sale_id)}
                   selectors={saleSelections[product.sale_id] || []}
                 />
               ))}

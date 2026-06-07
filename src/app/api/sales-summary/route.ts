@@ -77,12 +77,10 @@ export async function upsertSalesSummary(saleId: string) {
     sellPriceInfo[String(price)] = time;
   }
 
-  // 5. 从售出记录中获取最新售价
-  let latestSellPrice = inbound?.sell_price || 0;
+  // 5. 从售出记录中获取最高售价
+  let highestSellPrice = inbound?.sell_price || 0;
   if (priceMap.size > 0) {
-    // 取最新的售价
-    const sortedPrices = [...priceMap.entries()].sort((a, b) => b[1].localeCompare(a[1]));
-    latestSellPrice = Number(sortedPrices[0][0]) || 0;
+    highestSellPrice = Math.max(...priceMap.keys());
   }
 
   // 5. Upsert 到 sales_summary 表
@@ -93,7 +91,7 @@ export async function upsertSalesSummary(saleId: string) {
     shelf_no: inbound?.shelf_no || "",
     manufacturer: inbound?.manufacturer || "",
     cost_price: inbound?.cost_price || 0,
-    sell_price: latestSellPrice,
+    sell_price: highestSellPrice,
     ...sizeTotals,
     total_sold: totalSold,
     total_revenue: totalRevenue,
