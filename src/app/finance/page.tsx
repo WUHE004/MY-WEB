@@ -1717,7 +1717,7 @@ export default function FinancePage() {
             {/* 图片 */}
             <div className="flex justify-center mb-3">
               <div className="w-44 h-44 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100">
-                {mobileEditModal.photo ? <img src={mobileEditModal.photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                {mobileEditModal.photo ? <img src={mobileEditModal.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); setImgPreview(mobileEditModal.photo); }} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
               </div>
             </div>
 
@@ -1860,7 +1860,7 @@ export default function FinancePage() {
               {/* 商品大图 */}
               <div className="flex justify-center mb-3">
                 <div className="w-40 h-40 rounded-xl border-2 border-gray-200 overflow-hidden bg-gray-100">
-                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); setImgPreview(photo); }} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                 </div>
               </div>
               {/* 尺码输入 */}
@@ -1949,7 +1949,7 @@ export default function FinancePage() {
               {/* 商品大图 */}
               <div className="flex justify-center mb-3">
                 <div className="w-40 h-40 rounded-xl border-2 border-gray-200 overflow-hidden bg-gray-100">
-                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                  {photo ? <img src={photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={(e) => { e.stopPropagation(); setImgPreview(photo); }} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                 </div>
               </div>
               {/* 尺码输入 */}
@@ -2144,16 +2144,17 @@ export default function FinancePage() {
               )}
             </div>
           {/* 图片大图预览 */}
-      {imgPreview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
-          <div className="relative max-w-[90vw] max-h-[90vh]">
-            <button onClick={() => setImgPreview(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full border-[3px] border-gray-900 flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100">
-              <X className="h-4 w-4" />
-            </button>
-            <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />
-          </div>
+      <div
+        className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+        onClick={() => setImgPreview(null)}
+      >
+        <div className="relative max-w-[90vw] max-h-[90vh]">
+          <button onClick={() => setImgPreview(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full border-[3px] border-gray-900 flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100">
+            <X className="h-4 w-4" />
+          </button>
+          {imgPreview && <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />}
         </div>
-      )}
+      </div>
           </div>
         </div>
       )}
