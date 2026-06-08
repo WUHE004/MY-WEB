@@ -7,7 +7,6 @@ const DOUBAO_ENDPOINT_ID = process.env.DOUBAO_ENDPOINT_ID || "";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 
 const DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3";
-const BUCKET = "model-photos";
 const MAX_SIZE_BYTES = 200 * 1024; // 200KB
 
 // 压缩图片到 200KB 以内
@@ -105,34 +104,19 @@ export async function POST(request: NextRequest) {
 
     console.log("生成成功，图片 URL:", generatedUrl);
 
-    // 3. 下载生成图片，压缩后上传到 Supabase Storage
+    // 3. 下载生成图片，压缩后发送微信（不存入数据库）
     const imageRes = await fetch(generatedUrl);
     const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
     const imageBuffer = await compressImage(rawBuffer);
-    const genFileName = `gen-${sale_id}-${Date.now()}.jpg`;
-
-    const { error: uploadError } = await supabase
-      .storage
-      .from(BUCKET)
-      .upload(genFileName, imageBuffer, {
-        contentType: "image/jpeg",
-        upsert: true,
-      });
-
-    let storedUrl = generatedUrl;
-    if (!uploadError) {
-      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(genFileName);
-      storedUrl = urlData.publicUrl;
-    }
 
     // 4. 通过企业微信发送图片
+    let wechatSent = false;
     if (WECHAT_WEBHOOK_URL) {
       try {
-        // 将图片转为 base64
         const base64Image = imageBuffer.toString("base64");
         const md5 = await computeMd5(imageBuffer);
 
-        await fetch(WECHAT_WEBHOOK_URL, {
+        const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -143,14 +127,20 @@ export async function POST(request: NextRequest) {
             },
           }),
         });
-        console.log("已通过企业微信发送图片");
+        const wechatData = await wechatRes.json();
+        console.log("企业微信发送结果:", wechatData);
+        wechatSent = wechatData?.errcode === 0;
       } catch (wechatErr) {
         console.error("微信发送失败:", wechatErr);
-        // 微信发送失败不影响主流程
       }
     }
 
-    return NextResponse.json({ generated_url: storedUrl, sale_id });
+    // 直接返回豆包生成的 URL（不存入 Supabase，节省存储空间）
+    return NextResponse.json({
+      generated_url: generatedUrl,
+      sale_id,
+      wechat_sent: wechatSent,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Generate error:", msg);
