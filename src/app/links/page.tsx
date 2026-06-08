@@ -7,7 +7,7 @@ import {
   ShoppingCart,
   Undo2,
   Box,
-  AlertTriangle,
+  Image,
   Rows4,
   Banknote,
   TrendingUp,
@@ -82,7 +82,7 @@ export default function LinksPage() {
 
   const operationButtons = [
     { label: "打包找货", icon: Box, color: "bg-[#4A90E2]", href: "/operations/pack" },
-    { label: "瑕疵出库", icon: AlertTriangle, color: "bg-[#FF6B7A]", href: "/operations/defect" },
+    { label: "照片生成", icon: Image, color: "bg-[#9B59B6]", href: "/operations/photo-gen" },
     { label: "入库调整", icon: Rows4, color: "bg-[#FFC93C]", href: "/operations/adjust" },
   ];
 
