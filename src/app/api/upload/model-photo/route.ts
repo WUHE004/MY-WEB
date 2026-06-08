@@ -1,8 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import sharp from "sharp";
+
+const BUCKET = "model-photos";
+const MAX_SIZE_BYTES = 200 * 1024; // 200KB
+
+// 确保 bucket 存在
+async function ensureBucket() {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  const exists = buckets?.some((b) => b.name === BUCKET);
+  if (!exists) {
+    const { error } = await supabase.storage.createBucket(BUCKET, { public: true });
+    if (error && !error.message.includes("already exists")) {
+      console.error("创建 bucket 失败:", error.message);
+    }
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
+    // 确保 bucket 存在
+    await ensureBucket();
+
     const body = await request.json();
     const { file_name, file_data } = body;
 
@@ -16,16 +35,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "无效的 base64 格式" }, { status: 400 });
     }
 
-    const contentType = matches[1];
     const base64Data = matches[2];
-    const buffer = Buffer.from(base64Data, "base64");
+    let buffer = Buffer.from(base64Data, "base64");
+
+    // 压缩图片到 200KB 以内
+    const originalSize = buffer.length;
+    console.log(`原始图片大小: ${(originalSize / 1024).toFixed(1)} KB`);
+
+    if (originalSize > MAX_SIZE_BYTES) {
+      let quality = 80;
+      buffer = await sharp(buffer)
+        .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality })
+        .toBuffer();
+
+      // 逐步降低质量直到小于 200KB
+      while (buffer.length > MAX_SIZE_BYTES && quality > 20) {
+        quality -= 10;
+        buffer = await sharp(buffer)
+          .jpeg({ quality })
+          .toBuffer();
+      }
+
+      console.log(`压缩后图片大小: ${(buffer.length / 1024).toFixed(1)} KB (quality: ${quality})`);
+    }
+
+    // 统一转为 jpg 文件名
+    const jpgFileName = file_name.replace(/\.[^.]+$/, ".jpg");
 
     // 上传到 Supabase Storage
     const { error: uploadError } = await supabase
       .storage
-      .from("model-photos")
-      .upload(file_name, buffer, {
-        contentType,
+      .from(BUCKET)
+      .upload(jpgFileName, buffer, {
+        contentType: "image/jpeg",
         upsert: true,
       });
 
@@ -36,11 +79,13 @@ export async function POST(request: NextRequest) {
     // 获取公开 URL
     const { data: urlData } = supabase
       .storage
-      .from("model-photos")
-      .getPublicUrl(file_name);
+      .from(BUCKET)
+      .getPublicUrl(jpgFileName);
 
     return NextResponse.json({ url: urlData.publicUrl });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("Upload error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

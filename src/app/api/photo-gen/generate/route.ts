@@ -1,11 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import sharp from "sharp";
 
 const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || "";
 const DOUBAO_ENDPOINT_ID = process.env.DOUBAO_ENDPOINT_ID || "";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 
 const DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3";
+const BUCKET = "model-photos";
+const MAX_SIZE_BYTES = 200 * 1024; // 200KB
+
+// 压缩图片到 200KB 以内
+async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
+  const originalSize = inputBuffer.length;
+  console.log(`生成图片原始大小: ${(originalSize / 1024).toFixed(1)} KB`);
+
+  if (originalSize <= MAX_SIZE_BYTES) return inputBuffer;
+
+  let quality = 80;
+  let buffer = await sharp(inputBuffer)
+    .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality })
+    .toBuffer();
+
+  while (buffer.length > MAX_SIZE_BYTES && quality > 20) {
+    quality -= 10;
+    buffer = await sharp(inputBuffer)
+      .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality })
+      .toBuffer();
+  }
+
+  console.log(`压缩后图片大小: ${(buffer.length / 1024).toFixed(1)} KB (quality: ${quality})`);
+  return buffer;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -76,14 +104,15 @@ export async function POST(request: NextRequest) {
 
     console.log("生成成功，图片 URL:", generatedUrl);
 
-    // 3. 下载生成图片并上传到 Supabase Storage
+    // 3. 下载生成图片，压缩后上传到 Supabase Storage
     const imageRes = await fetch(generatedUrl);
-    const imageBuffer = Buffer.from(await imageRes.arrayBuffer());
+    const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
+    const imageBuffer = await compressImage(rawBuffer);
     const genFileName = `gen-${sale_id}-${Date.now()}.jpg`;
 
     const { error: uploadError } = await supabase
       .storage
-      .from("model-photos")
+      .from(BUCKET)
       .upload(genFileName, imageBuffer, {
         contentType: "image/jpeg",
         upsert: true,
@@ -91,7 +120,7 @@ export async function POST(request: NextRequest) {
 
     let storedUrl = generatedUrl;
     if (!uploadError) {
-      const { data: urlData } = supabase.storage.from("model-photos").getPublicUrl(genFileName);
+      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(genFileName);
       storedUrl = urlData.publicUrl;
     }
 
