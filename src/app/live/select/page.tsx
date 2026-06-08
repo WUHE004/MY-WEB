@@ -49,6 +49,7 @@ export default function LiveSelectPage() {
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
 
   // 筛选
   const [soldFilter, setSoldFilter] = useState("all");
@@ -364,7 +365,7 @@ export default function LiveSelectPage() {
           {/* 图片区域 */}
           <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
             {product.photo ? (
-              <img src={product.photo} alt="" className="w-full h-full object-cover" />
+              <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <Package className="h-20 w-20 text-gray-300" />
@@ -755,6 +756,17 @@ export default function LiveSelectPage() {
                 导出 CSV
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* 图片大图预览 */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
+          <div className="relative max-w-[90vw] max-h-[90vh]">
+            <button onClick={() => setImgPreview(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full border-[3px] border-gray-900 flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+            <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />
           </div>
         </div>
       )}

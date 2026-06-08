@@ -13,6 +13,7 @@ import {
   Flame,
   ShoppingCart,
   Edit3,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -43,6 +44,7 @@ const itemVariants = {
 export default function DashboardPage() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [memberName, setMemberName] = useState<string | null>(null);
   const [memberRole, setMemberRole] = useState<string | null>(null);
   const [hotProducts, setHotProducts] = useState<Array<{sale_id: string; name: string; total_sold: number; sell_price: number; photo: string; manufacturer: string}>>([]);
@@ -419,7 +421,7 @@ export default function DashboardPage() {
                       >
                         <div className="h-[120px] sm:h-[140px] lg:h-[160px] bg-gray-100 flex items-center justify-center">
                           {product.photo ? (
-                            <img src={product.photo} alt="" className="w-full h-full object-cover" />
+                            <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
                           ) : (
                             <Package className="h-10 w-10 text-gray-300" />
                           )}
@@ -503,6 +505,17 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </motion.div>
+      {/* 图片大图预览 */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
+          <div className="relative max-w-[90vw] max-h-[90vh]">
+            <button onClick={() => setImgPreview(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full border-[3px] border-gray-900 flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+            <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />
+          </div>
+        </div>
+      )}
       </div>
     </PageWrapper>
   );

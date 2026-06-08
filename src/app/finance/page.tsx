@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, SlidersHorizontal } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -163,7 +163,7 @@ export default function FinancePage() {
   const [editSizeValues, setEditSizeValues] = useState<Record<number, number>>({});
   // 售价/退货价下拉展开
   const [expandedPriceRow, setExpandedPriceRow] = useState<string | null>(null);
-  const [showMobileFilter, setShowMobileFilter] = useState(false);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
 
   // 入库编辑下拉选项（从设置加载）
   const [editManufacturers, setEditManufacturers] = useState<string[]>(["大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家"]);
@@ -664,298 +664,274 @@ export default function FinancePage() {
   const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
   const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : "入库登记清单";
+  const viewTitleShort = viewMode === "summary" ? "总表" : viewMode === "sales" ? "售出" : viewMode === "returns" ? "退货" : "入库";
   const highlightClass = viewMode === "summary" ? "highlight-blue" : viewMode === "sales" ? "highlight-green" : viewMode === "returns" ? "highlight-yellow" : "highlight-blue";
+  const titleBgClass = viewMode === "summary" ? "bg-[#4A90E2]" : viewMode === "sales" ? "bg-green-500" : viewMode === "returns" ? "bg-yellow-500" : "bg-[#4A90E2]";
 
   return (
     <PageWrapper>
-      {/* ===== 桌面端 Header + 视图切换 + 统计 + 搜索/筛选 ===== */}
-      <div className="hidden lg:block">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
-            <span className={highlightClass}>{viewTitle}</span>
-          </h1>
-          <div className="flex gap-1.5 sm:gap-2 shrink-0">
-            <button onClick={() => switchView("summary")}
-              className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-                viewMode === "summary" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
-              }`}>
-              <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>总表</span>
-            </button>
-            <button onClick={() => switchView("sales")}
-              className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-                viewMode === "sales" ? "bg-green-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
-              }`}>
-              <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>售出</span>
-            </button>
-            <button onClick={() => switchView("returns")}
-              className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-                viewMode === "returns" ? "bg-yellow-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
-              }`}>
-              <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>退货</span>
-            </button>
-            <button onClick={() => switchView("inbound")}
-              className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-                viewMode === "inbound" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
-              }`}>
-              <ArrowDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>入库</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 统计栏 - 桌面 */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-          {viewMode === "summary" && (
-            <>
-              <div className="flex items-center gap-2">
-                <Warehouse className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
-                <span className="text-sm sm:text-lg font-extrabold text-gray-900">{totals.inbound_total}</span>
-              </div>
-              <div className="flex-1" />
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">剩余</span>
-                <span className="text-sm sm:text-lg font-extrabold text-blue-600">{totals.remaining}</span>
-              </div>
-              <div className="flex-1" />
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">价值</span>
-                <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(totals.inventory_value)}</span>
-              </div>
-            </>
-          )}
-          {viewMode === "sales" && (
-            <div className="flex items-center justify-between w-full">
-              <div><span className="text-xs sm:text-sm text-gray-500 font-bold">售出</span><span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{salesTotals.orderCount}款</span></div>
-              <div><span className="text-xs sm:text-sm text-gray-500 font-bold">售买</span><span className="text-sm sm:text-lg font-extrabold text-green-600 ml-1">{salesTotals.totalSold}件</span></div>
-              <div><span className="text-xs sm:text-sm text-gray-500 font-bold">盈利</span><span className="text-sm sm:text-lg font-extrabold text-red-500 ml-1">¥{fmt(salesTotals.totalProfit)}</span></div>
-            </div>
-          )}
-          {viewMode === "returns" && (
-            <div className="flex items-center justify-between w-full">
-              <div><span className="text-xs sm:text-sm text-gray-500 font-bold">退货</span><span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{returnTotals.orderCount}款</span></div>
-              <div><span className="text-xs sm:text-sm text-gray-500 font-bold">退回</span><span className="text-sm sm:text-lg font-extrabold text-yellow-600 ml-1">{returnTotals.totalReturned}件</span></div>
-            </div>
-          )}
-          {viewMode === "inbound" && (
-            <>
-              <div className="flex items-center gap-2"><ArrowDown className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" /><span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span><span className="text-sm sm:text-lg font-extrabold text-gray-900">{filteredInbound.length}种</span></div>
-              <div className="flex-1" />
-              <div className="flex items-center gap-2"><Package className="h-4 w-4 sm:h-5 sm:w-5 text-[#4A90E2]" /><span className="text-xs sm:text-sm text-gray-500 font-bold">总入库</span><span className="text-sm sm:text-lg font-extrabold text-[#4A90E2]">{filteredInbound.reduce((s, r) => s + r.total, 0)}件</span></div>
-            </>
-          )}
-        </div>
-
-        {/* 搜索 + 筛选 + 操作按钮 - 桌面 */}
-        <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 z-10" />
-            <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索..." className="neo-input w-full h-full text-xs sm:text-sm pl-10 py-0.5 sm:py-1" />
-          </div>
-          {viewMode === "summary" && (
-            <>
-              <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto">
-                <option value="">剩余库存</option>
-                <option value="tail">尾货</option><option value="low">不足5手</option><option value="mid">5手以上</option><option value="high">10手以上</option>
-              </select>
-              <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)} className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto">
-                <option value="">库存价值</option>
-                <option value="0-100">0-100</option><option value="101-300">101-300</option><option value="301-500">301-500</option><option value="500+">500以上</option>
-              </select>
-              <button onClick={() => setErrorFilter(!errorFilter)} className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"}`}>错误库存</button>
-            </>
-          )}
-          {viewMode === "sales" && (
-            <>
-              <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)} className="text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto">
-                <option value="">全部日期</option>{salesDates.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }} className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"}`}>{salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}</button>
-              <button onClick={syncSummary} disabled={syncing} className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto disabled:opacity-50"><RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />同步数据</button>
-            </>
-          )}
-          {viewMode === "returns" && (
-            <>
-              <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)} className="text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto">
-                <option value="">全部日期</option>{returnsDates.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }} className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"}`}>{returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}</button>
-            </>
-          )}
-          {viewMode === "inbound" && (
-            <>
-              <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }} className={`inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[2px_2px_0px_0px_rgba(59,130,246,0.3)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"}`}>{inboundEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />修改</>}</button>
-              <button onClick={() => setExportModal(true)} className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto"><Download className="h-3 w-3" />导出</button>
-            </>
-          )}
-          {editSaveMsg && <span className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>{editSaveMsg}</span>}
-          {editSaving && <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-blue-500 font-bold"><RefreshCw className="h-3 w-3 animate-spin" />保存中...</span>}
+      {/* Header + 视图切换按钮 */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+        <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
+          <span className={`lg:hidden px-2 py-0.5 rounded text-white font-extrabold ${titleBgClass}`}>{viewTitleShort}</span>
+          <span className={`hidden lg:inline ${highlightClass}`}>{viewTitle}</span>
+        </h1>
+        <div className="flex gap-1.5 sm:gap-2 shrink-0">
+          <button onClick={() => switchView("summary")}
+            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+              viewMode === "summary" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}>
+            <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>总表</span>
+          </button>
+          <button onClick={() => switchView("sales")}
+            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+              viewMode === "sales" ? "bg-green-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}>
+            <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>售出</span>
+          </button>
+          <button onClick={() => switchView("returns")}
+            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+              viewMode === "returns" ? "bg-yellow-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}>
+            <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>退货</span>
+          </button>
+          <button onClick={() => switchView("inbound")}
+            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+              viewMode === "inbound" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            }`}>
+            <ArrowDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>入库</span>
+          </button>
         </div>
       </div>
 
-      {/* ===== 移动端：统一紧凑布局 ===== */}
-      <div className="lg:hidden mb-3">
-        {/* 第一行：视图切换标签 + 统计数字内嵌 */}
-        <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
-          {/* 标签行 */}
-          <div className="flex">
-            <button onClick={() => switchView("summary")}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-extrabold transition-all border-r-[3px] border-gray-900 ${
-                viewMode === "summary" ? "bg-[#4A90E2] text-white" : "bg-gray-100 text-gray-500"
-              }`}>
-              <Package className="h-3.5 w-3.5" />总表
-            </button>
-            <button onClick={() => switchView("sales")}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-extrabold transition-all border-r-[3px] border-gray-900 ${
-                viewMode === "sales" ? "bg-green-500 text-white" : "bg-gray-100 text-gray-500"
-              }`}>
-              <TrendingUp className="h-3.5 w-3.5" />售出
-            </button>
-            <button onClick={() => switchView("returns")}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-extrabold transition-all border-r-[3px] border-gray-900 ${
-                viewMode === "returns" ? "bg-yellow-500 text-white" : "bg-gray-100 text-gray-500"
-              }`}>
-              <TrendingDown className="h-3.5 w-3.5" />退货
-            </button>
-            <button onClick={() => switchView("inbound")}
-              className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-extrabold transition-all ${
-                viewMode === "inbound" ? "bg-[#4A90E2] text-white" : "bg-gray-100 text-gray-500"
-              }`}>
-              <ArrowDown className="h-3.5 w-3.5" />入库
-            </button>
-          </div>
-          {/* 统计数字内嵌 */}
-          <div className="flex items-center justify-around px-3 py-2 border-t-[3px] border-gray-900 bg-white">
-            {viewMode === "summary" && (
-              <>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">入库</div><div className="text-sm font-extrabold text-gray-900">{totals.inbound_total}</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">剩余</div><div className="text-sm font-extrabold text-blue-600">{totals.remaining}</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">价值</div><div className="text-sm font-extrabold text-red-500">¥{fmt(totals.inventory_value)}</div></div>
-              </>
-            )}
+      {/* 统计栏 */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+        {viewMode === "summary" && (
+          <>
+            <div className="flex items-center justify-between w-full lg:hidden">
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">入库</span>
+                <span className="text-xs sm:text-sm font-extrabold text-gray-900 ml-1">{totals.inbound_total}</span>
+              </div>
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">剩余</span>
+                <span className="text-xs sm:text-sm font-extrabold text-blue-600 ml-1">{totals.remaining}</span>
+              </div>
+              <div>
+                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">价值</span>
+                <span className="text-xs sm:text-sm font-extrabold text-red-500 ml-1">¥{fmt(totals.inventory_value)}</span>
+              </div>
+            </div>
+            <div className="hidden lg:flex items-center gap-2">
+              <Warehouse className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
+              <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
+              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{totals.inbound_total}</span>
+            </div>
+            <div className="hidden lg:flex flex-1" />
+            <div className="hidden lg:flex items-center gap-2">
+              <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+              <span className="text-xs sm:text-sm text-gray-500 font-bold">剩余</span>
+              <span className="text-sm sm:text-lg font-extrabold text-blue-600">{totals.remaining}</span>
+            </div>
+            <div className="hidden lg:flex flex-1" />
+            <div className="hidden lg:flex items-center gap-2">
+              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
+              <span className="text-xs sm:text-sm text-gray-500 font-bold">价值</span>
+              <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(totals.inventory_value)}</span>
+            </div>
+          </>
+        )}
+        {viewMode === "sales" && (
+          <>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">售出</span>
+                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{salesTotals.orderCount}款</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">售买</span>
+                <span className="text-sm sm:text-lg font-extrabold text-green-600 ml-1">{salesTotals.totalSold}件</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">盈利</span>
+                <span className="text-sm sm:text-lg font-extrabold text-red-500 ml-1">¥{fmt(salesTotals.totalProfit)}</span>
+              </div>
+            </div>
+          </>
+        )}
+        {viewMode === "returns" && (
+          <>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">退货</span>
+                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{returnTotals.orderCount}款</span>
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm text-gray-500 font-bold">退回</span>
+                <span className="text-sm sm:text-lg font-extrabold text-yellow-600 ml-1">{returnTotals.totalReturned}件</span>
+              </div>
+            </div>
+          </>
+        )}
+        {viewMode === "inbound" && (
+          <>
+            <div className="flex items-center gap-2">
+              <ArrowDown className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
+              <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
+              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{filteredInbound.length}种</span>
+            </div>
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+              <Package className="h-4 w-4 sm:h-5 sm:w-5 text-[#4A90E2]" />
+              <span className="text-xs sm:text-sm text-gray-500 font-bold">总入库</span>
+              <span className="text-sm sm:text-lg font-extrabold text-[#4A90E2]">{filteredInbound.reduce((s, r) => s + r.total, 0)}件</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 搜索 + 筛选按钮 + 编辑/导出 */}
+      <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-2 mb-3 sm:mb-4">
+        {/* 移动端：总表搜索占满一行，其他模式搜索和刷新并排 */}
+        <div className={`relative ${viewMode === "summary" ? "w-full lg:flex-1" : "flex-1"}`}>
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 z-10" />
+          <input
+            type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索..." className="neo-input w-full h-full text-xs sm:text-sm pl-10 py-0.5 sm:py-1"
+          />
+        </div>
+
+        {/* 移动端：日期筛选 + 刷新按钮紧跟搜索框 */}
+        {(viewMode === "sales" || viewMode === "returns" || viewMode === "inbound") && (
+          <>
             {viewMode === "sales" && (
-              <>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">售出</div><div className="text-sm font-extrabold text-gray-900">{salesTotals.orderCount}款</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">售买</div><div className="text-sm font-extrabold text-green-600">{salesTotals.totalSold}件</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">盈利</div><div className="text-sm font-extrabold text-red-500">¥{fmt(salesTotals.totalProfit)}</div></div>
-              </>
+              <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)}
+                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                <option value="">全部日期</option>
+                {salesDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+              </select>
             )}
             {viewMode === "returns" && (
-              <>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">退货</div><div className="text-sm font-extrabold text-gray-900">{returnTotals.orderCount}款</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">退回</div><div className="text-sm font-extrabold text-yellow-600">{returnTotals.totalReturned}件</div></div>
-              </>
+              <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)}
+                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                <option value="">全部日期</option>
+                {returnsDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+              </select>
             )}
-            {viewMode === "inbound" && (
-              <>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">入库</div><div className="text-sm font-extrabold text-gray-900">{filteredInbound.length}种</div></div>
-                <div className="text-center"><div className="text-[9px] text-gray-400 font-bold">总入库</div><div className="text-sm font-extrabold text-blue-600">{filteredInbound.reduce((s, r) => s + r.total, 0)}件</div></div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* 第二行：搜索框 + 筛选按钮 */}
-        <div className="flex gap-2 mt-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 z-10" />
-            <input
-              type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索商品名称或编号..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-xl border-[3px] border-gray-900 text-sm font-medium focus:outline-none"
-            />
-          </div>
-          {viewMode === "summary" && (
-            <div className="relative">
-              <button
-                onClick={() => setShowMobileFilter(!showMobileFilter)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border-[3px] border-gray-900 font-extrabold text-xs transition-all ${
-                  showMobileFilter || stockFilter || valueFilter || errorFilter
-                    ? "bg-gray-900 text-white"
-                    : "bg-white text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                筛选
-                {(stockFilter || valueFilter || errorFilter) && (
-                  <span className="inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded-full bg-[#FF6B7A] text-white text-[8px] font-extrabold leading-none">!</span>
-                )}
+            <button onClick={() => {
+              if (viewMode === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+              if (viewMode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
+              if (viewMode === "inbound") fetchInboundAgg();
+            }}
+              className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all h-auto shrink-0">
+              <RefreshCw className="h-3 w-3" />刷新
+            </button>
+            {(viewMode === "sales" || viewMode === "returns") && (
+              <button onClick={syncSummary} disabled={syncing}
+                className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shrink-0 disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
               </button>
-              {/* 筛选下拉面板 */}
-              {showMobileFilter && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowMobileFilter(false)} />
-                  <div className="absolute right-0 top-full mt-2 z-20 w-64 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-3">
-                    <div className="mb-3">
-                      <span className="text-[10px] font-bold text-gray-500 mb-1.5 block">剩余库存</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[{ value: "", label: "全部" },{ value: "tail", label: "尾货" },{ value: "low", label: "不足5手" },{ value: "mid", label: "5手以上" },{ value: "high", label: "10手以上" }].map((opt) => (
-                          <button key={opt.value} onClick={() => setStockFilter(opt.value)}
-                            className={`text-[10px] px-2 py-1 rounded border-[1.5px] font-bold transition-all ${
-                              stockFilter === opt.value ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
-                            }`}>{opt.label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="mb-3">
-                      <span className="text-[10px] font-bold text-gray-500 mb-1.5 block">库存价值</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {[{ value: "", label: "全部" },{ value: "0-100", label: "0-100" },{ value: "101-300", label: "101-300" },{ value: "301-500", label: "301-500" },{ value: "500+", label: "500以上" }].map((opt) => (
-                          <button key={opt.value} onClick={() => setValueFilter(opt.value)}
-                            className={`text-[10px] px-2 py-1 rounded border-[1.5px] font-bold transition-all ${
-                              valueFilter === opt.value ? "border-gray-900 bg-gray-900 text-white" : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
-                            }`}>{opt.label}</button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="mb-3">
-                      <span className="text-[10px] font-bold text-gray-500 mb-1.5 block">错误库存</span>
-                      <button onClick={() => setErrorFilter(!errorFilter)}
-                        className={`text-[10px] px-2 py-1 rounded border-[1.5px] font-bold transition-all ${
-                          errorFilter ? "bg-red-500 text-white border-red-500" : "border-red-300 bg-white text-red-500 hover:bg-red-100"
-                        }`}>{errorFilter ? "取消筛选" : "负库存"}</button>
-                    </div>
-                    <button onClick={() => { setStockFilter(""); setValueFilter(""); setErrorFilter(false); }}
-                      className="w-full py-1.5 rounded-lg border-[2px] border-gray-300 text-[10px] font-bold text-gray-500 hover:border-gray-500 transition-all">
-                      重置所有筛选
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+            )}
+          </>
+        )}
 
-        {/* 第三行：操作按钮（各模式不同） */}
-        <div className="flex gap-1.5 mt-2">
-          {viewMode === "sales" && (
-            <>
-              <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)} className="flex-1 text-[10px] px-1.5 py-2 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 truncate">
-                <option value="">全部日期</option>{salesDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+        {viewMode === "summary" && (
+          <>
+            {/* 移动端：筛选按钮换行占满 */}
+            <div className="flex gap-1.5 w-full lg:w-auto">
+              <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
+                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                <option value="">剩余库存</option>
+                <option value="tail">尾货</option>
+                <option value="low">不足5手</option>
+                <option value="mid">5手以上</option>
+                <option value="high">10手以上</option>
               </select>
-              <button onClick={() => { fetchSalesAgg(); fetchSalesDates(); }} className="text-[10px] px-2 py-2 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold"><RefreshCw className="h-3 w-3" /></button>
-              <button onClick={syncSummary} disabled={syncing} className="text-[10px] px-2 py-2 rounded-lg border-[2px] border-orange-500 text-orange-600 font-extrabold bg-white disabled:opacity-50"><RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} /></button>
-            </>
-          )}
-          {viewMode === "returns" && (
-            <>
-              <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)} className="flex-1 text-[10px] px-1.5 py-2 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 truncate">
-                <option value="">全部日期</option>{returnsDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
+              <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
+                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                <option value="">库存价值</option>
+                <option value="0-100">0-100</option>
+                <option value="101-300">101-300</option>
+                <option value="301-500">301-500</option>
+                <option value="500+">500以上</option>
               </select>
-              <button onClick={() => { fetchReturnAgg(); fetchReturnsDates(); }} className="text-[10px] px-2 py-2 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold"><RefreshCw className="h-3 w-3" /></button>
-              <button onClick={syncSummary} disabled={syncing} className="text-[10px] px-2 py-2 rounded-lg border-[2px] border-orange-500 text-orange-600 font-extrabold bg-white disabled:opacity-50"><RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} /></button>
-            </>
-          )}
-          {viewMode === "inbound" && (
-            <>
-              <div className="flex-1" />
-              <button onClick={() => setExportModal(true)} className="text-[10px] px-2 py-2 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold"><Download className="h-3 w-3" /></button>
-            </>
-          )}
-          {editSaveMsg && <span className={`text-[10px] font-bold px-2 py-1 rounded shrink-0 self-center ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>{editSaveMsg}</span>}
-          {editSaving && <span className="text-[10px] text-blue-500 font-bold shrink-0 self-center"><RefreshCw className="h-3 w-3 animate-spin inline" /> 保存中</span>}
-        </div>
+              <button onClick={() => setErrorFilter(!errorFilter)}
+                className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto flex-1 lg:flex-none ${
+                  errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
+                }`}>错误库存</button>
+            </div>
+          </>
+        )}
+
+        {/* 编辑和导出按钮 - 桌面端 */}
+        {viewMode === "sales" && (
+          <>
+            <select
+              value={salesDateFilter}
+              onChange={e => setSalesDateFilter(e.target.value)}
+              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+            >
+              <option value="">全部日期</option>
+              {salesDates.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
+              }`}>
+              {salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+            </button>
+            <button onClick={syncSummary} disabled={syncing}
+              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto disabled:opacity-50">
+              <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />同步数据
+            </button>
+          </>
+        )}
+        {viewMode === "returns" && (
+          <>
+            <select
+              value={returnsDateFilter}
+              onChange={e => setReturnsDateFilter(e.target.value)}
+              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+            >
+              <option value="">全部日期</option>
+              {returnsDates.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
+              }`}>
+              {returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+            </button>
+          </>
+        )}
+        {viewMode === "inbound" && (
+          <>
+            <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
+              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
+                inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[2px_2px_0px_0px_rgba(59,130,246,0.3)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
+              }`}>
+              {inboundEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />修改</>}
+            </button>
+            <button onClick={() => setExportModal(true)}
+              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto">
+              <Download className="h-3 w-3" />导出
+            </button>
+          </>
+        )}
+        {editSaveMsg && (
+          <span className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
+            {editSaveMsg}
+          </span>
+        )}
+        {editSaving && (
+          <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-blue-500 font-bold">
+            <RefreshCw className="h-3 w-3 animate-spin" />保存中...
+          </span>
+        )}
       </div>
 
       {/* ===== 总表 - 桌面端 ===== */}
@@ -1362,7 +1338,7 @@ export default function FinancePage() {
                     <div className="flex gap-2">
                       {/* 图片区域 */}
                       <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {row.photo ? <img src={row.photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                        {row.photo ? <img src={row.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                       </div>
                       {/* 右侧内容区 */}
                       <div className="flex-1 min-w-0">
@@ -2167,6 +2143,17 @@ export default function FinancePage() {
                 </table>
               )}
             </div>
+          {/* 图片大图预览 */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
+          <div className="relative max-w-[90vw] max-h-[90vh]">
+            <button onClick={() => setImgPreview(null)} className="absolute -top-3 -right-3 z-10 w-8 h-8 bg-white rounded-full border-[3px] border-gray-900 flex items-center justify-center shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
+            <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />
+          </div>
+        </div>
+      )}
           </div>
         </div>
       )}
