@@ -44,17 +44,19 @@ export async function POST(request: NextRequest) {
 
     if (originalSize > MAX_SIZE_BYTES) {
       let quality = 80;
-      buffer = await sharp(buffer)
+      const resized = await sharp(buffer)
         .resize(1200, 1200, { fit: "inside", withoutEnlargement: true })
         .jpeg({ quality })
         .toBuffer();
+      buffer = Buffer.from(resized);
 
       // 逐步降低质量直到小于 200KB
       while (buffer.length > MAX_SIZE_BYTES && quality > 20) {
         quality -= 10;
-        buffer = await sharp(buffer)
+        const recompressed = await sharp(buffer)
           .jpeg({ quality })
           .toBuffer();
+        buffer = Buffer.from(recompressed);
       }
 
       console.log(`压缩后图片大小: ${(buffer.length / 1024).toFixed(1)} KB (quality: ${quality})`);

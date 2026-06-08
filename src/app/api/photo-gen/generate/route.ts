@@ -31,8 +31,9 @@ async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
       .toBuffer();
   }
 
-  console.log(`压缩后图片大小: ${(buffer.length / 1024).toFixed(1)} KB (quality: ${quality})`);
-  return buffer;
+  const result = Buffer.from(buffer);
+  console.log(`压缩后图片大小: ${(result.length / 1024).toFixed(1)} KB (quality: ${quality})`);
+  return result;
 }
 
 export async function POST(request: NextRequest) {
