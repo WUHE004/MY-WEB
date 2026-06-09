@@ -9,6 +9,8 @@ const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 
 const DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3";
 const DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/api/v1";
+// Qwen 图片编辑需要走 multimodal-generation 端点（非 image-generation）
+const QWEN_IMAGE_EDIT_ENDPOINT = `${DASHSCOPE_BASE}/services/aigc/multimodal-generation/generation`;
 const MAX_SIZE_BYTES = 200 * 1024; // 200KB
 
 type ModelType = "doubao" | "qwen" | "custom";
@@ -81,14 +83,16 @@ async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string)
       ],
     },
     parameters: {
+      n: 1,
       size: "1024*1024",
-      response_format: "url",
+      watermark: false,
+      prompt_extend: true,
     },
   };
 
   console.log("调用 Qwen API... (图片已转 base64)");
 
-  const res = await fetch(`${DASHSCOPE_BASE}/services/aigc/image-generation/generation`, {
+  const res = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
