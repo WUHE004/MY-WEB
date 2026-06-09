@@ -11,7 +11,7 @@ const DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3";
 const DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/api/v1";
 const MAX_SIZE_BYTES = 200 * 1024; // 200KB
 
-type ModelType = "doubao" | "qwen";
+type ModelType = "doubao" | "qwen" | "custom";
 
 // 压缩图片到 200KB 以内
 async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
@@ -39,11 +39,30 @@ async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
   return result;
 }
 
-// 调用 Qwen-Image-Edit API
+// 下载图片并转为 base64 data URI（用于解决外部 API 无法访问内网 URL 的问题）
+async function urlToBase64DataUri(url: string): Promise<string> {
+  try {
+    const res = await fetch(url);
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const base64 = buffer.toString("base64");
+    return `data:${contentType};base64,${base64}`;
+  } catch (err) {
+    console.error(`图片下载失败 (${url}):`, err);
+    throw new Error("图片下载失败，请检查图片链接是否可访问");
+  }
+}
+
+// 调用 Qwen-Image-Edit API（使用 base64 data URI 传图，避免 URL 访问问题）
 async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string): Promise<string | null> {
   if (!DASHSCOPE_API_KEY) {
     throw new Error("DashScope API Key 未配置");
   }
+
+  console.log("下载商品图片...");
+  const productBase64 = await urlToBase64DataUri(productPhotoUrl);
+  console.log("下载模特图片...");
+  const modelBase64 = await urlToBase64DataUri(modelPhotoUrl);
 
   const prompt = "让模特穿上这件衣服,保持衣服的款式、纹理、图案、颜色、细节完全不变。模特穿着该衣服自然站立展示效果。";
 
@@ -54,8 +73,8 @@ async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string)
         {
           role: "user",
           content: [
-            { image: productPhotoUrl },
-            { image: modelPhotoUrl },
+            { image: productBase64 },
+            { image: modelBase64 },
             { text: prompt },
           ],
         },
@@ -67,7 +86,7 @@ async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string)
     },
   };
 
-  console.log("Qwen API payload:", JSON.stringify(payload, null, 2));
+  console.log("调用 Qwen API... (图片已转 base64)");
 
   const res = await fetch(`${DASHSCOPE_BASE}/services/aigc/image-generation/generation`, {
     method: "POST",
@@ -145,12 +164,91 @@ async function callDoubaoSeedream(productPhotoUrl: string, modelPhotoUrl: string
   return imageUrl;
 }
 
+// 解析 JSON 路径 (如 "output.0" 或 "data.url")
+function getByPath(obj: unknown, path: string): unknown {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    const idx = parseInt(part, 10);
+    if (!isNaN(idx) && Array.isArray(current)) {
+      current = current[idx];
+    } else if (typeof current === "object") {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+// 调用自定义模型 API
+async function callCustomModel(
+  productPhotoUrl: string,
+  modelPhotoUrl: string,
+  config: { apiEndpoint: string; apiKey: string; modelId: string; requestTemplate: string; responseImagePath: string; extraHeaders: string }
+): Promise<string | null> {
+  console.log("下载商品图片 (自定义模型)...");
+  const productBase64 = await urlToBase64DataUri(productPhotoUrl);
+  console.log("下载模特图片 (自定义模型)...");
+  const modelBase64 = await urlToBase64DataUri(modelPhotoUrl);
+
+  // 替换占位符
+  let bodyStr = config.requestTemplate
+    .replace(/\{\{MODEL_ID\}\}/g, config.modelId)
+    .replace(/\{\{PRODUCT_IMAGE\}\}/g, productBase64)
+    .replace(/\{\{MODEL_IMAGE\}\}/g, modelBase64);
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(bodyStr);
+  } catch {
+    throw new Error("请求体模板 JSON 格式错误");
+  }
+
+  // 构建请求头
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${config.apiKey}`,
+  };
+  try {
+    if (config.extraHeaders) {
+      Object.assign(headers, JSON.parse(config.extraHeaders));
+    }
+  } catch {
+    // 忽略无效的额外请求头
+  }
+
+  console.log(`调用自定义模型: ${config.apiEndpoint}`);
+  const res = await fetch(config.apiEndpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    console.error("自定义模型 API 错误:", data);
+    throw new Error(`自定义模型 API 错误: ${JSON.stringify(data)}`);
+  }
+
+  // 通过路径提取图片 URL
+  const imageUrl = getByPath(data, config.responseImagePath);
+  if (typeof imageUrl !== "string" || !imageUrl) {
+    console.error("自定义模型返回无图片:", data);
+    throw new Error(`自定义模型未返回图片 (路径: ${config.responseImagePath})`);
+  }
+
+  console.log("自定义模型生成成功:", imageUrl);
+  return imageUrl;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sale_id, product_photo_url, model_id, ai_model } = body;
+    const { sale_id, product_photo_url, model_id, ai_model, custom_model } = body;
 
-    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : "doubao";
+    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "custom" ? "custom" : "doubao";
 
     if (!sale_id || !model_id) {
       return NextResponse.json({ error: "缺少 sale_id 或 model_id" }, { status: 400 });
@@ -177,7 +275,9 @@ export async function POST(request: NextRequest) {
     console.log(`使用模型: ${activeModel}`);
     let generatedUrl: string | null = null;
 
-    if (activeModel === "qwen") {
+    if (activeModel === "custom" && custom_model) {
+      generatedUrl = await callCustomModel(product_photo_url, modelPhotoUrl, custom_model);
+    } else if (activeModel === "qwen") {
       generatedUrl = await callQwenImageEdit(product_photo_url, modelPhotoUrl);
     } else {
       generatedUrl = await callDoubaoSeedream(product_photo_url, modelPhotoUrl);
