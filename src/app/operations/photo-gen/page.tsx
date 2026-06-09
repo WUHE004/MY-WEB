@@ -40,6 +40,7 @@ export default function PhotoGenPage() {
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
   const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
   const [generatingError, setGeneratingError] = useState<Record<string, string>>({});
+  const [aiModel, setAiModel] = useState<"doubao" | "qwen">("doubao");
 
   useEffect(() => {
     fetchProducts();
@@ -105,6 +106,7 @@ export default function PhotoGenPage() {
           sale_id: sid,
           product_photo_url: activeProduct.photo,
           model_id: selectedModelId,
+          ai_model: aiModel,
         }),
       });
       const data = await res.json();
@@ -143,9 +145,9 @@ export default function PhotoGenPage() {
         </div>
       </div>
 
-      {/* 搜索栏 */}
-      <div className="mb-4 lg:mb-6 flex gap-3">
-        <div className="flex-1 relative">
+      {/* 搜索栏 + 模型选择 */}
+      <div className="mb-4 lg:mb-6 flex gap-3 flex-wrap">
+        <div className="flex-1 relative min-w-0">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
@@ -161,6 +163,35 @@ export default function PhotoGenPage() {
         >
           <UserRound className="h-4 w-4" />
           模特库
+        </button>
+      </div>
+
+      {/* 模型选择 */}
+      <div className="mb-4 lg:mb-6 flex items-center gap-2">
+        <span className="text-xs font-bold text-gray-500 whitespace-nowrap">AI 模型:</span>
+        <button
+          onClick={() => setAiModel("doubao")}
+          className={`flex-1 lg:flex-none px-4 py-2 rounded-xl border-[3px] font-extrabold text-xs transition-all ${
+            aiModel === "doubao"
+              ? "border-blue-500 bg-blue-500 text-white shadow-[2px_2px_0px_0px_rgba(59,130,246,0.5)]"
+              : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
+          }`}
+        >
+          <span className="flex items-center justify-center gap-1">
+            🫘 豆包 Seedream
+          </span>
+        </button>
+        <button
+          onClick={() => setAiModel("qwen")}
+          className={`flex-1 lg:flex-none px-4 py-2 rounded-xl border-[3px] font-extrabold text-xs transition-all ${
+            aiModel === "qwen"
+              ? "border-purple-500 bg-purple-500 text-white shadow-[2px_2px_0px_0px_rgba(147,51,234,0.5)]"
+              : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
+          }`}
+        >
+          <span className="flex items-center justify-center gap-1">
+            ⚡ Qwen-Image-Edit
+          </span>
         </button>
       </div>
 
@@ -194,7 +225,33 @@ export default function PhotoGenPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModelSelect(false)}>
           <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-md max-h-[80vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-extrabold mb-1">选择模特</h3>
-            <p className="text-xs text-gray-500 mb-4">商品: {activeProduct.sale_id} - {activeProduct.name}</p>
+            <p className="text-xs text-gray-500 mb-3">商品: {activeProduct.sale_id} - {activeProduct.name}</p>
+
+            {/* 模型中切换 */}
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setAiModel("doubao")}
+                className={`flex-1 px-3 py-1.5 rounded-lg border-[2px] text-[10px] font-extrabold transition-all ${
+                  aiModel === "doubao"
+                    ? "border-blue-500 bg-blue-500 text-white"
+                    : "border-gray-300 bg-white text-gray-500"
+                }`}
+              >
+                🫘 豆包
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiModel("qwen")}
+                className={`flex-1 px-3 py-1.5 rounded-lg border-[2px] text-[10px] font-extrabold transition-all ${
+                  aiModel === "qwen"
+                    ? "border-purple-500 bg-purple-500 text-white"
+                    : "border-gray-300 bg-white text-gray-500"
+                }`}
+              >
+                ⚡ Qwen
+              </button>
+            </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               {models.map((model) => (
