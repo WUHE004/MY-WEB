@@ -357,40 +357,61 @@ async function getProductDetail(saleId: string) {
   return data || null;
 }
 
-// 查询商品销量和退货量
+// 查询商品销量和退货量（含分尺码）
 async function getSalesStats(saleId: string) {
   const [salesRes, returnRes] = await Promise.all([
-    supabase.from("sales_records").select("quantity, sell_price").eq("sale_id", saleId),
-    supabase.from("return_records").select("quantity").eq("sale_id", saleId),
+    supabase.from("sales_records").select("quantity, sell_price, size").eq("sale_id", saleId),
+    supabase.from("return_records").select("quantity, size").eq("sale_id", saleId),
   ]);
   let soldTotal = 0, sellPrice = 0;
+  const soldBySize: Record<string, number> = {};
   if (salesRes.data) {
     for (const row of salesRes.data) {
-      soldTotal += Number(row.quantity) || 0;
+      const qty = Number(row.quantity) || 0;
+      soldTotal += qty;
       if (!sellPrice && Number(row.sell_price) > 0) sellPrice = Number(row.sell_price);
+      const sz = String(row.size || "");
+      soldBySize[sz] = (soldBySize[sz] || 0) + qty;
     }
   }
   let returnTotal = 0;
+  const returnedBySize: Record<string, number> = {};
   if (returnRes.data) {
-    for (const row of returnRes.data) returnTotal += Number(row.quantity) || 0;
+    for (const row of returnRes.data) {
+      const qty = Number(row.quantity) || 0;
+      returnTotal += qty;
+      const sz = String(row.size || "");
+      returnedBySize[sz] = (returnedBySize[sz] || 0) + qty;
+    }
   }
-  return { soldTotal, returnTotal, sellPrice };
+  return { soldTotal, returnTotal, sellPrice, soldBySize, returnedBySize };
 }
 
 // 构建商品信息文本
-function buildProductText(product: Record<string, unknown>, stats: { soldTotal: number; returnTotal: number; sellPrice: number }) {
+function buildProductText(
+  product: Record<string, unknown>,
+  stats: { soldTotal: number; returnTotal: number; sellPrice: number; soldBySize: Record<string, number>; returnedBySize: Record<string, number> }
+) {
   const saleId = (product.sale_id as string) || "";
   const manufacturer = (product.manufacturer as string) || "未知";
   const costPrice = Number(product.cost_price) || 0;
   const sellPrice = stats.sellPrice || 0;
-  const profit = sellPrice - costPrice;
+  const profit = (sellPrice - costPrice).toFixed(1);
   const totalStock = Number(product.total_stock) || 0;
   const remaining = totalStock - stats.soldTotal + stats.returnTotal;
   const name = (product.name as string) || "";
 
-  const sizeLines = SIZES.map((s) => {
+  const inboundLines = SIZES.map((s) => {
     const qty = Number(product[`size_${s}`]) || 0;
     return qty > 0 ? `${s}:${qty}` : null;
+  }).filter(Boolean).join(" ");
+
+  const remainingLines = SIZES.map((s) => {
+    const initial = Number(product[`size_${s}`]) || 0;
+    const sold = stats.soldBySize[String(s)] || 0;
+    const returned = stats.returnedBySize[String(s)] || 0;
+    const rem = initial - sold + returned;
+    return rem > 0 ? `${s}:${rem}` : null;
   }).filter(Boolean).join(" ");
 
   return [
@@ -403,7 +424,10 @@ function buildProductText(product: Record<string, unknown>, stats: { soldTotal: 
     `总库存：${totalStock}  售出：${stats.soldTotal}  退货：${stats.returnTotal}  剩余：${remaining}`,
     ``,
     `各尺码入库数量：`,
-    sizeLines || "无尺码数据",
+    inboundLines || "无尺码数据",
+    ``,
+    `各尺码剩余数量：`,
+    remainingLines || "无尺码数据",
   ].join("\n");
 }
 

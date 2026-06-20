@@ -98,62 +98,69 @@ async function getProductDetail(saleId: string) {
   return data || null;
 }
 
-// 查询商品销量和退货量
+// 查询商品销量和退货量（含分尺码）
 async function getSalesStats(saleId: string) {
-  const upperId = saleId.toUpperCase();
-
   const [salesRes, returnRes] = await Promise.all([
-    supabase.from("sales_records").select("quantity, sell_price").eq("sale_id", saleId),
+    supabase.from("sales_records").select("quantity, sell_price, size").eq("sale_id", saleId),
     supabase.from("return_records").select("quantity, size").eq("sale_id", saleId),
   ]);
 
   let soldTotal = 0;
   let sellPrice = 0;
+  const soldBySize: Record<string, number> = {};
   if (salesRes.data) {
     for (const row of salesRes.data) {
-      soldTotal += Number(row.quantity) || 0;
-      if (!sellPrice && Number(row.sell_price) > 0) {
-        sellPrice = Number(row.sell_price);
-      }
+      const qty = Number(row.quantity) || 0;
+      soldTotal += qty;
+      if (!sellPrice && Number(row.sell_price) > 0) sellPrice = Number(row.sell_price);
+      const sz = String(row.size || "");
+      soldBySize[sz] = (soldBySize[sz] || 0) + qty;
     }
   }
 
   let returnTotal = 0;
+  const returnedBySize: Record<string, number> = {};
   if (returnRes.data) {
     for (const row of returnRes.data) {
-      returnTotal += Number(row.quantity) || 0;
+      const qty = Number(row.quantity) || 0;
+      returnTotal += qty;
+      const sz = String(row.size || "");
+      returnedBySize[sz] = (returnedBySize[sz] || 0) + qty;
     }
   }
 
-  return { soldTotal, returnTotal, sellPrice };
+  return { soldTotal, returnTotal, sellPrice, soldBySize, returnedBySize };
 }
 
 // 构建商品信息文本
-function buildProductText(product: Record<string, unknown>, stats: { soldTotal: number; returnTotal: number; sellPrice: number }) {
+function buildProductText(
+  product: Record<string, unknown>,
+  stats: { soldTotal: number; returnTotal: number; sellPrice: number; soldBySize: Record<string, number>; returnedBySize: Record<string, number> }
+) {
   const saleId = (product.sale_id as string) || "";
   const manufacturer = (product.manufacturer as string) || "未知";
   const costPrice = Number(product.cost_price) || 0;
   const sellPrice = stats.sellPrice || 0;
-  const profit = sellPrice - costPrice;
+  const profit = (sellPrice - costPrice).toFixed(1);
   const totalStock = Number(product.total_stock) || 0;
   const soldTotal = stats.soldTotal;
   const returnTotal = stats.returnTotal;
   const remaining = totalStock - soldTotal + returnTotal;
   const name = (product.name as string) || "";
 
-  // 计算各尺码剩余库存
-  // 先从入库记录获取各尺码初始库存，再减去售卖量
-  const sizeStock: Record<string, number> = {};
-  for (const s of SIZES) {
-    const initial = Number(product[`size_${s}`]) || 0;
-    sizeStock[`${s}`] = initial;
-  }
-
-  // 简单处理：用总库存和剩余比例估算各尺码剩余（无法精确追踪每个尺码的售卖）
-  // 实际展示各尺码入库数量
-  const sizeLines = SIZES.map((s) => {
-    const qty = sizeStock[`${s}`] || 0;
+  // 各尺码入库数量
+  const inboundLines = SIZES.map((s) => {
+    const qty = Number(product[`size_${s}`]) || 0;
     return qty > 0 ? `${s}:${qty}` : null;
+  }).filter(Boolean).join(" ");
+
+  // 各尺码剩余数量 = 入库 - 售出 + 退货
+  const remainingLines = SIZES.map((s) => {
+    const initial = Number(product[`size_${s}`]) || 0;
+    const sold = stats.soldBySize[String(s)] || 0;
+    const returned = stats.returnedBySize[String(s)] || 0;
+    const rem = initial - sold + returned;
+    return rem > 0 ? `${s}:${rem}` : null;
   }).filter(Boolean).join(" ");
 
   const lines = [
@@ -166,7 +173,10 @@ function buildProductText(product: Record<string, unknown>, stats: { soldTotal: 
     `总库存：${totalStock}  售出：${soldTotal}  退货：${returnTotal}  剩余：${remaining}`,
     ``,
     `各尺码入库数量：`,
-    sizeLines || "无尺码数据",
+    inboundLines || "无尺码数据",
+    ``,
+    `各尺码剩余数量：`,
+    remainingLines || "无尺码数据",
   ];
 
   return lines.join("\n");
@@ -235,16 +245,20 @@ export async function POST(request: NextRequest) {
     // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图 =====
     console.log("Agnes 步骤2&3: 并行生成图片...");
 
+    // 随机种子：每次生成不同结果
+    const randomSeed = Math.floor(Math.random() * 2147483647);
+
     // 竖版高清、生活化场景、多样动作全身照
-    const modelPrompt = `一个3-6岁的中国儿童模特穿着这件衣服，展示服装效果。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。
+    const modelPrompt = `一个可爱的中国儿童模特（年龄3-6岁，性别随机，发型妆造多样自然）穿着这件衣服，展示服装效果。${clothingDesc}。严格保持衣服的颜色、材质、图案、细节完全不变。
 
 拍摄要求：
-- 竖版构图，高清全身照
-- 自然柔和的户外光线
-- 场景要生活化、自然：如公园草地、阳光街道、游乐场、花园、海滩等日常场景
-- 儿童模特姿势自然多样：可以是奔跑、跳跃、蹲下玩耍、侧身回眸、坐着微笑、手拿玩具等，不要僵硬站立
-- 配搭建议：根据衣服风格搭配适合的裤子/裙子、鞋子和配饰
-- 整体氛围温馨可爱，像专业儿童服装品牌广告片`;
+- 竖版构图，高清全身照，专业儿童服装摄影
+- 自然柔和的户外光线或室内暖光
+- 场景必须多样化：每次随机选择不同的生活场景，如小区花园、阳光草地、幼儿园教室、游乐场滑梯旁、海滩沙滩、公园长椅、花丛旁、书店角落、甜品店、家庭客厅等
+- 儿童模特动作自然小幅：如低头看花、轻轻摸头发、侧身微笑、坐着翻书、手拿气球、抱玩偶、吃冰淇淋、蹲下看小动物、踮脚看远处、回头一笑等自然小动作，避免僵硬站姿和夸张大动作
+- 模特样貌妆造多元化：每次随机变换不同发型（短发、双马尾、丸子头、齐刘海等）、不同肤色深浅、不同脸型，保持自然可爱
+- 根据衣服风格搭配适合的裤子/裙子、鞋子和配饰，整体穿搭协调
+- 整体氛围温馨自然，像专业儿童服装品牌生活照`;
 
     const flatPrompt = `这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。`;
 
@@ -259,6 +273,7 @@ export async function POST(request: NextRequest) {
           model: "agnes-image-2.0-flash",
           prompt: modelPrompt,
           size: "1024x1536", // 竖版 2:3 比例
+          seed: randomSeed,
           extra_body: { image: [product_photo_url] },
         }),
       }),
