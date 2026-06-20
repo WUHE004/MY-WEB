@@ -231,9 +231,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const echostr = searchParams.get("echostr");
   if (echostr) {
-    return new NextResponse(echostr, { status: 200 });
+    return new Response(echostr, {
+      headers: { "Content-Type": "text/plain" },
+      status: 200,
+    });
   }
-  return NextResponse.json({ status: "ok" });
+  return new Response("ok", { status: 200 });
 }
 
 // POST: 接收消息
