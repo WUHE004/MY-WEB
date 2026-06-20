@@ -6,6 +6,7 @@ const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
 const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 const MAX_SIZE_BYTES = 200 * 1024;
+const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
 // 压缩图片
 async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
@@ -30,6 +31,30 @@ async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
 async function computeMd5(buffer: Buffer): Promise<string> {
   const crypto = await import("crypto");
   return crypto.createHash("md5").update(buffer).digest("hex");
+}
+
+// 发送企业微信文本消息
+async function sendTextToWechat(content: string): Promise<boolean> {
+  if (!WECHAT_WEBHOOK_URL) {
+    console.log("企业微信未配置，跳过发送文本");
+    return false;
+  }
+  try {
+    const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        msgtype: "text",
+        text: { content },
+      }),
+    });
+    const data = await wechatRes.json();
+    console.log("企业微信 文本 发送结果:", data);
+    return data?.errcode === 0;
+  } catch (err) {
+    console.error("企业微信 文本 发送失败:", err);
+    return false;
+  }
 }
 
 // 发送企业微信图片
@@ -59,6 +84,94 @@ async function sendToWechat(imageUrl: string, label: string): Promise<boolean> {
   }
 }
 
+// 查询商品详情（含库存、进价、厂家等）
+async function getProductDetail(saleId: string) {
+  const { data, error } = await supabase
+    .from("inbound_records")
+    .select("*")
+    .eq("sale_id", saleId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("查询商品详情失败:", error.message);
+  }
+  return data || null;
+}
+
+// 查询商品销量和退货量
+async function getSalesStats(saleId: string) {
+  const upperId = saleId.toUpperCase();
+
+  const [salesRes, returnRes] = await Promise.all([
+    supabase.from("sales_records").select("quantity, sell_price").eq("sale_id", saleId),
+    supabase.from("return_records").select("quantity, size").eq("sale_id", saleId),
+  ]);
+
+  let soldTotal = 0;
+  let sellPrice = 0;
+  if (salesRes.data) {
+    for (const row of salesRes.data) {
+      soldTotal += Number(row.quantity) || 0;
+      if (!sellPrice && Number(row.sell_price) > 0) {
+        sellPrice = Number(row.sell_price);
+      }
+    }
+  }
+
+  let returnTotal = 0;
+  if (returnRes.data) {
+    for (const row of returnRes.data) {
+      returnTotal += Number(row.quantity) || 0;
+    }
+  }
+
+  return { soldTotal, returnTotal, sellPrice };
+}
+
+// 构建商品信息文本
+function buildProductText(product: Record<string, unknown>, stats: { soldTotal: number; returnTotal: number; sellPrice: number }) {
+  const saleId = (product.sale_id as string) || "";
+  const manufacturer = (product.manufacturer as string) || "未知";
+  const costPrice = Number(product.cost_price) || 0;
+  const sellPrice = stats.sellPrice || 0;
+  const profit = sellPrice - costPrice;
+  const totalStock = Number(product.total_stock) || 0;
+  const soldTotal = stats.soldTotal;
+  const returnTotal = stats.returnTotal;
+  const remaining = totalStock - soldTotal + returnTotal;
+  const name = (product.name as string) || "";
+
+  // 计算各尺码剩余库存
+  // 先从入库记录获取各尺码初始库存，再减去售卖量
+  const sizeStock: Record<string, number> = {};
+  for (const s of SIZES) {
+    const initial = Number(product[`size_${s}`]) || 0;
+    sizeStock[`${s}`] = initial;
+  }
+
+  // 简单处理：用总库存和剩余比例估算各尺码剩余（无法精确追踪每个尺码的售卖）
+  // 实际展示各尺码入库数量
+  const sizeLines = SIZES.map((s) => {
+    const qty = sizeStock[`${s}`] || 0;
+    return qty > 0 ? `${s}:${qty}` : null;
+  }).filter(Boolean).join(" ");
+
+  const lines = [
+    `【AI 一键生成】商品信息`,
+    ``,
+    `售卖编号：${saleId}`,
+    `商品名称：${name}`,
+    `进货厂家：${manufacturer}`,
+    `进价：¥${costPrice}  售价：¥${sellPrice}  利润：¥${profit}`,
+    `总库存：${totalStock}  售出：${soldTotal}  退货：${returnTotal}  剩余：${remaining}`,
+    ``,
+    `各尺码入库数量：`,
+    sizeLines || "无尺码数据",
+  ];
+
+  return lines.join("\n");
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!AGNES_API_KEY) {
@@ -71,6 +184,19 @@ export async function POST(request: NextRequest) {
     if (!sale_id || !product_photo_url) {
       return NextResponse.json({ error: "缺少 sale_id 或 product_photo_url" }, { status: 400 });
     }
+
+    // ===== 步骤 0: 查询商品详情和销售数据 =====
+    console.log("Agnes 步骤0: 查询商品详情...");
+    const [productDetail, salesStats] = await Promise.all([
+      getProductDetail(sale_id),
+      getSalesStats(sale_id),
+    ]);
+
+    const productText = productDetail
+      ? buildProductText(productDetail, salesStats)
+      : `售卖编号：${sale_id}\n（未找到商品详情）`;
+
+    console.log("商品信息文本:\n", productText);
 
     // ===== 步骤 1: 文本模型分析服装 =====
     console.log("Agnes 步骤1: 分析服装...");
@@ -109,7 +235,16 @@ export async function POST(request: NextRequest) {
     // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图 =====
     console.log("Agnes 步骤2&3: 并行生成图片...");
 
-    const modelPrompt = `一个3-6岁的中国儿童模特穿着这件衣服，展示服装效果。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变，自然光线，高清摄影棚拍摄，全身照。儿童模特自然微笑，姿势自然可爱。背景是温馨的儿童摄影棚场景。`;
+    // 竖版高清、生活化场景、多样动作全身照
+    const modelPrompt = `一个3-6岁的中国儿童模特穿着这件衣服，展示服装效果。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。
+
+拍摄要求：
+- 竖版构图，高清全身照
+- 自然柔和的户外光线
+- 场景要生活化、自然：如公园草地、阳光街道、游乐场、花园、海滩等日常场景
+- 儿童模特姿势自然多样：可以是奔跑、跳跃、蹲下玩耍、侧身回眸、坐着微笑、手拿玩具等，不要僵硬站立
+- 配搭建议：根据衣服风格搭配适合的裤子/裙子、鞋子和配饰
+- 整体氛围温馨可爱，像专业儿童服装品牌广告片`;
 
     const flatPrompt = `这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。`;
 
@@ -123,7 +258,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           model: "agnes-image-2.0-flash",
           prompt: modelPrompt,
-          size: "1024x1024",
+          size: "1024x1536", // 竖版 2:3 比例
           extra_body: { image: [product_photo_url] },
         }),
       }),
@@ -164,7 +299,9 @@ export async function POST(request: NextRequest) {
     console.log("模特图:", modelImageUrl);
     console.log("平铺图:", flatImageUrl);
 
-    // ===== 步骤 4: 发送企业微信 =====
+    // ===== 步骤 4: 发送企业微信（先文本，再图片） =====
+    const textSent = await sendTextToWechat(productText);
+    // 文本和图片之间稍等一下，确保顺序
     const [wechatModelSent, wechatFlatSent] = await Promise.all([
       sendToWechat(modelImageUrl, "模特试穿图"),
       sendToWechat(flatImageUrl, "白底平铺图"),
@@ -184,7 +321,8 @@ export async function POST(request: NextRequest) {
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
       clothing_desc: clothingDesc,
-      wechat_sent: wechatModelSent && wechatFlatSent,
+      product_text: productText,
+      wechat_sent: textSent && wechatModelSent && wechatFlatSent,
       sale_id,
     });
   } catch (err) {

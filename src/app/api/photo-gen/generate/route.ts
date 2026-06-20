@@ -12,8 +12,9 @@ const DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/api/v1";
 // Qwen 图片编辑需要走 multimodal-generation 端点（非 image-generation）
 const QWEN_IMAGE_EDIT_ENDPOINT = `${DASHSCOPE_BASE}/services/aigc/multimodal-generation/generation`;
 const MAX_SIZE_BYTES = 200 * 1024; // 200KB
+const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
-type ModelType = "doubao" | "qwen" | "custom";
+type ModelType = "doubao" | "qwen" | "aitryon" | "custom";
 
 // 压缩图片到 200KB 以内
 async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
@@ -84,7 +85,6 @@ async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string)
     },
     parameters: {
       n: 1,
-      size: "1024*1024",
       watermark: false,
       prompt_extend: true,
     },
@@ -120,6 +120,89 @@ async function callQwenImageEdit(productPhotoUrl: string, modelPhotoUrl: string)
 
   console.log("Qwen 生成成功，图片 URL:", imageUrl);
   return imageUrl;
+}
+
+// 调用阿里云百炼 AI试衣 (aitryon-plus) API
+// 注意: aitryon-plus 要求传入公网可访问的 HTTP URL，不能用 base64
+async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): Promise<string | null> {
+  if (!DASHSCOPE_API_KEY) {
+    throw new Error("DashScope API Key 未配置");
+  }
+
+  const payload = {
+    model: "aitryon-plus",
+    input: {
+      person_image_url: modelPhotoUrl,
+      top_garment_url: productPhotoUrl,
+    },
+    parameters: {
+      resolution: -1,
+      restore_face: true,
+    },
+  };
+
+  console.log("调用 aitryon-plus API...");
+
+  // 1. 创建异步任务
+  const createRes = await fetch(`${DASHSCOPE_BASE}/services/aigc/image2image/image-synthesis/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${DASHSCOPE_API_KEY}`,
+      "X-DashScope-Async": "enable",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const createData = await createRes.json();
+
+  if (!createRes.ok) {
+    console.error("aitryon API 错误:", createData);
+    throw new Error(`AI试衣 API 错误: ${createData.message || JSON.stringify(createData)}`);
+  }
+
+  const taskId = createData?.output?.task_id;
+  if (!taskId) {
+    console.error("aitryon 返回无 task_id:", createData);
+    throw new Error("AI试衣未返回任务ID");
+  }
+
+  console.log("aitryon 任务已创建:", taskId);
+
+  // 2. 轮询任务结果 (最多等待 120 秒)
+  const maxAttempts = 24; // 24 * 5s = 120s
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+
+    const pollRes = await fetch(`${DASHSCOPE_BASE}/tasks/${taskId}`, {
+      headers: { Authorization: `Bearer ${DASHSCOPE_API_KEY}` },
+    });
+    const pollData = await pollRes.json();
+    const status = pollData?.output?.task_status;
+
+    console.log(`aitryon 状态 (${i + 1}/${maxAttempts}): ${status}`);
+
+    if (status === "SUCCEEDED") {
+      // aitryon-plus 返回字段是 output.image_url（不是 results[0].url）
+      const imageUrl = pollData?.output?.image_url
+        || pollData?.output?.results?.[0]?.url
+        || pollData?.output?.results?.[0]?.image;
+      if (imageUrl) {
+        console.log("aitryon 生成成功:", imageUrl);
+        return imageUrl;
+      }
+      console.error("aitryon SUCCEEDED 但未找到图片，完整响应:", JSON.stringify(pollData));
+      throw new Error("AI试衣任务成功但未返回图片");
+    }
+
+    if (status === "FAILED") {
+      throw new Error(`AI试衣任务失败: ${pollData?.output?.message || "未知错误"}`);
+    }
+
+    // PENDING 或 RUNNING，继续轮询
+  }
+
+  throw new Error("AI试衣任务超时 (120s)");
 }
 
 // 调用豆包 Seedream API
@@ -247,12 +330,89 @@ async function callCustomModel(
   return imageUrl;
 }
 
+// 发送企业微信文本消息
+async function sendTextToWechat(content: string): Promise<boolean> {
+  if (!WECHAT_WEBHOOK_URL) return false;
+  try {
+    const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msgtype: "text", text: { content } }),
+    });
+    const data = await wechatRes.json();
+    return data?.errcode === 0;
+  } catch (err) {
+    console.error("企业微信 文本 发送失败:", err);
+    return false;
+  }
+}
+
+// 查询商品详情
+async function getProductDetail(saleId: string) {
+  const { data } = await supabase
+    .from("inbound_records")
+    .select("*")
+    .eq("sale_id", saleId)
+    .maybeSingle();
+  return data || null;
+}
+
+// 查询商品销量和退货量
+async function getSalesStats(saleId: string) {
+  const [salesRes, returnRes] = await Promise.all([
+    supabase.from("sales_records").select("quantity, sell_price").eq("sale_id", saleId),
+    supabase.from("return_records").select("quantity").eq("sale_id", saleId),
+  ]);
+  let soldTotal = 0, sellPrice = 0;
+  if (salesRes.data) {
+    for (const row of salesRes.data) {
+      soldTotal += Number(row.quantity) || 0;
+      if (!sellPrice && Number(row.sell_price) > 0) sellPrice = Number(row.sell_price);
+    }
+  }
+  let returnTotal = 0;
+  if (returnRes.data) {
+    for (const row of returnRes.data) returnTotal += Number(row.quantity) || 0;
+  }
+  return { soldTotal, returnTotal, sellPrice };
+}
+
+// 构建商品信息文本
+function buildProductText(product: Record<string, unknown>, stats: { soldTotal: number; returnTotal: number; sellPrice: number }) {
+  const saleId = (product.sale_id as string) || "";
+  const manufacturer = (product.manufacturer as string) || "未知";
+  const costPrice = Number(product.cost_price) || 0;
+  const sellPrice = stats.sellPrice || 0;
+  const profit = sellPrice - costPrice;
+  const totalStock = Number(product.total_stock) || 0;
+  const remaining = totalStock - stats.soldTotal + stats.returnTotal;
+  const name = (product.name as string) || "";
+
+  const sizeLines = SIZES.map((s) => {
+    const qty = Number(product[`size_${s}`]) || 0;
+    return qty > 0 ? `${s}:${qty}` : null;
+  }).filter(Boolean).join(" ");
+
+  return [
+    `【AI 穿衣】商品信息`,
+    ``,
+    `售卖编号：${saleId}`,
+    `商品名称：${name}`,
+    `进货厂家：${manufacturer}`,
+    `进价：¥${costPrice}  售价：¥${sellPrice}  利润：¥${profit}`,
+    `总库存：${totalStock}  售出：${stats.soldTotal}  退货：${stats.returnTotal}  剩余：${remaining}`,
+    ``,
+    `各尺码入库数量：`,
+    sizeLines || "无尺码数据",
+  ].join("\n");
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sale_id, product_photo_url, model_id, ai_model, custom_model } = body;
+    const { sale_id, product_photo_url, model_id, ai_model, custom_model, member_id } = body;
 
-    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "custom" ? "custom" : "doubao";
+    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "aitryon" ? "aitryon" : ai_model === "custom" ? "custom" : "doubao";
 
     if (!sale_id || !model_id) {
       return NextResponse.json({ error: "缺少 sale_id 或 model_id" }, { status: 400 });
@@ -283,6 +443,8 @@ export async function POST(request: NextRequest) {
       generatedUrl = await callCustomModel(product_photo_url, modelPhotoUrl, custom_model);
     } else if (activeModel === "qwen") {
       generatedUrl = await callQwenImageEdit(product_photo_url, modelPhotoUrl);
+    } else if (activeModel === "aitryon") {
+      generatedUrl = await callAitryonPlus(product_photo_url, modelPhotoUrl);
     } else {
       generatedUrl = await callDoubaoSeedream(product_photo_url, modelPhotoUrl);
     }
@@ -296,23 +458,27 @@ export async function POST(request: NextRequest) {
     const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
     const imageBuffer = await compressImage(rawBuffer);
 
-    // 4. 通过企业微信发送图片
+    // 4. 查询商品详情并发送企业微信（先文本，再图片）
     let wechatSent = false;
     if (WECHAT_WEBHOOK_URL) {
       try {
+        // 先发送商品信息文本
+        const [productDetail, salesStats] = await Promise.all([
+          getProductDetail(sale_id),
+          getSalesStats(sale_id),
+        ]);
+        const productText = productDetail
+          ? buildProductText(productDetail, salesStats)
+          : `售卖编号：${sale_id}`;
+        await sendTextToWechat(productText);
+
+        // 再发送图片
         const base64Image = imageBuffer.toString("base64");
         const md5 = await computeMd5(imageBuffer);
-
         const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            msgtype: "image",
-            image: {
-              base64: base64Image,
-              md5,
-            },
-          }),
+          body: JSON.stringify({ msgtype: "image", image: { base64: base64Image, md5 } }),
         });
         const wechatData = await wechatRes.json();
         console.log("企业微信发送结果:", wechatData);
@@ -323,6 +489,18 @@ export async function POST(request: NextRequest) {
     }
 
     // 直接返回生成图片的 URL（不存入 Supabase，节省存储空间）
+    // 记录用量（用于跨设备同步剩余次数）
+    if (member_id) {
+      supabase.from("model_usage").insert({
+        member_id,
+        model_name: activeModel === "custom" && custom_model?.id
+          ? `custom_${custom_model.id}`
+          : activeModel,
+      }).then(({ error }) => {
+        if (error) console.error("用量记录失败:", error.message);
+      });
+    }
+
     return NextResponse.json({
       generated_url: generatedUrl,
       sale_id,
