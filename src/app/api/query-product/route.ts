@@ -186,8 +186,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code") || "";
 
+    console.log("收到查询请求:", { code, url: request.url });
+
     if (!code || code.length < 2) {
       return NextResponse.json({ error: "请提供商品编号" }, { status: 400 });
+    }
+
+    if (code.includes("${") || code.includes("query")) {
+      return NextResponse.json({ 
+        error: "变量未替换", 
+        received: code, 
+        message: "请检查企业微信工作流参数配置，确保${query}被正确替换" 
+      }, { status: 400 });
     }
 
     const product = await getProductDetail(code);
