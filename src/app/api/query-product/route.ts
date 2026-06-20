@@ -139,6 +139,48 @@ async function generateFlatImage(productPhotoUrl: string): Promise<string | null
   }
 }
 
+// 发送文本到企业微信
+async function sendTextToWechat(content: string): Promise<boolean> {
+  const url = process.env.WECHAT_WEBHOOK_URL;
+  if (!url) return false;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msgtype: "text", text: { content } }),
+    });
+    const data = await res.json();
+    return data?.errcode === 0;
+  } catch (err) {
+    console.error("发送文本失败:", err);
+    return false;
+  }
+}
+
+// 发送图片到企业微信
+async function sendImageToWechat(imageUrl: string): Promise<boolean> {
+  const url = process.env.WECHAT_WEBHOOK_URL;
+  if (!url) return false;
+  try {
+    const res = await fetch(imageUrl);
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
+    const compressed = await compressImage(rawBuffer);
+    const base64 = compressed.toString("base64");
+    const crypto = await import("crypto");
+    const md5 = crypto.createHash("md5").update(compressed).digest("hex");
+    const wechatRes = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ msgtype: "image", image: { base64, md5 } }),
+    });
+    const data = await wechatRes.json();
+    return data?.errcode === 0;
+  } catch (err) {
+    console.error("发送图片失败:", err);
+    return false;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -150,33 +192,29 @@ export async function GET(request: NextRequest) {
 
     const product = await getProductDetail(code);
     if (!product) {
+      await sendTextToWechat(`未找到商品编号: ${code}`);
       return NextResponse.json({ status: "not_found", message: `未找到商品编号: ${code}` }, { status: 200 });
     }
 
     const stats = await getSalesStats(code);
     const productText = buildProductText(product, stats);
 
+    await sendTextToWechat(productText);
+
     const photoUrl = product.photo as string;
-    let flatUrl = null;
     if (photoUrl) {
-      flatUrl = await generateFlatImage(photoUrl);
+      const flatUrl = await generateFlatImage(photoUrl);
+      if (flatUrl) {
+        await sendImageToWechat(flatUrl);
+      } else {
+        await sendImageToWechat(photoUrl);
+      }
     }
 
     return NextResponse.json({
       status: "ok",
-      code: (product.sale_id as string),
-      name: (product.name as string),
-      manufacturer: (product.manufacturer as string),
-      costPrice: Number(product.cost_price),
-      sellPrice: stats.sellPrice,
-      profit: (stats.sellPrice - Number(product.cost_price)).toFixed(1),
-      totalStock: Number(product.total_stock),
-      sold: stats.soldTotal,
-      returned: stats.returnTotal,
-      remaining: Number(product.total_stock) - stats.soldTotal + stats.returnTotal,
+      message: "消息已发送",
       description: productText,
-      originalPhoto: photoUrl,
-      flatPhoto: flatUrl,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
