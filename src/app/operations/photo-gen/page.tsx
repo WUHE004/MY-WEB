@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
@@ -41,17 +41,58 @@ export default function PhotoGenPage() {
   const [search, setSearch] = useState("");
   const [models, setModels] = useState<Model[]>([]);
 
+  // Tab 切换: oneshot=一键生成(Agnes) | dressup=AI穿衣
+  const [activeTab, setActiveTab] = useState<"oneshot" | "dressup">("oneshot");
+
+  // 一键生成 (Agnes) 状态
+  const [agnesSearch, setAgnesSearch] = useState("");
+  const [agnesUsage, setAgnesUsage] = useState(0);
+  const [agnesGenerating, setAgnesGenerating] = useState<string | null>(null);
+  const [agnesResults, setAgnesResults] = useState<Record<string, { modelUrl: string; flatUrl: string; desc: string }>>({});
+  const [agnesErrors, setAgnesErrors] = useState<Record<string, string>>({});
+
   // 模特选择弹窗
   const [showModelSelect, setShowModelSelect] = useState(false);
   const [showModelLibrary, setShowModelLibrary] = useState(false);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>("");
 
+  // 图片预览（统一顶层状态，避免在 .map() 内使用 useState）
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
+
   // 生成状态
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
   const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
   const [generatingError, setGeneratingError] = useState<Record<string, string>>({});
-  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "custom">("doubao");
+  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "custom">("doubao");
+
+  // 模型使用量追踪（从服务端 Supabase 读取，跨设备同步）
+  const FREE_QUOTA: Record<string, number> = {
+    doubao: -1,     // 豆包无公开免费额度，仅计数
+    qwen: 100,      // 通义万相约100张免费额度
+    aitryon: 400,   // AI试衣 Plus 400张免费额度
+  };
+  const [modelUsage, setModelUsage] = useState<Record<string, number>>({});
+
+  const fetchUsage = async () => {
+    const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || localStorage.getItem("member_name")) : null;
+    if (!mid) return;
+    try {
+      const res = await fetch(`/api/photo-gen/usage?member_id=${encodeURIComponent(mid)}`);
+      const data = await res.json();
+      if (!data.error) {
+        setModelUsage(data);
+        setAgnesUsage(data.agnes || 0);
+      }
+    } catch { /* 静默 */ }
+  };
+
+  const getUsage = (model: string) => modelUsage[model] || 0;
+  const getQuotaRemaining = (model: string) => {
+    const limit = FREE_QUOTA[model];
+    if (limit === undefined || limit < 0) return null; // 无限制
+    return Math.max(0, limit - getUsage(model));
+  };
 
   // 自定义模型
   const [customModels, setCustomModels] = useState<CustomModel[]>(() => {
@@ -61,6 +102,7 @@ export default function PhotoGenPage() {
   });
   const [selectedCustomModelId, setSelectedCustomModelId] = useState<string>("");
   const [showModelConfig, setShowModelConfig] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   // 编辑自定义模型
   const [editingModel, setEditingModel] = useState<CustomModel>(getDefaultModelConfig());
@@ -119,6 +161,7 @@ export default function PhotoGenPage() {
   useEffect(() => {
     fetchProducts();
     fetchModels();
+    fetchUsage();
   }, []);
 
   const fetchProducts = async () => {
@@ -152,6 +195,57 @@ export default function PhotoGenPage() {
       )
     : products;
 
+  const agnesFilteredProducts = agnesSearch
+    ? products.filter(
+        (p) =>
+          (p.name || "").toLowerCase().includes(agnesSearch.toLowerCase()) ||
+          (p.sale_id || "").toLowerCase().includes(agnesSearch.toLowerCase())
+      )
+    : products;
+
+  // ===== Agnes 一键生成 =====
+  const handleAgnesGenerate = async (product: Product) => {
+    const sid = product.sale_id;
+    setAgnesGenerating(sid);
+    setAgnesErrors((prev) => {
+      const next = { ...prev };
+      delete next[sid];
+      return next;
+    });
+
+    const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "") : "";
+
+    try {
+      const res = await fetch("/api/photo-gen/agnes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sale_id: sid,
+          product_photo_url: product.photo,
+          member_id: mid,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setAgnesErrors((prev) => ({ ...prev, [sid]: data.error }));
+      } else {
+        setAgnesResults((prev) => ({
+          ...prev,
+          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.clothing_desc },
+        }));
+        fetchUsage();
+      }
+    } catch (err) {
+      setAgnesErrors((prev) => ({
+        ...prev,
+        [sid]: err instanceof Error ? err.message : "生成失败",
+      }));
+    } finally {
+      setAgnesGenerating(null);
+    }
+  };
+
+  // ===== AI穿衣 原有逻辑 =====
   const handleOpenGen = (product: Product) => {
     if (models.length === 0) {
       alert("请先在模特库中添加模特");
@@ -173,6 +267,7 @@ export default function PhotoGenPage() {
     });
 
     const selectedCustomModel = customModels.find((m) => m.id === selectedCustomModelId);
+    const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "") : "";
 
     try {
       const res = await fetch("/api/photo-gen/generate", {
@@ -184,6 +279,7 @@ export default function PhotoGenPage() {
           model_id: selectedModelId,
           ai_model: aiModel,
           custom_model: aiModel === "custom" ? selectedCustomModel : null,
+          member_id: mid,
         }),
       });
       const data = await res.json();
@@ -191,6 +287,7 @@ export default function PhotoGenPage() {
         setGeneratingError((prev) => ({ ...prev, [sid]: data.error }));
       } else if (data.generated_url) {
         setGeneratedImages((prev) => ({ ...prev, [sid]: data.generated_url }));
+        fetchUsage();
       }
     } catch (err) {
       setGeneratingError((prev) => ({
@@ -208,108 +305,255 @@ export default function PhotoGenPage() {
   return (
     <PageWrapper>
       {/* 顶部导航 */}
-      <div className="flex items-center gap-3 mb-4 lg:mb-6">
-        <Link href="/links" className="flex items-center justify-center h-10 w-10 rounded-xl border-[3px] border-gray-900 hover:bg-gray-100 transition-colors">
+      <div className="flex items-center gap-3 mb-4 lg:mb-6 flex-wrap">
+        <Link href="/links" className="flex items-center justify-center h-10 w-10 rounded-xl border-[3px] border-gray-900 hover:bg-gray-100 transition-colors shrink-0">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900">
             <span className="highlight-purple">AI 照片生成</span>
           </h1>
           <p className="text-xs lg:text-sm text-gray-500 font-medium">
-            选择商品，让模特穿上你的衣服
+            {activeTab === "oneshot" ? "Agnes 全自动：分析服装 → 生成模特图 + 平铺图 → 推送企业微信" : "选择商品和模特，让模特穿上你的衣服"}
           </p>
         </div>
-      </div>
-
-      {/* 搜索栏 + 模型选择 */}
-      <div className="mb-4 lg:mb-6 flex gap-3 flex-wrap">
-        <div className="flex-1 relative min-w-0">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索商品名称或编号..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl border-[3px] border-gray-900 text-sm font-medium focus:outline-none"
-          />
-        </div>
-        <button
-          onClick={() => setShowModelLibrary(true)}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] text-white font-extrabold text-sm hover:bg-[#8B49A6] transition-all whitespace-nowrap"
-        >
-          <UserRound className="h-4 w-4" />
-          模特库
-        </button>
-      </div>
-
-      {/* 模型选择 */}
-      <div className="mb-4 lg:mb-6 flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-bold text-gray-500 whitespace-nowrap">AI 模型:</span>
-        <button
-          onClick={() => setAiModel("doubao")}
-          className={`px-3 py-1.5 rounded-lg border-[2px] font-extrabold text-xs transition-all ${
-            aiModel === "doubao"
-              ? "border-blue-500 bg-blue-500 text-white shadow-[2px_2px_0px_0px_rgba(59,130,246,0.5)]"
-              : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
-          }`}
-        >
-          🫘 豆包 Seedream
-        </button>
-        <button
-          onClick={() => setAiModel("qwen")}
-          className={`px-3 py-1.5 rounded-lg border-[2px] font-extrabold text-xs transition-all ${
-            aiModel === "qwen"
-              ? "border-purple-500 bg-purple-500 text-white shadow-[2px_2px_0px_0px_rgba(147,51,234,0.5)]"
-              : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
-          }`}
-        >
-          ⚡ Qwen-Image-Edit
-        </button>
-        {customModels.map((cm) => (
+        {/* Tab 切换按钮 */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
-            key={cm.id}
-            onClick={() => { setAiModel("custom"); setSelectedCustomModelId(cm.id); }}
-            className={`px-3 py-1.5 rounded-lg border-[2px] font-extrabold text-xs transition-all ${
-              aiModel === "custom" && selectedCustomModelId === cm.id
-                ? "border-green-500 bg-green-500 text-white shadow-[2px_2px_0px_0px_rgba(34,197,94,0.5)]"
-                : "border-gray-300 bg-white text-gray-500 hover:border-gray-500"
+            onClick={() => setActiveTab("oneshot")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all ${
+              activeTab === "oneshot"
+                ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                : "border-gray-300 bg-white text-gray-500 hover:border-gray-900 hover:text-gray-900"
             }`}
           >
-            ⚙️ {cm.name}
+            <Zap className="h-4 w-4" />
+            一键生成
           </button>
-        ))}
-        <button
-          onClick={handleAddCustomModel}
-          className="px-3 py-1.5 rounded-lg border-[2px] border-dashed border-gray-400 text-xs font-extrabold text-gray-400 hover:border-gray-700 hover:text-gray-700 transition-all flex items-center gap-1"
-        >
-          <Plus className="h-3 w-3" />配置模型
-        </button>
+          <button
+            onClick={() => setActiveTab("dressup")}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all ${
+              activeTab === "dressup"
+                ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                : "border-gray-300 bg-white text-gray-500 hover:border-gray-900 hover:text-gray-900"
+            }`}
+          >
+            <Shirt className="h-4 w-4" />
+            AI穿衣
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {filteredProducts.map((product) => (
-            <ProductCard
-              key={product.sale_id}
-              product={product}
-              generating={generating === product.sale_id}
-              generatedUrl={generatedImages[product.sale_id]}
-              error={generatingError[product.sale_id]}
-              onGenerate={() => handleOpenGen(product)}
-            />
-          ))}
-          {filteredProducts.length === 0 && (
-            <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3">
-              <Package className="h-12 w-12 text-gray-300" />
-              <p className="font-bold text-gray-500 text-sm">暂无商品</p>
+      {/* ===== 一键生成 (Agnes) Tab ===== */}
+      {activeTab === "oneshot" && (
+        <>
+          {/* 搜索栏 + 模型信息 */}
+          <div className="mb-4 lg:mb-6 space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={agnesSearch}
+                onChange={(e) => setAgnesSearch(e.target.value)}
+                placeholder="搜索商品名称或编号..."
+                className="w-full pl-9 pr-4 py-2.5 rounded-xl border-[3px] border-gray-900 text-sm font-medium focus:outline-none"
+              />
+            </div>
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <span className="text-gray-400 font-bold">调用模型:</span>
+              <span className="px-2.5 py-1 rounded-full border-[2px] border-green-500 bg-green-100 text-green-700 font-extrabold">
+                Agnes 2.0
+              </span>
+              <span className="text-gray-400 font-medium">已生成: {agnesUsage} 次</span>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {agnesFilteredProducts.map((product) => {
+                const result = agnesResults[product.sale_id];
+                const isGen = agnesGenerating === product.sale_id;
+                const err = agnesErrors[product.sale_id];
+
+                return (
+                  <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 border-gray-900">
+                    <div className="flex gap-2">
+                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                        {product.photo ? (
+                          <img
+                            src={product.photo}
+                            alt=""
+                            className="w-full h-full object-cover cursor-pointer"
+                            onClick={() => setImgPreview(product.photo)}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="h-20 w-20 text-gray-300" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-extrabold text-gray-900 truncate">{product.sale_id}</div>
+                        {product.name && <div className="text-xs text-gray-500 truncate">{product.name}</div>}
+                        {product.shelf_no && <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>}
+                        {product.manufacturer && <div className="text-[10px] text-gray-400">厂家: {product.manufacturer}</div>}
+
+                        {result && (
+                          <div className="mt-2 flex gap-1">
+                            <img
+                              src={result.modelUrl}
+                              alt="模特图"
+                              className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-green-500 cursor-pointer"
+                              onClick={() => setImgPreview(result.modelUrl)}
+                            />
+                            <img
+                              src={result.flatUrl}
+                              alt="平铺图"
+                              className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
+                              onClick={() => setImgPreview(result.flatUrl)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {result?.desc && (
+                      <div className="mt-2 text-[10px] text-gray-500 bg-gray-50 rounded-lg px-2 py-1 line-clamp-2">{result.desc}</div>
+                    )}
+
+                    {err && (
+                      <div className="mt-2 text-xs text-red-500 font-medium bg-red-50 rounded-lg px-2 py-1">{err}</div>
+                    )}
+
+                    <button
+                      onClick={() => handleAgnesGenerate(product)}
+                      disabled={isGen}
+                      className={`w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
+                        result
+                          ? "bg-green-500 text-white border-green-700"
+                          : "bg-gray-900 text-white hover:bg-gray-800"
+                      } disabled:opacity-70`}
+                    >
+                      {isGen ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />生成中...
+                        </>
+                      ) : result ? (
+                        <>
+                          <Sparkles className="h-3 w-3" />重新生成
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="h-3 w-3" />一键生成
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+              {agnesFilteredProducts.length === 0 && (
+                <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3">
+                  <Package className="h-12 w-12 text-gray-300" />
+                  <p className="font-bold text-gray-500 text-sm">暂无商品</p>
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
+      )}
+
+      {/* ===== AI穿衣 Tab ===== */}
+      {activeTab === "dressup" && (
+        <>
+          {/* 搜索栏 + 模型选择 */}
+          <div className="mb-4 lg:mb-6 flex gap-3 flex-wrap">
+            <div className="flex-1 relative min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索商品名称或编号..."
+                className="w-full pl-9 pr-4 py-2.5 rounded-xl border-[3px] border-gray-900 text-sm font-medium focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={() => setShowModelLibrary(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] text-white font-extrabold text-sm hover:bg-[#8B49A6] transition-all whitespace-nowrap"
+            >
+              <UserRound className="h-4 w-4" />
+              模特库
+            </button>
+            <button
+              onClick={() => setShowModelPicker(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm hover:bg-[#3A80D2] transition-all whitespace-nowrap"
+            >
+              <Settings2 className="h-4 w-4" />
+              模型库
+            </button>
+          </div>
+
+          {/* 当前选中模型提示 */}
+          <div className="mb-4 lg:mb-6 flex items-center gap-2 text-xs flex-wrap">
+            <span className="text-gray-400 font-bold">当前模型:</span>
+            <button
+              onClick={() => setShowModelPicker(true)}
+              className={`px-2.5 py-1 rounded-full border-[2px] font-extrabold transition-all ${
+                aiModel === "doubao"
+                  ? "border-blue-500 bg-blue-100 text-blue-700"
+                  : aiModel === "qwen"
+                  ? "border-purple-500 bg-purple-100 text-purple-700"
+                  : aiModel === "aitryon"
+                  ? "border-orange-500 bg-orange-100 text-orange-700"
+                  : "border-green-500 bg-green-100 text-green-700"
+              }`}
+            >
+              {aiModel === "doubao" ? "🫘 豆包 Seedream" : aiModel === "qwen" ? "⚡ Qwen-Image-Edit" : aiModel === "aitryon" ? "👗 AI试衣 Plus" : `⚙️ ${customModels.find((m) => m.id === selectedCustomModelId)?.name || "自定义"}`}
+            </button>
+            {aiModel === "doubao" && (
+              <span className="text-gray-400 font-medium">已用 {getUsage("doubao")} 次</span>
+            )}
+            {aiModel === "qwen" && (
+              <span className={`font-extrabold ${(getQuotaRemaining("qwen") ?? 0) > 10 ? "text-gray-500" : "text-red-500"}`}>
+                免费剩余 {getQuotaRemaining("qwen")} 张
+              </span>
+            )}
+            {aiModel === "aitryon" && (
+              <span className={`font-extrabold ${(getQuotaRemaining("aitryon") ?? 0) > 50 ? "text-gray-500" : "text-red-500"}`}>
+                免费剩余 {getQuotaRemaining("aitryon")} 张
+              </span>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {filteredProducts.map((product) => (
+                <ProductCard
+                  key={product.sale_id}
+                  product={product}
+                  generating={generating === product.sale_id}
+                  generatedUrl={generatedImages[product.sale_id]}
+                  error={generatingError[product.sale_id]}
+                  onGenerate={() => handleOpenGen(product)}
+                />
+              ))}
+              {filteredProducts.length === 0 && (
+                <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3">
+                  <Package className="h-12 w-12 text-gray-300" />
+                  <p className="font-bold text-gray-500 text-sm">暂无商品</p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* 模特选择弹窗 */}
@@ -318,46 +562,6 @@ export default function PhotoGenPage() {
           <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-md max-h-[80vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-extrabold mb-1">选择模特</h3>
             <p className="text-xs text-gray-500 mb-3">商品: {activeProduct.sale_id} - {activeProduct.name}</p>
-
-            {/* 模型中切换 */}
-            <div className="flex gap-2 mb-4 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setAiModel("doubao")}
-                className={`px-3 py-1.5 rounded-lg border-[2px] text-[10px] font-extrabold transition-all ${
-                  aiModel === "doubao"
-                    ? "border-blue-500 bg-blue-500 text-white"
-                    : "border-gray-300 bg-white text-gray-500"
-                }`}
-              >
-                🫘 豆包
-              </button>
-              <button
-                type="button"
-                onClick={() => setAiModel("qwen")}
-                className={`px-3 py-1.5 rounded-lg border-[2px] text-[10px] font-extrabold transition-all ${
-                  aiModel === "qwen"
-                    ? "border-purple-500 bg-purple-500 text-white"
-                    : "border-gray-300 bg-white text-gray-500"
-                }`}
-              >
-                ⚡ Qwen
-              </button>
-              {customModels.map((cm) => (
-                <button
-                  key={cm.id}
-                  type="button"
-                  onClick={() => { setAiModel("custom"); setSelectedCustomModelId(cm.id); }}
-                  className={`px-3 py-1.5 rounded-lg border-[2px] text-[10px] font-extrabold transition-all ${
-                    aiModel === "custom" && selectedCustomModelId === cm.id
-                      ? "border-green-500 bg-green-500 text-white"
-                      : "border-gray-300 bg-white text-gray-500"
-                  }`}
-                >
-                  ⚙️ {cm.name}
-                </button>
-              ))}
-            </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               {models.map((model) => (
@@ -401,9 +605,93 @@ export default function PhotoGenPage() {
         </div>
       )}
 
-      {/* 模型配置弹窗 */}
+      {/* 模型库弹窗 */}
+      {showModelPicker && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 p-4 pt-12 overflow-y-auto" onClick={() => setShowModelPicker(false)}>
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-lg shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-extrabold">AI 模型库</h3>
+              <button onClick={() => setShowModelPicker(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* 内置模型 */}
+            <p className="text-xs font-bold text-gray-400 mb-2">内置模型</p>
+            <div className="flex gap-2 mb-4 flex-wrap">
+              <button
+                type="button"
+                onClick={() => { setAiModel("doubao"); setShowModelPicker(false); }}
+                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
+                  aiModel === "doubao"
+                    ? "border-blue-500 bg-blue-500 text-white"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-blue-400"
+                }`}
+              >
+                🫘 豆包 Seedream
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAiModel("qwen"); setShowModelPicker(false); }}
+                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
+                  aiModel === "qwen"
+                    ? "border-purple-500 bg-purple-500 text-white"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-purple-400"
+                }`}
+              >
+                ⚡ Qwen-Image-Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAiModel("aitryon"); setShowModelPicker(false); }}
+                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
+                  aiModel === "aitryon"
+                    ? "border-orange-500 bg-orange-500 text-white"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-orange-400"
+                }`}
+              >
+                👗 AI试衣 Plus
+              </button>
+            </div>
+
+            {/* 自定义模型 */}
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-gray-400">自定义模型</p>
+              <button onClick={handleAddCustomModel} className="text-xs text-blue-500 font-bold hover:underline flex items-center gap-1">
+                <Plus className="h-3 w-3" />添加
+              </button>
+            </div>
+            {customModels.length === 0 && (
+              <p className="text-xs text-gray-400 py-2">尚未添加自定义模型</p>
+            )}
+            {customModels.map((cm) => (
+              <div key={cm.id} className={`flex items-center gap-2 mb-1.5 p-2.5 rounded-xl border-[2px] transition-all ${
+                aiModel === "custom" && selectedCustomModelId === cm.id
+                  ? "border-green-500 bg-green-50"
+                  : "border-gray-200 bg-gray-50 hover:border-gray-400"
+              }`}>
+                <button
+                  onClick={() => { setAiModel("custom"); setSelectedCustomModelId(cm.id); setShowModelPicker(false); }}
+                  className="flex-1 text-left"
+                >
+                  <div className="text-xs font-extrabold">⚙️ {cm.name}</div>
+                  <div className="text-[10px] text-gray-400 truncate">{cm.modelId}</div>
+                </button>
+                <button onClick={() => handleEditCustomModel(cm)} className="p-1 text-gray-400 hover:text-blue-500" title="编辑">
+                  <Settings2 className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => handleDeleteCustomModel(cm.id)} className="p-1 text-gray-400 hover:text-red-500" title="删除">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 模型配置弹窗（编辑/添加） */}
       {showModelConfig && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 p-4 pt-12 overflow-y-auto" onClick={() => setShowModelConfig(false)}>
+        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/50 p-4 pt-12 overflow-y-auto" onClick={() => setShowModelConfig(false)}>
           <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-lg shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-extrabold">{editingModel.id ? "编辑模型" : "添加自定义模型"}</h3>
@@ -412,125 +700,103 @@ export default function PhotoGenPage() {
               </button>
             </div>
 
-            {/* 已配置的模型列表 */}
-            {customModels.length > 0 && !editingModel.id && (
-              <div className="mb-4">
-                <p className="text-xs font-bold text-gray-500 mb-2">已配置的模型:</p>
-                {customModels.map((cm) => (
-                  <div key={cm.id} className="flex items-center gap-2 mb-1 p-2 rounded-lg border-2 border-gray-200 bg-gray-50">
-                    <span className="flex-1 text-xs font-extrabold">⚙️ {cm.name}</span>
-                    <button onClick={() => handleEditCustomModel(cm)} className="text-xs text-blue-500 font-bold hover:underline">编辑</button>
-                    <button onClick={() => handleDeleteCustomModel(cm.id)} className="p-0.5 text-red-400 hover:text-red-600">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <button onClick={() => setEditingModel(getDefaultModelConfig())} className="w-full mt-2 py-1.5 rounded-lg border-2 border-dashed border-gray-300 text-xs font-extrabold text-gray-400 hover:border-gray-500 hover:text-gray-600 flex items-center justify-center gap-1">
-                  <Plus className="h-3 w-3" /> 添加新模型
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">模型名称 *</label>
+                <input
+                  type="text"
+                  value={editingModel.name}
+                  onChange={(e) => setEditingModel({ ...editingModel, name: e.target.value })}
+                  placeholder="例如: Replicate-OOTDiffusion"
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">API 地址 *</label>
+                <input
+                  type="text"
+                  value={editingModel.apiEndpoint}
+                  onChange={(e) => setEditingModel({ ...editingModel, apiEndpoint: e.target.value })}
+                  placeholder="例如: https://api.replicate.com/v1/predictions"
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">API Key *</label>
+                <input
+                  type="password"
+                  value={editingModel.apiKey}
+                  onChange={(e) => setEditingModel({ ...editingModel, apiKey: e.target.value })}
+                  placeholder="例如: r8_xxxxxxxxxxxxx"
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">模型 ID *</label>
+                <input
+                  type="text"
+                  value={editingModel.modelId}
+                  onChange={(e) => setEditingModel({ ...editingModel, modelId: e.target.value })}
+                  placeholder="例如: owner/model:version"
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">
+                  请求体模板 (JSON)
+                  <span className="text-gray-400 font-normal ml-1">
+                    — 占位符: {"{{MODEL_ID}}"}{" / {{PRODUCT_IMAGE}} / {{MODEL_IMAGE}}"}
+                  </span>
+                </label>
+                <textarea
+                  rows={6}
+                  value={editingModel.requestTemplate}
+                  onChange={(e) => setEditingModel({ ...editingModel, requestTemplate: e.target.value })}
+                  placeholder='{"model": "{{MODEL_ID}}", "input": {"product": "{{PRODUCT_IMAGE}}", "model": "{{MODEL_IMAGE}}"}}'
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-mono focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">
+                  响应中图片的 JSON 路径
+                  <span className="text-gray-400 font-normal ml-1">— 例如: output.0 或 data.url</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingModel.responseImagePath}
+                  onChange={(e) => setEditingModel({ ...editingModel, responseImagePath: e.target.value })}
+                  placeholder="例如: output.0"
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">
+                  额外请求头 (JSON, 可选)
+                  <span className="text-gray-400 font-normal ml-1">— 例如: {"{\"X-Custom\": \"value\"}"}</span>
+                </label>
+                <input
+                  type="text"
+                  value={editingModel.extraHeaders}
+                  onChange={(e) => setEditingModel({ ...editingModel, extraHeaders: e.target.value })}
+                  placeholder='{"X-Custom-Header": "value"}'
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowModelConfig(false)}
+                  className="flex-1 py-2 rounded-xl border-[3px] border-gray-300 text-sm font-extrabold text-gray-600 hover:bg-gray-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSaveModel}
+                  className="flex-1 py-2 rounded-xl border-[3px] border-gray-900 bg-green-500 text-white text-sm font-extrabold hover:bg-green-600"
+                >
+                  保存模型
                 </button>
               </div>
-            )}
-
-            {/* 编辑/添加表单 */}
-            {(editingModel.id || !editingModel.id || customModels.length === 0) && (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">模型名称 *</label>
-                  <input
-                    type="text"
-                    value={editingModel.name}
-                    onChange={(e) => setEditingModel({ ...editingModel, name: e.target.value })}
-                    placeholder="例如: Replicate-OOTDiffusion"
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">API 地址 *</label>
-                  <input
-                    type="text"
-                    value={editingModel.apiEndpoint}
-                    onChange={(e) => setEditingModel({ ...editingModel, apiEndpoint: e.target.value })}
-                    placeholder="例如: https://api.replicate.com/v1/predictions"
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">API Key *</label>
-                  <input
-                    type="password"
-                    value={editingModel.apiKey}
-                    onChange={(e) => setEditingModel({ ...editingModel, apiKey: e.target.value })}
-                    placeholder="例如: r8_xxxxxxxxxxxxx"
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">模型 ID *</label>
-                  <input
-                    type="text"
-                    value={editingModel.modelId}
-                    onChange={(e) => setEditingModel({ ...editingModel, modelId: e.target.value })}
-                    placeholder="例如: owner/model:version"
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">
-                    请求体模板 (JSON)
-                    <span className="text-gray-400 font-normal ml-1">
-                      — 占位符: {"{{MODEL_ID}}"}{" / {{PRODUCT_IMAGE}} / {{MODEL_IMAGE}}"}
-                    </span>
-                  </label>
-                  <textarea
-                    rows={6}
-                    value={editingModel.requestTemplate}
-                    onChange={(e) => setEditingModel({ ...editingModel, requestTemplate: e.target.value })}
-                    placeholder='{"model": "{{MODEL_ID}}", "input": {"product": "{{PRODUCT_IMAGE}}", "model": "{{MODEL_IMAGE}}"}}'
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-mono focus:border-gray-900 focus:outline-none resize-y"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">
-                    响应中图片的 JSON 路径
-                    <span className="text-gray-400 font-normal ml-1">— 例如: output.0 或 data.url</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editingModel.responseImagePath}
-                    onChange={(e) => setEditingModel({ ...editingModel, responseImagePath: e.target.value })}
-                    placeholder="例如: output.0"
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-extrabold text-gray-700 block mb-1">
-                    额外请求头 (JSON, 可选)
-                    <span className="text-gray-400 font-normal ml-1">— 例如: {"{\"X-Custom\": \"value\"}"}</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={editingModel.extraHeaders}
-                    onChange={(e) => setEditingModel({ ...editingModel, extraHeaders: e.target.value })}
-                    placeholder='{"X-Custom-Header": "value"}'
-                    className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => setShowModelConfig(false)}
-                    className="flex-1 py-2 rounded-xl border-[3px] border-gray-300 text-sm font-extrabold text-gray-600 hover:bg-gray-50"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleSaveModel}
-                    className="flex-1 py-2 rounded-xl border-[3px] border-gray-900 bg-green-500 text-white text-sm font-extrabold hover:bg-green-600"
-                  >
-                    保存模型
-                  </button>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -542,6 +808,13 @@ export default function PhotoGenPage() {
           onClose={() => setShowModelLibrary(false)}
           onRefresh={fetchModels}
         />
+      )}
+
+      {/* 统一图片预览弹窗 */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
+          <img src={imgPreview} alt="预览" className="max-w-full max-h-full rounded-xl" onClick={(e) => e.stopPropagation()} />
+        </div>
       )}
     </PageWrapper>
   );
