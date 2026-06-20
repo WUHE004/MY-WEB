@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt, Camera } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
@@ -59,6 +59,12 @@ export default function PhotoGenPage() {
 
   // 图片预览（统一顶层状态，避免在 .map() 内使用 useState）
   const [imgPreview, setImgPreview] = useState<string | null>(null);
+
+  // 换图生成：临时上传的图片URL（不存入数据库）
+  const [tempPhotoUrl, setTempPhotoUrl] = useState<Record<string, string>>({});
+  const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingProductRef = useRef<string | null>(null);
 
   // 生成状态
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
@@ -203,6 +209,39 @@ export default function PhotoGenPage() {
       )
     : products;
 
+  // ===== 换图生成：上传临时图片 =====
+  const handleChangePhoto = (product: Product) => {
+    pendingProductRef.current = product.sale_id;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !pendingProductRef.current) return;
+
+    const sid = pendingProductRef.current;
+    setUploadingPhoto(sid);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("folder", "temp-photos");
+
+      const res = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      setTempPhotoUrl((prev) => ({ ...prev, [sid]: data.url }));
+    } catch (err) {
+      alert("图片上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+    } finally {
+      setUploadingPhoto(null);
+      pendingProductRef.current = null;
+      // 重置 input 以便可以重复选择同一文件
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   // ===== Agnes 一键生成 =====
   const handleAgnesGenerate = async (product: Product) => {
     const sid = product.sale_id;
@@ -216,12 +255,13 @@ export default function PhotoGenPage() {
     const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "") : "";
 
     try {
+      const photoUrl = tempPhotoUrl[sid] || product.photo;
       const res = await fetch("/api/photo-gen/agnes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sale_id: sid,
-          product_photo_url: product.photo,
+          product_photo_url: photoUrl,
           member_id: mid,
         }),
       });
@@ -268,6 +308,7 @@ export default function PhotoGenPage() {
 
     const selectedCustomModel = customModels.find((m) => m.id === selectedCustomModelId);
     const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "") : "";
+    const photoUrl = tempPhotoUrl[sid] || activeProduct.photo;
 
     try {
       const res = await fetch("/api/photo-gen/generate", {
@@ -275,7 +316,7 @@ export default function PhotoGenPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sale_id: sid,
-          product_photo_url: activeProduct.photo,
+          product_photo_url: photoUrl,
           model_id: selectedModelId,
           ai_model: aiModel,
           custom_model: aiModel === "custom" ? selectedCustomModel : null,
@@ -378,21 +419,29 @@ export default function PhotoGenPage() {
                 const result = agnesResults[product.sale_id];
                 const isGen = agnesGenerating === product.sale_id;
                 const err = agnesErrors[product.sale_id];
+                const tmpUrl = tempPhotoUrl[product.sale_id];
+                const isUploading = uploadingPhoto === product.sale_id;
+                const displayPhoto = tmpUrl || product.photo;
 
                 return (
                   <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 border-gray-900">
                     <div className="flex gap-2">
-                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {product.photo ? (
+                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0 relative">
+                        {displayPhoto ? (
                           <img
-                            src={product.photo}
+                            src={displayPhoto}
                             alt=""
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setImgPreview(product.photo)}
+                            onClick={() => setImgPreview(displayPhoto)}
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
                             <Package className="h-20 w-20 text-gray-300" />
+                          </div>
+                        )}
+                        {tmpUrl && (
+                          <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+                            已换图
                           </div>
                         )}
                       </div>
@@ -429,29 +478,46 @@ export default function PhotoGenPage() {
                       <div className="mt-2 text-xs text-red-500 font-medium bg-red-50 rounded-lg px-2 py-1">{err}</div>
                     )}
 
-                    <button
-                      onClick={() => handleAgnesGenerate(product)}
-                      disabled={isGen}
-                      className={`w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
-                        result
-                          ? "bg-green-500 text-white border-green-700"
-                          : "bg-gray-900 text-white hover:bg-gray-800"
-                      } disabled:opacity-70`}
-                    >
-                      {isGen ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />生成中...
-                        </>
-                      ) : result ? (
-                        <>
-                          <Sparkles className="h-3 w-3" />重新生成
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="h-3 w-3" />一键生成
-                        </>
-                      )}
-                    </button>
+                    <div className="flex gap-1.5 mt-2">
+                      <button
+                        onClick={() => handleAgnesGenerate(product)}
+                        disabled={isGen}
+                        className={`flex-1 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
+                          result
+                            ? "bg-green-500 text-white border-green-700"
+                            : "bg-gray-900 text-white hover:bg-gray-800"
+                        } disabled:opacity-70`}
+                      >
+                        {isGen ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />生成中...
+                          </>
+                        ) : result ? (
+                          <>
+                            <Sparkles className="h-3 w-3" />重新生成
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-3 w-3" />一键生成
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleChangePhoto(product)}
+                        disabled={isGen || isUploading}
+                        className="py-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-70"
+                      >
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />上传中
+                          </>
+                        ) : (
+                          <>
+                            <Camera className="h-3 w-3" />换图生成
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -543,6 +609,9 @@ export default function PhotoGenPage() {
                   generatedUrl={generatedImages[product.sale_id]}
                   error={generatingError[product.sale_id]}
                   onGenerate={() => handleOpenGen(product)}
+                  tempPhotoUrl={tempPhotoUrl[product.sale_id]}
+                  isUploading={uploadingPhoto === product.sale_id}
+                  onChangePhoto={() => handleChangePhoto(product)}
                 />
               ))}
               {filteredProducts.length === 0 && (
@@ -816,6 +885,16 @@ export default function PhotoGenPage() {
           <img src={imgPreview} alt="预览" className="max-w-full max-h-full rounded-xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+
+      {/* 隐藏文件选择器（换图生成用） */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileChange}
+        className="hidden"
+      />
     </PageWrapper>
   );
 }
@@ -827,30 +906,42 @@ function ProductCard({
   generatedUrl,
   error,
   onGenerate,
+  tempPhotoUrl,
+  isUploading,
+  onChangePhoto,
 }: {
   product: Product;
   generating: boolean;
   generatedUrl?: string;
   error?: string;
   onGenerate: () => void;
+  tempPhotoUrl?: string;
+  isUploading?: boolean;
+  onChangePhoto?: () => void;
 }) {
   const [imgPreview, setImgPreview] = useState<string | null>(null);
+  const displayPhoto = tempPhotoUrl || product.photo;
 
   return (
     <div className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 border-gray-900">
       <div className="flex gap-2">
         {/* 图片区域 */}
-        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-          {product.photo ? (
+        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0 relative">
+          {displayPhoto ? (
             <img
-              src={product.photo}
+              src={displayPhoto}
               alt=""
               className="w-full h-full object-cover cursor-pointer"
-              onClick={() => setImgPreview(product.photo)}
+              onClick={() => setImgPreview(displayPhoto)}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <Package className="h-20 w-20 text-gray-300" />
+            </div>
+          )}
+          {tempPhotoUrl && (
+            <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
+              已换图
             </div>
           )}
         </div>
@@ -885,29 +976,48 @@ function ProductCard({
       )}
 
       {/* 按钮 */}
-      <button
-        onClick={onGenerate}
-        disabled={generating}
-        className={`w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
-          generatedUrl
-            ? "bg-green-500 text-white border-green-700"
-            : "bg-[#9B59B6] text-white hover:bg-[#8B49A6]"
-        } disabled:opacity-70`}
-      >
-        {generating ? (
-          <>
-            <Loader2 className="h-3 w-3 animate-spin" />生成中...
-          </>
-        ) : generatedUrl ? (
-          <>
-            <Sparkles className="h-3 w-3" />重新生成
-          </>
-        ) : (
-          <>
-            <Sparkles className="h-3 w-3" />一键生成图片
-          </>
+      <div className="flex gap-1.5 mt-2">
+        <button
+          onClick={onGenerate}
+          disabled={generating}
+          className={`flex-1 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
+            generatedUrl
+              ? "bg-green-500 text-white border-green-700"
+              : "bg-[#9B59B6] text-white hover:bg-[#8B49A6]"
+          } disabled:opacity-70`}
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" />生成中...
+            </>
+          ) : generatedUrl ? (
+            <>
+              <Sparkles className="h-3 w-3" />重新生成
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-3 w-3" />一键生成图片
+            </>
+          )}
+        </button>
+        {onChangePhoto && (
+          <button
+            onClick={onChangePhoto}
+            disabled={generating || isUploading}
+            className="py-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-70"
+          >
+            {isUploading ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />上传中
+              </>
+            ) : (
+              <>
+                <Camera className="h-3 w-3" />换图生成
+              </>
+            )}
+          </button>
         )}
-      </button>
+      </div>
 
       {/* 图片预览弹窗 */}
       {imgPreview && (
