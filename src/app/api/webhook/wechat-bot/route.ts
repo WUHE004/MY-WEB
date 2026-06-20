@@ -228,10 +228,6 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
 
 // GET: URL 验证（企业微信配置回调时会发送 GET 请求）
 export async function GET(request: NextRequest) {
-  if (!(await verifySignature(request))) {
-    return NextResponse.json({ error: "签名验证失败" }, { status: 403 });
-  }
-  
   const { searchParams } = new URL(request.url);
   const echostr = searchParams.get("echostr");
   if (echostr) {
