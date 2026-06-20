@@ -229,7 +229,20 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
 // GET: URL 验证（企业微信配置回调时会发送 GET 请求）
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  const signature = searchParams.get("signature");
+  const timestamp = searchParams.get("timestamp");
+  const nonce = searchParams.get("nonce");
   const echostr = searchParams.get("echostr");
+  
+  if (signature && timestamp && nonce && WECHAT_TOKEN) {
+    const crypto = await import("crypto");
+    const sorted = [WECHAT_TOKEN, timestamp, nonce].sort().join("");
+    const sha1 = crypto.createHash("sha1").update(sorted).digest("hex");
+    if (sha1 !== signature) {
+      return NextResponse.json({ error: "签名验证失败" }, { status: 403 });
+    }
+  }
+  
   if (echostr) {
     return new NextResponse(echostr, { status: 200 });
   }
