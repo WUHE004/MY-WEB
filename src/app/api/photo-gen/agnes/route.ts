@@ -189,11 +189,18 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sale_id, product_photo_url, member_id } = body;
+    const { sale_id, product_photo_url, member_id, prompts } = body;
 
     if (!sale_id || !product_photo_url) {
       return NextResponse.json({ error: "缺少 sale_id 或 product_photo_url" }, { status: 400 });
     }
+
+    // 自定义提示词或默认提示词
+    const p = prompts || {};
+    const promptClothingDesc = p.clothingDesc || "请详细描述这件衣服的以下特征：1.材质和面料质感 2.颜色和图案细节 3.款式和版型 4.适合的穿着场景 5.建议的搭配风格。请用中文简洁描述，控制在200字以内。";
+    const promptCreativeBrief = p.creativeBrief || "根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。\n\n服装描述：{{CLOTHING_DESC}}";
+    const promptModel = p.modelPrompt || "一个中国儿童模特穿着这件衣服，{{CREATIVE_BRIEF}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
+    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DESC}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
     console.log("Agnes 步骤0: 查询商品详情...");
@@ -222,7 +229,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: product_photo_url } },
-            { type: "text", text: "请详细描述这件衣服的以下特征：1.材质和面料质感 2.颜色和图案细节 3.款式和版型 4.适合的穿着场景 5.建议的搭配风格。请用中文简洁描述，控制在200字以内。" },
+            { type: "text", text: promptClothingDesc },
           ],
         }],
         max_tokens: 500,
@@ -255,9 +262,7 @@ export async function POST(request: NextRequest) {
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: `根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。
-
-服装描述：${clothingDesc}` },
+            { type: "text", text: promptCreativeBrief.replace("{{CLOTHING_DESC}}", clothingDesc) },
           ],
         }],
         max_tokens: 400,
@@ -282,9 +287,13 @@ export async function POST(request: NextRequest) {
 
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
-    const modelPrompt = `一个中国儿童模特穿着这件衣服，${creativeBrief}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。`;
+    const modelPrompt = promptModel
+      .replace("{{CREATIVE_BRIEF}}", creativeBrief)
+      .replace("{{CLOTHING_DESC}}", clothingDesc);
 
-    const flatPrompt = `这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。`;
+    const flatPrompt = promptFlat
+      .replace("{{CLOTHING_DESC}}", clothingDesc)
+      .replace("{{CREATIVE_BRIEF}}", creativeBrief);
 
     const [modelRes, flatRes] = await Promise.all([
       fetch(`${AGNES_BASE}/images/generations`, {
@@ -350,12 +359,11 @@ export async function POST(request: NextRequest) {
 
     // ===== 步骤 6: 记录用量 =====
     if (member_id) {
-      supabase.from("model_usage").insert({
+      const { error: usageError } = await supabase.from("model_usage").insert({
         member_id,
         model_name: "agnes",
-      }).then(({ error }) => {
-        if (error) console.error("Agnes 用量记录失败:", error.message);
       });
+      if (usageError) console.error("Agnes 用量记录失败:", usageError.message);
     }
 
     return NextResponse.json({

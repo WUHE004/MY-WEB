@@ -64,7 +64,28 @@ export default function PhotoGenPage() {
   const [tempPhotoUrl, setTempPhotoUrl] = useState<Record<string, string>>({});
   const [uploadingPhoto, setUploadingPhoto] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const pendingProductRef = useRef<string | null>(null);
+
+  // 照片选择器弹窗（相机/图库）
+  const [showPhotoPicker, setShowPhotoPicker] = useState(false);
+  const [photoPickerProduct, setPhotoPickerProduct] = useState<Product | null>(null);
+
+  // 提示词自定义
+  const DEFAULT_PROMPTS = {
+    clothingDesc: "请详细描述这件衣服的以下特征：1.材质和面料质感 2.颜色和图案细节 3.款式和版型 4.适合的穿着场景 5.建议的搭配风格。请用中文简洁描述，控制在200字以内。",
+    creativeBrief: "根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。\n\n服装描述：{{CLOTHING_DESC}}",
+    modelPrompt: "一个中国儿童模特穿着这件衣服，{{CREATIVE_BRIEF}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。",
+    flatPrompt: "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DESC}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。",
+  };
+  const [customPrompts, setCustomPrompts] = useState<typeof DEFAULT_PROMPTS>(() => {
+    try {
+      const saved = localStorage.getItem("agnes_prompts");
+      return saved ? { ...DEFAULT_PROMPTS, ...JSON.parse(saved) } : DEFAULT_PROMPTS;
+    } catch { return DEFAULT_PROMPTS; }
+  });
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [editingPrompts, setEditingPrompts] = useState<typeof DEFAULT_PROMPTS>({ ...customPrompts });
 
   // 生成状态
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
@@ -211,8 +232,26 @@ export default function PhotoGenPage() {
 
   // ===== 换图生成：上传临时图片 =====
   const handleChangePhoto = (product: Product) => {
-    pendingProductRef.current = product.sale_id;
+    setPhotoPickerProduct(product);
+    setShowPhotoPicker(true);
+  };
+
+  // 从图库选择
+  const handlePickGallery = () => {
+    setShowPhotoPicker(false);
+    if (photoPickerProduct) {
+      pendingProductRef.current = photoPickerProduct.sale_id;
+    }
     fileInputRef.current?.click();
+  };
+
+  // 拍照
+  const handlePickCamera = () => {
+    setShowPhotoPicker(false);
+    if (photoPickerProduct) {
+      pendingProductRef.current = photoPickerProduct.sale_id;
+    }
+    cameraInputRef.current?.click();
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -242,6 +281,20 @@ export default function PhotoGenPage() {
     }
   };
 
+  // ===== 提示词管理 =====
+  const handleSavePrompts = () => {
+    setCustomPrompts({ ...editingPrompts });
+    localStorage.setItem("agnes_prompts", JSON.stringify(editingPrompts));
+    setShowPromptEditor(false);
+  };
+
+  const handleResetPrompts = () => {
+    setEditingPrompts({ ...DEFAULT_PROMPTS });
+    setCustomPrompts({ ...DEFAULT_PROMPTS });
+    localStorage.setItem("agnes_prompts", JSON.stringify(DEFAULT_PROMPTS));
+    setShowPromptEditor(false);
+  };
+
   // ===== Agnes 一键生成 =====
   const handleAgnesGenerate = async (product: Product) => {
     const sid = product.sale_id;
@@ -263,6 +316,7 @@ export default function PhotoGenPage() {
           sale_id: sid,
           product_photo_url: photoUrl,
           member_id: mid,
+          prompts: customPrompts,
         }),
       });
       const data = await res.json();
@@ -352,11 +406,8 @@ export default function PhotoGenPage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900">
-            <span className="highlight-purple">AI 照片生成</span>
+            <span className="highlight-purple">照片生成</span>
           </h1>
-          <p className="text-xs lg:text-sm text-gray-500 font-medium">
-            {activeTab === "oneshot" ? "Agnes 全自动：分析服装 → 生成模特图 + 平铺图 → 推送企业微信" : "选择商品和模特，让模特穿上你的衣服"}
-          </p>
         </div>
         {/* Tab 切换按钮 */}
         <div className="flex items-center gap-1.5 shrink-0">
@@ -406,6 +457,12 @@ export default function PhotoGenPage() {
                 Agnes 2.0
               </span>
               <span className="text-gray-400 font-medium">已生成: {agnesUsage} 次</span>
+              <button
+                onClick={() => { setEditingPrompts({ ...customPrompts }); setShowPromptEditor(true); }}
+                className="ml-auto px-2.5 py-1 rounded-full border-[2px] border-gray-400 bg-white text-gray-500 font-bold text-xs hover:border-gray-900 hover:text-gray-900 transition-all"
+              >
+                提示词
+              </button>
             </div>
           </div>
 
@@ -879,6 +936,81 @@ export default function PhotoGenPage() {
         />
       )}
 
+      {/* 提示词编辑弹窗 */}
+      {showPromptEditor && (
+        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/50 p-4 pt-8 overflow-y-auto" onClick={() => setShowPromptEditor(false)}>
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-lg shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-extrabold">Agnes 提示词编辑</h3>
+              <button onClick={() => setShowPromptEditor(false)} className="p-1 rounded-lg hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">占位符: {"{{CLOTHING_DESC}}"} / {"{{CREATIVE_BRIEF}}"} 会被自动替换</p>
+
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装描述提示词</label>
+                <textarea
+                  rows={5}
+                  value={editingPrompts.clothingDesc}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, clothingDesc: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 创意方案提示词</label>
+                <textarea
+                  rows={6}
+                  value={editingPrompts.creativeBrief}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, creativeBrief: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 模特图生成提示词</label>
+                <textarea
+                  rows={4}
+                  value={editingPrompts.modelPrompt}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, modelPrompt: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤4: 平铺图生成提示词</label>
+                <textarea
+                  rows={4}
+                  value={editingPrompts.flatPrompt}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, flatPrompt: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={handleResetPrompts}
+                className="flex-1 py-2 rounded-xl border-[3px] border-red-300 text-sm font-extrabold text-red-500 hover:bg-red-50 transition-all"
+              >
+                恢复默认
+              </button>
+              <button
+                onClick={() => setShowPromptEditor(false)}
+                className="flex-1 py-2 rounded-xl border-[3px] border-gray-300 text-sm font-extrabold text-gray-600 hover:bg-gray-50 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleSavePrompts}
+                className="flex-1 py-2 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white text-sm font-extrabold hover:bg-gray-800 transition-all"
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 统一图片预览弹窗 */}
       {imgPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setImgPreview(null)}>
@@ -891,10 +1023,48 @@ export default function PhotoGenPage() {
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
         capture="environment"
         onChange={handleFileChange}
         className="hidden"
       />
+
+      {/* 照片选择器弹窗（相机/图库） */}
+      {showPhotoPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowPhotoPicker(false)}>
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-xs shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-extrabold mb-4 text-center">选择图片来源</h3>
+            <div className="flex gap-3">
+              <button
+                onClick={handlePickCamera}
+                className="flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all flex flex-col items-center gap-1"
+              >
+                <Camera className="h-6 w-6" />
+                拍照
+              </button>
+              <button
+                onClick={handlePickGallery}
+                className="flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-100 transition-all flex flex-col items-center gap-1"
+              >
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                从图库选择
+              </button>
+            </div>
+            <button
+              onClick={() => setShowPhotoPicker(false)}
+              className="mt-3 w-full py-2 rounded-xl text-sm font-medium text-gray-400 hover:text-gray-600 transition-all"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
     </PageWrapper>
   );
 }

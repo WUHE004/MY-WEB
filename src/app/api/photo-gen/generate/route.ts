@@ -515,14 +515,13 @@ export async function POST(request: NextRequest) {
     // 直接返回生成图片的 URL（不存入 Supabase，节省存储空间）
     // 记录用量（用于跨设备同步剩余次数）
     if (member_id) {
-      supabase.from("model_usage").insert({
+      const { error: usageError } = await supabase.from("model_usage").insert({
         member_id,
         model_name: activeModel === "custom" && custom_model?.id
           ? `custom_${custom_model.id}`
           : activeModel,
-      }).then(({ error }) => {
-        if (error) console.error("用量记录失败:", error.message);
       });
+      if (usageError) console.error("用量记录失败:", usageError.message);
     }
 
     return NextResponse.json({
