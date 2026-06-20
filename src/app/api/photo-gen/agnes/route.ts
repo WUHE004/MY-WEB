@@ -242,23 +242,47 @@ export async function POST(request: NextRequest) {
       throw new Error("Agnes 未返回服装描述");
     }
 
-    // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图 =====
-    console.log("Agnes 步骤2&3: 并行生成图片...");
+    // ===== 步骤 2: 基于服装描述生成专属创意方案（模特、穿搭、场景、动作） =====
+    console.log("Agnes 步骤2: 生成专属创意方案...");
+    const creativeRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AGNES_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: `根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。
 
-    // 随机种子：每次生成不同结果
+服装描述：${clothingDesc}` },
+          ],
+        }],
+        max_tokens: 400,
+      }),
+    });
+
+    const creativeData = await creativeRes.json();
+    if (!creativeRes.ok) {
+      console.error("Agnes 创意方案错误:", creativeData);
+      throw new Error(`Agnes 创意方案生成失败: ${creativeData.error?.message || JSON.stringify(creativeData)}`);
+    }
+
+    const creativeBrief = creativeData?.choices?.[0]?.message?.content || "";
+    console.log("创意方案:", creativeBrief);
+
+    if (!creativeBrief) {
+      throw new Error("Agnes 未返回创意方案");
+    }
+
+    // ===== 步骤 3 & 4: 并行生成模特试穿图和白底平铺图 =====
+    console.log("Agnes 步骤3&4: 并行生成图片...");
+
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
-    // 竖版高清、生活化场景、多样动作全身照
-    const modelPrompt = `一个可爱的中国儿童模特（年龄3-6岁，性别随机，发型妆造多样自然）穿着这件衣服，展示服装效果。${clothingDesc}。严格保持衣服的颜色、材质、图案、细节完全不变。
-
-拍摄要求：
-- 竖版构图，高清全身照，专业儿童服装摄影
-- 自然柔和的户外光线或室内暖光
-- 场景必须多样化：每次随机选择不同的生活场景，如小区花园、阳光草地、幼儿园教室、游乐场滑梯旁、海滩沙滩、公园长椅、花丛旁、书店角落、甜品店、家庭客厅等
-- 儿童模特动作自然小幅：如低头看花、轻轻摸头发、侧身微笑、坐着翻书、手拿气球、抱玩偶、吃冰淇淋、蹲下看小动物、踮脚看远处、回头一笑等自然小动作，避免僵硬站姿和夸张大动作
-- 模特样貌妆造多元化：每次随机变换不同发型（短发、双马尾、丸子头、齐刘海等）、不同肤色深浅、不同脸型，保持自然可爱
-- 根据衣服风格搭配适合的裤子/裙子、鞋子和配饰，整体穿搭协调
-- 整体氛围温馨自然，像专业儿童服装品牌生活照`;
+    const modelPrompt = `一个中国儿童模特穿着这件衣服，${creativeBrief}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。`;
 
     const flatPrompt = `这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。`;
 
@@ -272,7 +296,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           model: "agnes-image-2.0-flash",
           prompt: modelPrompt,
-          size: "1024x1536", // 竖版 2:3 比例
+          size: "1024x1536",
           seed: randomSeed,
           extra_body: { image: [product_photo_url] },
         }),
@@ -314,7 +338,7 @@ export async function POST(request: NextRequest) {
     console.log("模特图:", modelImageUrl);
     console.log("平铺图:", flatImageUrl);
 
-    // ===== 步骤 4: 发送企业微信（先文本，再图片） =====
+    // ===== 步骤 5: 发送企业微信（先文本，再图片） =====
     const textSent = await sendTextToWechat(productText);
     // 文本和图片之间稍等一下，确保顺序
     const [wechatModelSent, wechatFlatSent] = await Promise.all([
@@ -322,7 +346,7 @@ export async function POST(request: NextRequest) {
       sendToWechat(flatImageUrl, "白底平铺图"),
     ]);
 
-    // ===== 步骤 5: 记录用量 =====
+    // ===== 步骤 6: 记录用量 =====
     if (member_id) {
       supabase.from("model_usage").insert({
         member_id,
@@ -336,6 +360,7 @@ export async function POST(request: NextRequest) {
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
       clothing_desc: clothingDesc,
+      creative_brief: creativeBrief,
       product_text: productText,
       wechat_sent: textSent && wechatModelSent && wechatFlatSent,
       sale_id,
