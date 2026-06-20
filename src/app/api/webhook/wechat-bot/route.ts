@@ -5,8 +5,27 @@ import sharp from "sharp";
 const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
 const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
+const WECHAT_TOKEN = process.env.WECHAT_TOKEN || "";
 const MAX_SIZE_BYTES = 200 * 1024;
 const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+
+// 验证企业微信签名
+async function verifySignature(request: NextRequest): Promise<boolean> {
+  if (!WECHAT_TOKEN) return true;
+  
+  const { searchParams } = new URL(request.url);
+  const signature = searchParams.get("signature");
+  const timestamp = searchParams.get("timestamp");
+  const nonce = searchParams.get("nonce");
+  
+  if (!signature || !timestamp || !nonce) return false;
+  
+  const crypto = await import("crypto");
+  const sorted = [WECHAT_TOKEN, timestamp, nonce].sort().join("");
+  const sha1 = crypto.createHash("sha1").update(sorted).digest("hex");
+  
+  return sha1 === signature;
+}
 
 // 压缩图片
 async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
@@ -209,6 +228,10 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
 
 // GET: URL 验证（企业微信配置回调时会发送 GET 请求）
 export async function GET(request: NextRequest) {
+  if (!(await verifySignature(request))) {
+    return NextResponse.json({ error: "签名验证失败" }, { status: 403 });
+  }
+  
   const { searchParams } = new URL(request.url);
   const echostr = searchParams.get("echostr");
   if (echostr) {
