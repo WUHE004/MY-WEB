@@ -307,8 +307,6 @@ export async function POST(request: NextRequest) {
           prompt: modelPrompt,
           size: "1024x1536",
           seed: randomSeed,
-          tags: ["img2img"],
-          extra_body: { image: [product_photo_url] },
         }),
       }),
       fetch(`${AGNES_BASE}/images/generations`, {
@@ -321,8 +319,6 @@ export async function POST(request: NextRequest) {
           model: "agnes-image-2.0-flash",
           prompt: flatPrompt,
           size: "1024x1024",
-          tags: ["img2img"],
-          extra_body: { image: [product_photo_url] },
         }),
       }),
     ]);
