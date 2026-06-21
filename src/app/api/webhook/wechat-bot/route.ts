@@ -1,30 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import sharp from "sharp";
+import crypto from "crypto";
 
 const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
 const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 const WECHAT_TOKEN = process.env.WECHAT_TOKEN || "";
+const WECHAT_ENCODING_AES_KEY = process.env.WECHAT_ENCODING_AES_KEY || "";
 const MAX_SIZE_BYTES = 200 * 1024;
 const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
-// 验证企业微信签名
-async function verifySignature(request: NextRequest): Promise<boolean> {
-  if (!WECHAT_TOKEN) return true;
-  
-  const { searchParams } = new URL(request.url);
-  const signature = searchParams.get("signature");
-  const timestamp = searchParams.get("timestamp");
-  const nonce = searchParams.get("nonce");
-  
-  if (!signature || !timestamp || !nonce) return false;
-  
-  const crypto = await import("crypto");
-  const sorted = [WECHAT_TOKEN, timestamp, nonce].sort().join("");
+// ===== 企业微信加解密工具 =====
+function getAesKey(): Buffer {
+  // EncodingAESKey 是 43 位的 Base64 字符串，补充 "=" 后解码得到 32 字节密钥
+  return Buffer.from(WECHAT_ENCODING_AES_KEY + "=", "base64");
+}
+
+// PKCS7 去填充
+function pkcs7Unpad(data: Buffer): Buffer {
+  const padLen = data[data.length - 1];
+  return data.subarray(0, data.length - padLen);
+}
+
+// AES-256-CBC 解密
+function aesDecrypt(encrypted: Buffer): Buffer {
+  const key = getAesKey();
+  const iv = key.subarray(0, 16);
+  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+  decipher.setAutoPadding(false);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return pkcs7Unpad(decrypted);
+}
+
+// 验证企业微信签名: SHA1(sort(Token, timestamp, nonce, encryptedMsg))
+function verifyWechatSignature(signature: string, timestamp: string, nonce: string, encryptedMsg: string): boolean {
+  const sorted = [WECHAT_TOKEN, timestamp, nonce, encryptedMsg].sort().join("");
   const sha1 = crypto.createHash("sha1").update(sorted).digest("hex");
-  
   return sha1 === signature;
+}
+
+// 解密企业微信消息，返回明文
+function decryptWechatMessage(encrypted: string): string {
+  const encryptedBuffer = Buffer.from(encrypted, "base64");
+  const decrypted = aesDecrypt(encryptedBuffer);
+  // 格式: 16字节随机数 + 4字节消息长度(大端) + 消息内容 + CorpID
+  const msgLen = decrypted.readUInt32BE(16);
+  return decrypted.subarray(20, 20 + msgLen).toString("utf-8");
 }
 
 // 压缩图片
@@ -224,32 +246,41 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
   }
 }
 
-// GET: URL 验证（企业微信配置回调时会发送 GET 请求）
+// GET: URL 验证（企业微信配置回调时会发送 GET 请求，需 AES 解密）
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const signature = searchParams.get("signature");
+  const msg_signature = searchParams.get("msg_signature");
   const timestamp = searchParams.get("timestamp");
   const nonce = searchParams.get("nonce");
   const echostr = searchParams.get("echostr");
 
-  // 如果配置了 WECHAT_TOKEN，进行签名验证
-  if (WECHAT_TOKEN && signature && timestamp && nonce) {
-    const crypto = await import("crypto");
-    const sorted = [WECHAT_TOKEN, timestamp, nonce].sort().join("");
-    const sha1 = crypto.createHash("sha1").update(sorted).digest("hex");
-    if (sha1 !== signature) {
-      console.error("企业微信签名验证失败");
-      return new Response("signature verification failed", { status: 403 });
+  // 没有加密参数，直接返回 echostr（明文模式）
+  if (!msg_signature || !echostr) {
+    if (echostr) {
+      return new Response(echostr, { headers: { "Content-Type": "text/plain" }, status: 200 });
     }
+    return new Response("ok", { status: 200 });
   }
 
-  if (echostr) {
-    return new Response(echostr, {
-      headers: { "Content-Type": "text/plain" },
-      status: 200,
-    });
+  // 安全模式：验证签名 + AES 解密
+  if (!WECHAT_TOKEN || !WECHAT_ENCODING_AES_KEY) {
+    console.error("企业微信回调缺少 WECHAT_TOKEN 或 WECHAT_ENCODING_AES_KEY 环境变量");
+    return new Response("config error", { status: 500 });
   }
-  return new Response("ok", { status: 200 });
+
+  if (!verifyWechatSignature(msg_signature, timestamp || "", nonce || "", echostr)) {
+    console.error("企业微信回调签名验证失败");
+    return new Response("signature verification failed", { status: 403 });
+  }
+
+  try {
+    const decrypted = decryptWechatMessage(echostr);
+    console.log("企业微信回调验证成功，返回解密 echostr");
+    return new Response(decrypted, { headers: { "Content-Type": "text/plain" }, status: 200 });
+  } catch (err) {
+    console.error("企业微信回调解密失败:", err);
+    return new Response("decrypt failed", { status: 500 });
+  }
 }
 
 // POST: 接收消息

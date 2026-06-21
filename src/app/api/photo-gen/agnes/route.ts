@@ -197,10 +197,9 @@ export async function POST(request: NextRequest) {
 
     // 自定义提示词或默认提示词
     const p = prompts || {};
-    const promptClothingRecognition = p.clothingRecognition || "请详细识别并描述这张图片中主体衣服的以下特征：1.款式和版型（如T恤、连衣裙、卫衣、衬衫等）2.颜色和图案细节 3.材质和面料质感 4.领型、袖型等设计细节 5.整体风格（如休闲、甜美、运动、潮流等）。请用中文简洁描述，控制在200字以内。";
-    const promptShootingScript = p.shootingScript || "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DETAILS}}";
-    const promptModel = p.modelPrompt || "一个中国儿童模特穿着这件衣服，{{SHOOTING_SCRIPT}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
-    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DETAILS}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
+    const promptShootingScript = p.shootingScript || "根据这张衣服照片，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。";
+    const promptModel = p.modelPrompt || "一件儿童服装，{{SHOOTING_SCRIPT}}。保持衣服颜色、材质、图案细节不变。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
+    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
     console.log("Agnes 步骤0: 查询商品详情...");
@@ -215,42 +214,8 @@ export async function POST(request: NextRequest) {
 
     console.log("商品信息文本:\n", productText);
 
-    // ===== 步骤 1: 图像识别模型 → 识别服装款式、颜色、材质、风格 =====
-    console.log("Agnes 步骤1: 图像识别服装...");
-    const recognitionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AGNES_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "agnes-2.0-flash",
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: product_photo_url } },
-            { type: "text", text: promptClothingRecognition },
-          ],
-        }],
-        max_tokens: 500,
-      }),
-    });
-
-    const recognitionData = await recognitionRes.json();
-    if (!recognitionRes.ok) {
-      console.error("Agnes 图像识别错误:", recognitionData);
-      throw new Error(`Agnes 图像识别失败: ${recognitionData.error?.message || JSON.stringify(recognitionData)}`);
-    }
-
-    const clothingDetails = recognitionData?.choices?.[0]?.message?.content || "";
-    console.log("服装识别结果:", clothingDetails);
-
-    if (!clothingDetails) {
-      throw new Error("Agnes 未返回服装识别结果");
-    }
-
-    // ===== 步骤 2: 文本模型 → 撰写专业拍摄脚本（模特、妆容发型、动作、场景） =====
-    console.log("Agnes 步骤2: 撰写拍摄脚本...");
+    // ===== 步骤 1: 视觉模型 → 根据衣服照片直接生成拍摄脚本 =====
+    console.log("Agnes 步骤1: 根据照片生成拍摄脚本...");
     const scriptRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
       headers: {
@@ -262,7 +227,8 @@ export async function POST(request: NextRequest) {
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: promptShootingScript.replace("{{CLOTHING_DETAILS}}", clothingDetails) },
+            { type: "image_url", image_url: { url: product_photo_url } },
+            { type: "text", text: promptShootingScript },
           ],
         }],
         max_tokens: 500,
@@ -282,46 +248,58 @@ export async function POST(request: NextRequest) {
       throw new Error("Agnes 未返回拍摄脚本");
     }
 
-    // ===== 步骤 3 & 4: 并行生成模特试穿图和白底平铺图 =====
-    console.log("Agnes 步骤3&4: 并行生成图片...");
+    // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图（img2img，以原照片为参考） =====
+    console.log("Agnes 步骤2&3: 并行生成图片（img2img）...");
 
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
     const modelPrompt = promptModel
-      .replace("{{SHOOTING_SCRIPT}}", shootingScript)
-      .replace("{{CLOTHING_DETAILS}}", clothingDetails);
-
-    const flatPrompt = promptFlat
-      .replace("{{CLOTHING_DETAILS}}", clothingDetails)
       .replace("{{SHOOTING_SCRIPT}}", shootingScript);
 
-    const [modelRes, flatRes] = await Promise.all([
-      fetch(`${AGNES_BASE}/images/generations`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${AGNES_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "agnes-image-2.0-flash",
-          prompt: modelPrompt,
-          size: "1024x1536",
-          seed: randomSeed,
-        }),
-      }),
-      fetch(`${AGNES_BASE}/images/generations`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${AGNES_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "agnes-image-2.0-flash",
-          prompt: flatPrompt,
-          size: "1024x1024",
-        }),
-      }),
+    const flatPrompt = promptFlat;
+
+    // 构建 img2img 请求体（尝试传 image 参数以原图为参考）
+    const modelBody = JSON.stringify({
+      model: "agnes-image-2.0-flash",
+      prompt: modelPrompt,
+      size: "1024x1536",
+      seed: randomSeed,
+      image: product_photo_url,
+    });
+    const flatBody = JSON.stringify({
+      model: "agnes-image-2.0-flash",
+      prompt: flatPrompt,
+      size: "1024x1024",
+      image: product_photo_url,
+    });
+
+    const fetchHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AGNES_API_KEY}`,
+    };
+
+    let [modelRes, flatRes] = await Promise.all([
+      fetch(`${AGNES_BASE}/images/generations`, { method: "POST", headers: fetchHeaders, body: modelBody }),
+      fetch(`${AGNES_BASE}/images/generations`, { method: "POST", headers: fetchHeaders, body: flatBody }),
     ]);
+
+    // 如果 img2img 失败（422），回退到纯文本生成（不带 image 参数）
+    if (modelRes.status === 422) {
+      console.log("模特图 img2img 失败，回退到纯文本生成");
+      modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
+        method: "POST",
+        headers: fetchHeaders,
+        body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: modelPrompt, size: "1024x1536", seed: randomSeed }),
+      });
+    }
+    if (flatRes.status === 422) {
+      console.log("平铺图 img2img 失败，回退到纯文本生成");
+      flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+        method: "POST",
+        headers: fetchHeaders,
+        body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: flatPrompt, size: "1024x1024" }),
+      });
+    }
 
     const [modelData, flatData] = await Promise.all([modelRes.json(), flatRes.json()]);
 
@@ -365,7 +343,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
-      clothing_details: clothingDetails,
       shooting_script: shootingScript,
       product_text: productText,
       wechat_sent: textSent && wechatModelSent && wechatFlatSent,
