@@ -197,9 +197,10 @@ export async function POST(request: NextRequest) {
 
     // 自定义提示词或默认提示词
     const p = prompts || {};
-    const promptShootingScript = p.shootingScript || "根据这张衣服照片，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。";
-    const promptModel = p.modelPrompt || "一件儿童服装，{{SHOOTING_SCRIPT}}。保持衣服颜色、材质、图案细节不变。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
-    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
+    const promptClothingDesc = p.clothingDesc || "请严格按照这张图片，详细描述这件衣服的每一个特征，必须精确：1.款式类型（如圆领短袖T恤、连帽卫衣、A字连衣裙、Polo衫、衬衫等）2.所有颜色（主色、辅色、每个部位的颜色）3.所有图案和花纹（位置、形状、颜色、大小）4.领口形状和袖型 5.面料材质 6.任何字母、数字、印花、logo、口袋等细节。必须详细具体，不得遗漏任何特征。";
+    const promptShootingScript = p.shootingScript || "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DESC}}";
+    const promptModel = p.modelPrompt || "一个中国儿童模特穿着一件{{CLOTHING_DESC}}，{{SHOOTING_SCRIPT}}。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
+    const promptFlat = p.flatPrompt || "一件{{CLOTHING_DESC}}的白色背景专业平铺展示图，服装平整展开，正面展示。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
     console.log("Agnes 步骤0: 查询商品详情...");
@@ -214,9 +215,9 @@ export async function POST(request: NextRequest) {
 
     console.log("商品信息文本:\n", productText);
 
-    // ===== 步骤 1: 视觉模型 → 根据衣服照片直接生成拍摄脚本 =====
-    console.log("Agnes 步骤1: 根据照片生成拍摄脚本...");
-    const scriptRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+    // ===== 步骤 1: 视觉模型 → 根据衣服照片精确识别服装款式、颜色、花纹、材质 =====
+    console.log("Agnes 步骤1: 精确识别服装...");
+    const descRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -228,8 +229,39 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: product_photo_url } },
-            { type: "text", text: promptShootingScript },
+            { type: "text", text: promptClothingDesc },
           ],
+        }],
+        max_tokens: 600,
+      }),
+    });
+
+    const descData = await descRes.json();
+    if (!descRes.ok) {
+      console.error("Agnes 服装识别错误:", descData);
+      throw new Error(`Agnes 服装识别失败: ${descData.error?.message || JSON.stringify(descData)}`);
+    }
+
+    const clothingDesc = descData?.choices?.[0]?.message?.content || "";
+    console.log("服装识别结果:", clothingDesc);
+
+    if (!clothingDesc) {
+      throw new Error("Agnes 未返回服装描述");
+    }
+
+    // ===== 步骤 2: 文本模型 → 基于服装描述撰写专业拍摄脚本 =====
+    console.log("Agnes 步骤2: 撰写拍摄脚本...");
+    const scriptRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AGNES_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [{
+          role: "user",
+          content: [{ type: "text", text: promptShootingScript.replace("{{CLOTHING_DESC}}", clothingDesc) }],
         }],
         max_tokens: 500,
       }),
@@ -248,58 +280,35 @@ export async function POST(request: NextRequest) {
       throw new Error("Agnes 未返回拍摄脚本");
     }
 
-    // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图（img2img，以原照片为参考） =====
-    console.log("Agnes 步骤2&3: 并行生成图片（img2img）...");
+    // ===== 步骤 3 & 4: 并行生成模特试穿图和白底平铺图（将服装描述直接嵌入prompt） =====
+    console.log("Agnes 步骤3&4: 并行生成图片...");
 
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
     const modelPrompt = promptModel
+      .replace("{{CLOTHING_DESC}}", clothingDesc)
       .replace("{{SHOOTING_SCRIPT}}", shootingScript);
 
-    const flatPrompt = promptFlat;
-
-    // 构建 img2img 请求体（尝试传 image 参数以原图为参考）
-    const modelBody = JSON.stringify({
-      model: "agnes-image-2.0-flash",
-      prompt: modelPrompt,
-      size: "1024x1536",
-      seed: randomSeed,
-      image: product_photo_url,
-    });
-    const flatBody = JSON.stringify({
-      model: "agnes-image-2.0-flash",
-      prompt: flatPrompt,
-      size: "1024x1024",
-      image: product_photo_url,
-    });
+    const flatPrompt = promptFlat
+      .replace("{{CLOTHING_DESC}}", clothingDesc);
 
     const fetchHeaders = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${AGNES_API_KEY}`,
     };
 
-    let [modelRes, flatRes] = await Promise.all([
-      fetch(`${AGNES_BASE}/images/generations`, { method: "POST", headers: fetchHeaders, body: modelBody }),
-      fetch(`${AGNES_BASE}/images/generations`, { method: "POST", headers: fetchHeaders, body: flatBody }),
-    ]);
-
-    // 如果 img2img 失败（422），回退到纯文本生成（不带 image 参数）
-    if (modelRes.status === 422) {
-      console.log("模特图 img2img 失败，回退到纯文本生成");
-      modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
+    const [modelRes, flatRes] = await Promise.all([
+      fetch(`${AGNES_BASE}/images/generations`, {
         method: "POST",
         headers: fetchHeaders,
         body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: modelPrompt, size: "1024x1536", seed: randomSeed }),
-      });
-    }
-    if (flatRes.status === 422) {
-      console.log("平铺图 img2img 失败，回退到纯文本生成");
-      flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      }),
+      fetch(`${AGNES_BASE}/images/generations`, {
         method: "POST",
         headers: fetchHeaders,
         body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: flatPrompt, size: "1024x1024" }),
-      });
-    }
+      }),
+    ]);
 
     const [modelData, flatData] = await Promise.all([modelRes.json(), flatRes.json()]);
 
@@ -343,6 +352,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
+      clothing_desc: clothingDesc,
       shooting_script: shootingScript,
       product_text: productText,
       wechat_sent: textSent && wechatModelSent && wechatFlatSent,

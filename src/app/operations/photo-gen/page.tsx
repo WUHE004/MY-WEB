@@ -73,9 +73,10 @@ export default function PhotoGenPage() {
 
   // 提示词自定义
   const DEFAULT_PROMPTS = {
-    shootingScript: "根据这张衣服照片，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。",
-    modelPrompt: "一件儿童服装，{{SHOOTING_SCRIPT}}。保持衣服颜色、材质、图案细节不变。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。",
-    flatPrompt: "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。",
+    clothingDesc: "请严格按照这张图片，详细描述这件衣服的每一个特征，必须精确：1.款式类型（如圆领短袖T恤、连帽卫衣、A字连衣裙、Polo衫、衬衫等）2.所有颜色（主色、辅色、每个部位的颜色）3.所有图案和花纹（位置、形状、颜色、大小）4.领口形状和袖型 5.面料材质 6.任何字母、数字、印花、logo、口袋等细节。必须详细具体，不得遗漏任何特征。",
+    shootingScript: "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DESC}}",
+    modelPrompt: "一个中国儿童模特穿着一件{{CLOTHING_DESC}}，{{SHOOTING_SCRIPT}}。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。",
+    flatPrompt: "一件{{CLOTHING_DESC}}的白色背景专业平铺展示图，服装平整展开，正面展示。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。",
   };
   const [customPrompts, setCustomPrompts] = useState<typeof DEFAULT_PROMPTS>(() => {
     try {
@@ -324,7 +325,7 @@ export default function PhotoGenPage() {
       } else {
         setAgnesResults((prev) => ({
           ...prev,
-          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.shooting_script },
+          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.clothing_desc },
         }));
         fetchUsage();
       }
@@ -945,11 +946,20 @@ export default function PhotoGenPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">占位符: {"{{SHOOTING_SCRIPT}}"} 会被自动替换</p>
+            <p className="text-xs text-gray-400 mb-4">占位符: {"{{CLOTHING_DESC}}"} / {"{{SHOOTING_SCRIPT}}"} 会被自动替换</p>
 
             <div className="space-y-4 max-h-[60vh] overflow-y-auto">
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 拍摄脚本提示词（视觉模型 → 根据照片生成脚本）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装识别提示词（视觉模型 → 精确识别款式/颜色/花纹/材质）</label>
+                <textarea
+                  rows={5}
+                  value={editingPrompts.clothingDesc}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, clothingDesc: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 拍摄脚本提示词（文本模型 → 基于服装描述生成脚本）</label>
                 <textarea
                   rows={6}
                   value={editingPrompts.shootingScript}
@@ -958,7 +968,7 @@ export default function PhotoGenPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 模特图生成提示词（img2img → 以原图为参考）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 模特图生成提示词（{"{{CLOTHING_DESC}}"} + {"{{SHOOTING_SCRIPT}}"}）</label>
                 <textarea
                   rows={4}
                   value={editingPrompts.modelPrompt}
@@ -967,7 +977,7 @@ export default function PhotoGenPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 平铺图生成提示词（img2img → 以原图为参考）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤4: 平铺图生成提示词（{"{{CLOTHING_DESC}}"}）</label>
                 <textarea
                   rows={4}
                   value={editingPrompts.flatPrompt}
