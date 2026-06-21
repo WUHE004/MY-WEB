@@ -197,10 +197,10 @@ export async function POST(request: NextRequest) {
 
     // 自定义提示词或默认提示词
     const p = prompts || {};
-    const promptClothingDesc = p.clothingDesc || "请详细描述这件衣服的以下特征：1.材质和面料质感 2.颜色和图案细节 3.款式和版型 4.适合的穿着场景 5.建议的搭配风格。请用中文简洁描述，控制在200字以内。";
-    const promptCreativeBrief = p.creativeBrief || "根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。\n\n服装描述：{{CLOTHING_DESC}}";
-    const promptModel = p.modelPrompt || "一个中国儿童模特穿着这件衣服，{{CREATIVE_BRIEF}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
-    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DESC}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
+    const promptClothingRecognition = p.clothingRecognition || "请详细识别并描述这张图片中主体衣服的以下特征：1.款式和版型（如T恤、连衣裙、卫衣、衬衫等）2.颜色和图案细节 3.材质和面料质感 4.领型、袖型等设计细节 5.整体风格（如休闲、甜美、运动、潮流等）。请用中文简洁描述，控制在200字以内。";
+    const promptShootingScript = p.shootingScript || "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DETAILS}}";
+    const promptModel = p.modelPrompt || "一个中国儿童模特穿着这件衣服，{{SHOOTING_SCRIPT}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
+    const promptFlat = p.flatPrompt || "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DETAILS}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
     console.log("Agnes 步骤0: 查询商品详情...");
@@ -215,9 +215,9 @@ export async function POST(request: NextRequest) {
 
     console.log("商品信息文本:\n", productText);
 
-    // ===== 步骤 1: 文本模型分析服装 =====
-    console.log("Agnes 步骤1: 分析服装...");
-    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+    // ===== 步骤 1: 图像识别模型 → 识别服装款式、颜色、材质、风格 =====
+    console.log("Agnes 步骤1: 图像识别服装...");
+    const recognitionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -229,29 +229,29 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: [
             { type: "image_url", image_url: { url: product_photo_url } },
-            { type: "text", text: promptClothingDesc },
+            { type: "text", text: promptClothingRecognition },
           ],
         }],
         max_tokens: 500,
       }),
     });
 
-    const textData = await textRes.json();
-    if (!textRes.ok) {
-      console.error("Agnes 文本模型错误:", textData);
-      throw new Error(`Agnes 文本分析失败: ${textData.error?.message || JSON.stringify(textData)}`);
+    const recognitionData = await recognitionRes.json();
+    if (!recognitionRes.ok) {
+      console.error("Agnes 图像识别错误:", recognitionData);
+      throw new Error(`Agnes 图像识别失败: ${recognitionData.error?.message || JSON.stringify(recognitionData)}`);
     }
 
-    const clothingDesc = textData?.choices?.[0]?.message?.content || "";
-    console.log("服装描述:", clothingDesc);
+    const clothingDetails = recognitionData?.choices?.[0]?.message?.content || "";
+    console.log("服装识别结果:", clothingDetails);
 
-    if (!clothingDesc) {
-      throw new Error("Agnes 未返回服装描述");
+    if (!clothingDetails) {
+      throw new Error("Agnes 未返回服装识别结果");
     }
 
-    // ===== 步骤 2: 基于服装描述生成专属创意方案（模特、穿搭、场景、动作） =====
-    console.log("Agnes 步骤2: 生成专属创意方案...");
-    const creativeRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+    // ===== 步骤 2: 文本模型 → 撰写专业拍摄脚本（模特、妆容发型、动作、场景） =====
+    console.log("Agnes 步骤2: 撰写拍摄脚本...");
+    const scriptRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -262,24 +262,24 @@ export async function POST(request: NextRequest) {
         messages: [{
           role: "user",
           content: [
-            { type: "text", text: promptCreativeBrief.replace("{{CLOTHING_DESC}}", clothingDesc) },
+            { type: "text", text: promptShootingScript.replace("{{CLOTHING_DETAILS}}", clothingDetails) },
           ],
         }],
-        max_tokens: 400,
+        max_tokens: 500,
       }),
     });
 
-    const creativeData = await creativeRes.json();
-    if (!creativeRes.ok) {
-      console.error("Agnes 创意方案错误:", creativeData);
-      throw new Error(`Agnes 创意方案生成失败: ${creativeData.error?.message || JSON.stringify(creativeData)}`);
+    const scriptData = await scriptRes.json();
+    if (!scriptRes.ok) {
+      console.error("Agnes 拍摄脚本错误:", scriptData);
+      throw new Error(`Agnes 拍摄脚本生成失败: ${scriptData.error?.message || JSON.stringify(scriptData)}`);
     }
 
-    const creativeBrief = creativeData?.choices?.[0]?.message?.content || "";
-    console.log("创意方案:", creativeBrief);
+    const shootingScript = scriptData?.choices?.[0]?.message?.content || "";
+    console.log("拍摄脚本:", shootingScript);
 
-    if (!creativeBrief) {
-      throw new Error("Agnes 未返回创意方案");
+    if (!shootingScript) {
+      throw new Error("Agnes 未返回拍摄脚本");
     }
 
     // ===== 步骤 3 & 4: 并行生成模特试穿图和白底平铺图 =====
@@ -288,12 +288,12 @@ export async function POST(request: NextRequest) {
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
     const modelPrompt = promptModel
-      .replace("{{CREATIVE_BRIEF}}", creativeBrief)
-      .replace("{{CLOTHING_DESC}}", clothingDesc);
+      .replace("{{SHOOTING_SCRIPT}}", shootingScript)
+      .replace("{{CLOTHING_DETAILS}}", clothingDetails);
 
     const flatPrompt = promptFlat
-      .replace("{{CLOTHING_DESC}}", clothingDesc)
-      .replace("{{CREATIVE_BRIEF}}", creativeBrief);
+      .replace("{{CLOTHING_DETAILS}}", clothingDetails)
+      .replace("{{SHOOTING_SCRIPT}}", shootingScript);
 
     const [modelRes, flatRes] = await Promise.all([
       fetch(`${AGNES_BASE}/images/generations`, {
@@ -365,8 +365,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
-      clothing_desc: clothingDesc,
-      creative_brief: creativeBrief,
+      clothing_details: clothingDetails,
+      shooting_script: shootingScript,
       product_text: productText,
       wechat_sent: textSent && wechatModelSent && wechatFlatSent,
       sale_id,

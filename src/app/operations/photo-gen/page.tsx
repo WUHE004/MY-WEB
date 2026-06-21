@@ -73,10 +73,10 @@ export default function PhotoGenPage() {
 
   // 提示词自定义
   const DEFAULT_PROMPTS = {
-    clothingDesc: "请详细描述这件衣服的以下特征：1.材质和面料质感 2.颜色和图案细节 3.款式和版型 4.适合的穿着场景 5.建议的搭配风格。请用中文简洁描述，控制在200字以内。",
-    creativeBrief: "根据以下服装描述，为这件衣服设计一个专属的儿童模特拍摄创意方案，包括模特形象、搭配穿搭、场景和动作。要求：1. 根据衣服风格设计模特性别、发型、妆容、肤色 2. 设计配套的下装、鞋子、配饰 3. 选择一个最匹配衣服风格的日常生活场景 4. 设计一个自然小幅度动作。请用中文简洁描述，控制在150字以内，直接输出方案文字，不要加序号或标签。\n\n服装描述：{{CLOTHING_DESC}}",
-    modelPrompt: "一个中国儿童模特穿着这件衣服，{{CREATIVE_BRIEF}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。",
-    flatPrompt: "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DESC}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。",
+    clothingRecognition: "请详细识别并描述这张图片中主体衣服的以下特征：1.款式和版型（如T恤、连衣裙、卫衣、衬衫等）2.颜色和图案细节 3.材质和面料质感 4.领型、袖型等设计细节 5.整体风格（如休闲、甜美、运动、潮流等）。请用中文简洁描述，控制在200字以内。",
+    shootingScript: "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DETAILS}}",
+    modelPrompt: "一个中国儿童模特穿着这件衣服，{{SHOOTING_SCRIPT}}。严格保持衣服的颜色、材质、图案、细节完全不变。竖版构图，高清全身照，专业儿童服装摄影，自然光线，温馨氛围。",
+    flatPrompt: "这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。{{CLOTHING_DETAILS}}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。",
   };
   const [customPrompts, setCustomPrompts] = useState<typeof DEFAULT_PROMPTS>(() => {
     try {
@@ -325,7 +325,7 @@ export default function PhotoGenPage() {
       } else {
         setAgnesResults((prev) => ({
           ...prev,
-          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.clothing_desc },
+          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.clothing_details },
         }));
         fetchUsage();
       }
@@ -946,24 +946,24 @@ export default function PhotoGenPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">占位符: {"{{CLOTHING_DESC}}"} / {"{{CREATIVE_BRIEF}}"} 会被自动替换</p>
+            <p className="text-xs text-gray-400 mb-4">占位符: {"{{CLOTHING_DETAILS}}"} / {"{{SHOOTING_SCRIPT}}"} 会被自动替换</p>
 
             <div className="space-y-4 max-h-[60vh] overflow-y-auto">
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装描述提示词</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 图像识别提示词（识别服装款式/颜色/材质/风格）</label>
                 <textarea
                   rows={5}
-                  value={editingPrompts.clothingDesc}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, clothingDesc: e.target.value })}
+                  value={editingPrompts.clothingRecognition}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, clothingRecognition: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
                 />
               </div>
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 创意方案提示词</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 拍摄脚本提示词（模特/妆容发型/动作/场景）</label>
                 <textarea
                   rows={6}
-                  value={editingPrompts.creativeBrief}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, creativeBrief: e.target.value })}
+                  value={editingPrompts.shootingScript}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, shootingScript: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
                 />
               </div>
