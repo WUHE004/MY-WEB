@@ -127,8 +127,6 @@ async function generateFlatImage(productPhotoUrl: string): Promise<string | null
         model: "agnes-image-2.0-flash",
         prompt: `这件衣服的白色背景专业平铺展示图，服装平整展开，正面展示。${clothingDesc}。保持衣服的颜色、材质、图案、细节完全不变。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。`,
         size: "1024x1024",
-        tags: ["img2img"],
-        extra_body: { image: [productPhotoUrl] },
       }),
     });
     const flatData = await flatRes.json();
