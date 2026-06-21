@@ -345,83 +345,137 @@ export async function GET(request: NextRequest) {
 }
 
 // ===== POST: 处理用户消息 =====
+function extractField(xml: string, fieldName: string): string {
+  // 兼容 <Field>value</Field> 和 <Field><![CDATA[value]]></Field>
+  const pattern = new RegExp(`<${fieldName}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${fieldName}>`);
+  const match = xml.match(pattern);
+  return match ? match[1].trim() : "";
+}
+
+function looksLikeProductCode(text: string): boolean {
+  if (!text) return false;
+  // 商品编号通常 2-12 位，包含字母数字和连字符
+  const cleaned = text.trim();
+  if (cleaned.length < 2 || cleaned.length > 15) return false;
+  // 如果包含大量 XML 关键字/长串乱码，不是商品编号
+  if (/xml|ToUserName|FromUserName|Encrypt|MsgType|CDATA/i.test(cleaned)) return false;
+  // 必须以字母或数字开头（商品编号不会以乱码符号开头）
+  return /^[A-Za-z0-9]/.test(cleaned) && /^[\w\-\/]+$/.test(cleaned);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    console.log("[WECHAT] POST 收到消息");
-    let content = "";
-
+    console.log("[WECHAT] ====== POST 收到消息 ======");
     const contentType = request.headers.get("content-type") || "";
     const rawBody = await request.text();
+    console.log("[WECHAT] Content-Type:", contentType);
+    console.log("[WECHAT] 原始消息长度:", rawBody.length, "前300字符:", rawBody.substring(0, 300));
 
-    // 优先尝试解析 XML（企业微信标准格式）
-    let xmlContent = rawBody;
+    // 步骤 1: 判断消息模式（明文/加密）并提取内容
+    let finalContent = "";
+    let processingPath = "";
 
-    // 如果是安全模式，Encrypt 节点需要解密
-    if (xmlContent.includes("<Encrypt>")) {
-      const encryptMatch = xmlContent.match(/<Encrypt>([^<]*)<\/Encrypt>/);
-      if (encryptMatch && WECHAT_TOKEN && WECHAT_ENCODING_AES_KEY) {
-        try {
-          const encrypted = encryptMatch[1];
-          console.log("[WECHAT] 安全模式 POST，解密 Encrypt...");
-          const decryptedXml = decryptMessage(encrypted);
-          console.log("[WECHAT] 解密后 XML:", decryptedXml.substring(0, 200));
-          xmlContent = decryptedXml;
-        } catch (err) {
-          console.error("[WECHAT] POST 消息解密失败:", err);
+    // 优先尝试：如果有 Encrypt 节点，尝试解密
+    const encryptContent = extractField(rawBody, "Encrypt");
+    console.log("[WECHAT] 提取到 Encrypt 内容长度:", encryptContent.length);
+
+    if (encryptContent && WECHAT_ENCODING_AES_KEY) {
+      processingPath = "加密模式";
+      console.log("[WECHAT] 模式: 安全/加密模式，尝试 AES 解密...");
+      try {
+        const decryptedXml = decryptMessage(encryptContent);
+        console.log("[WECHAT] 解密成功，解密后内容前300字符:", decryptedXml.substring(0, 300));
+
+        // 从解密后的 XML 中提取 Content
+        const contentFromDecrypted = extractField(decryptedXml, "Content");
+        if (contentFromDecrypted) {
+          finalContent = contentFromDecrypted;
+          console.log("[WECHAT] 从解密后 XML 提取 Content:", finalContent);
+        } else {
+          // 没有 Content？可能不是文本消息，尝试其他字段
+          console.warn("[WECHAT] 解密后的 XML 中没有 Content 字段");
+          console.warn("[WECHAT] 解密后的完整内容:", decryptedXml);
         }
+      } catch (err) {
+        console.error("[WECHAT] 解密失败:", err instanceof Error ? err.message : err);
+      }
+    } else if (encryptContent && !WECHAT_ENCODING_AES_KEY) {
+      processingPath = "加密但无key";
+      console.warn("[WECHAT] 检测到加密消息，但 WECHAT_ENCODING_AES_KEY 环境变量未设置");
+    }
+
+    // 步骤 2: 如果加密模式没提取到内容，尝试明文模式直接提取
+    if (!finalContent) {
+      processingPath = processingPath || "明文模式（fallback）";
+      const plainContent = extractField(rawBody, "Content");
+      if (plainContent) {
+        finalContent = plainContent;
+        console.log("[WECHAT] 从原始 XML（明文）提取 Content:", finalContent);
       }
     }
 
-    // 从 XML 中提取内容
-    const contentMatch = xmlContent.match(/<Content><!\[CDATA\[(.*?)\]\]><\/Content>/);
-    if (contentMatch) {
-      content = contentMatch[1];
-    } else {
-      // 尝试 JSON 解析
+    // 步骤 3: 都失败？尝试解析 JSON 格式
+    if (!finalContent) {
       try {
         const body = JSON.parse(rawBody);
-        content = body?.text?.content || body?.Text?.Content || body?.content || body?.message || "";
-      } catch (_e) {
-        content = xmlContent.trim();
-      }
+        finalContent = body?.text?.content || body?.Text?.Content || body?.content || body?.message || "";
+        if (finalContent) processingPath = "JSON 格式";
+      } catch (_e) { /* 不是 JSON */ }
     }
 
-    console.log("[WECHAT] 解析出用户消息:", content);
+    console.log("[WECHAT] 最终解析路径:", processingPath, "内容:", finalContent);
 
-    if (!content || content.trim().length < 2) {
+    if (!finalContent || finalContent.trim().length < 2) {
+      await sendTextToWechat("📝 请发送商品编号，例如：A12345");
       return NextResponse.json({ status: "no_content" }, { status: 200 });
     }
 
-    const code = content.split("\n")[0].trim().replace(/[^\w\-]/g, "");
-    if (!code || code.length < 2) {
-      return NextResponse.json({ status: "no_code" }, { status: 200 });
+    // 步骤 4: 提取商品编号
+    const code = finalContent.split("\n")[0].trim();
+    console.log("[WECHAT] 原始内容:", code);
+
+    if (!looksLikeProductCode(code)) {
+      console.warn("[WECHAT] 内容不像商品编号:", code);
+      await sendTextToWechat(
+        `⚠️ 没有识别到正确的商品编号。\n` +
+        `你发送的内容：${code.substring(0, 50)}\n` +
+        `请直接发送商品编号（字母+数字，2-12位），例如：A12345`
+      );
+      return NextResponse.json({ status: "invalid_code", content: code }, { status: 200 });
     }
+
     console.log("[WECHAT] 查询商品编号:", code);
 
+    // 步骤 5: 查询商品信息
     const product = await getProductDetail(code);
     if (!product) {
-      await sendTextToWechat(`未找到商品编号: ${code}`);
-      return NextResponse.json({ status: "not_found" }, { status: 200 });
+      await sendTextToWechat(`❌ 未找到商品编号: ${code}\n请检查编号是否正确，或在库存系统中确认该商品已录入。`);
+      return NextResponse.json({ status: "not_found", code }, { status: 200 });
     }
 
     const stats = await getSalesStats(code);
     const productText = buildProductText(product, stats);
     await sendTextToWechat(productText);
 
+    // 步骤 6: 发送白底图（有则用，没有则生成）
     const photoUrl = product.photo as string;
     if (photoUrl) {
+      await sendTextToWechat("🖼️ 正在生成商品白底图，请稍候...");
       const flatUrl = await generateFlatImage(photoUrl);
       if (flatUrl) {
         await sendImageToWechat(flatUrl);
       } else {
         await sendImageToWechat(photoUrl);
       }
+    } else {
+      await sendTextToWechat("ℹ️ 该商品暂无照片，无法生成白底图");
     }
 
     return NextResponse.json({ status: "ok", code }, { status: 200 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[WECHAT] 处理错误:", msg);
+    await sendTextToWechat(`❌ 系统处理时出错：${msg.substring(0, 100)}`);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
