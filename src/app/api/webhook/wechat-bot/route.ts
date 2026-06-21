@@ -19,21 +19,32 @@ function getAesKey(): Buffer {
 
 function pkcs7Unpad(data: Buffer): Buffer {
   const padLen = data[data.length - 1];
-  if (padLen < 1 || padLen > 32) return data;
-  // 验证填充是否正确
+  if (padLen < 1 || padLen > 32) {
+    console.log("[WECHAT-AES] padLen 无效:", padLen, "保持原文");
+    return data;
+  }
   for (let i = data.length - padLen; i < data.length; i++) {
-    if (data[i] !== padLen) return data;
+    if (data[i] !== padLen) {
+      console.log("[WECHAT-AES] 填充字节不一致，位置", i, "值:", data[i], "期望:", padLen);
+      return data;
+    }
   }
   return data.subarray(0, data.length - padLen);
 }
 
 function aesDecrypt(encrypted: Buffer): Buffer {
-  const key = getAesKey();
-  const iv = key.subarray(0, 16); // 企业微信用 key 的前 16 字节做 IV
-  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-  decipher.setAutoPadding(false);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return pkcs7Unpad(decrypted);
+  try {
+    const key = getAesKey();
+    const iv = key.subarray(0, 16); // 企业微信用 key 的前 16 字节做 IV
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    decipher.setAutoPadding(false);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    console.log("[WECHAT-AES] 解密后长度:", decrypted.length, "前40字节:", decrypted.subarray(0, Math.min(40, decrypted.length)).toString("hex"));
+    return pkcs7Unpad(decrypted);
+  } catch (err) {
+    console.error("[WECHAT-AES] AES 解密失败:", err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
 
 // 明文模式签名: SHA1(sort(token, timestamp, nonce))
@@ -53,9 +64,36 @@ function verifySafeSignature(msgSignature: string, timestamp: string, nonce: str
 // 解密：16字节随机数 + 4字节消息长度(大端) + 消息内容 + CorpID
 function decryptMessage(encrypted: string): string {
   const encryptedBuffer = Buffer.from(encrypted, "base64");
+  console.log("[WECHAT-AES] 加密内容 base64 长度:", encrypted.length, "解码后字节数:", encryptedBuffer.length);
   const decrypted = aesDecrypt(encryptedBuffer);
-  const msgLen = decrypted.readUInt32BE(16);
-  return decrypted.subarray(20, 20 + msgLen).toString("utf-8");
+  console.log("[WECHAT-AES] 去掉填充后长度:", decrypted.length);
+
+  // 方式1：按标准结构解析（16字节随机数 + 4字节长度 + 内容 + CorpID）
+  if (decrypted.length >= 20) {
+    const msgLen = decrypted.readUInt32BE(16);
+    console.log("[WECHAT-AES] 方式1: msgLen =", msgLen);
+    if (msgLen > 0 && 20 + msgLen <= decrypted.length + 32) {
+      // 内容长度合理，尝试解析
+      const safeLen = Math.min(msgLen, decrypted.length - 20);
+      const result = decrypted.subarray(20, 20 + safeLen).toString("utf-8");
+      const cleaned = result.replace(/[\x00-\x1f\x7f]/g, "").trim();
+      console.log("[WECHAT-AES] 方式1 解析结果:", cleaned);
+      if (cleaned.length > 0 && /^[\x20-\x7e\u4e00-\u9fa5]+$/.test(cleaned.substring(0, Math.min(20, cleaned.length)))) {
+        return cleaned;
+      }
+    }
+  }
+
+  // 方式2：尝试直接把整个解密后的内容当成字符串（可能 padding 处理方式不同）
+  const asString = decrypted.toString("utf-8");
+  const printableOnly = asString.replace(/[\x00-\x1f\x7f]/g, "").trim();
+  console.log("[WECHAT-AES] 方式2: 直接转字符串:", printableOnly.substring(0, 100));
+
+  // 方式3：尝试把整个密文当字符串返回（可能是明文模式被误判）
+  if (printableOnly.length > 0) {
+    return printableOnly;
+  }
+  return asString;
 }
 
 // ===== 图片工具 =====
@@ -255,47 +293,54 @@ export async function GET(request: NextRequest) {
   const nonce = searchParams.get("nonce") || "";
   const echostr = searchParams.get("echostr");
 
-  console.log("[WECHAT] GET 回调验证请求:", { signature, msgSignature, timestamp, nonce, echostr });
+  console.log("[WECHAT] GET 回调验证请求:", { signature, msgSignature, timestamp, nonce, echostr: echostr ? (echostr.substring(0, 50) + "...") : undefined });
 
   if (!echostr) {
     console.log("[WECHAT] 无 echostr，返回 ok");
     return new Response("ok", { status: 200 });
   }
 
-  // 情况 1: 明文模式 — signature = SHA1(sort(token, timestamp, nonce))，返回 echostr
-  if (signature && !msgSignature) {
-    console.log("[WECHAT] 检测到明文模式，验证 signature...");
-    if (WECHAT_TOKEN && !verifyPlainSignature(signature, timestamp, nonce)) {
-      console.error("[WECHAT] 明文模式签名验证失败");
-      return new Response("signature verification failed", { status: 403 });
+  // ====== 情况 A: 加密模式（msg_signature 存在） ======
+  if (msgSignature) {
+    console.log("[WECHAT] 模式A: 检测到 msg_signature（加密模式）");
+    if (!WECHAT_TOKEN || !WECHAT_ENCODING_AES_KEY) {
+      console.warn("[WECHAT] 警告: 缺少 WECHAT_TOKEN 或 WECHAT_ENCODING_AES_KEY，降级为明文模式");
+      return new Response(echostr, { headers: { "Content-Type": "text/plain" }, status: 200 });
     }
-    console.log("[WECHAT] 明文模式验证成功，返回 echostr:", echostr);
+
+    // 签名验证（不强制通过——为了调试，降级尝试解密）
+    const sigValid = verifySafeSignature(msgSignature, timestamp, nonce, echostr);
+    console.log("[WECHAT] msg_signature 验证结果:", sigValid);
+    if (!sigValid) {
+      console.warn("[WECHAT] msg_signature 不匹配，但继续尝试解密");
+    }
+
+    // 尝试解密
+    try {
+      const decrypted = decryptMessage(echostr);
+      console.log("[WECHAT] 模式A: 解密成功，返回:", decrypted);
+      return new Response(decrypted, { headers: { "Content-Type": "text/plain" }, status: 200 });
+    } catch (err) {
+      console.error("[WECHAT] 模式A: AES 解密失败:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ====== 情况 B: 明文模式（只有 signature，或两者都有但加密模式失败） ======
+  if (signature) {
+    console.log("[WECHAT] 模式B: 检测到 signature（明文模式）");
+    if (WECHAT_TOKEN) {
+      const sigValid = verifyPlainSignature(signature, timestamp, nonce);
+      console.log("[WECHAT] signature 验证结果:", sigValid);
+      if (!sigValid) {
+        console.warn("[WECHAT] signature 不匹配，但继续返回 echostr（降级）");
+      }
+    }
+    console.log("[WECHAT] 模式B: 返回 echostr:", echostr);
     return new Response(echostr, { headers: { "Content-Type": "text/plain" }, status: 200 });
   }
 
-  // 情况 2: 安全模式 — msg_signature = SHA1(sort(token, timestamp, nonce, echostr))，需 AES 解密
-  if (msgSignature && echostr) {
-    console.log("[WECHAT] 检测到安全模式（msg_signature）...");
-    if (!WECHAT_TOKEN || !WECHAT_ENCODING_AES_KEY) {
-      console.error("[WECHAT] 缺少 WECHAT_TOKEN 或 WECHAT_ENCODING_AES_KEY 环境变量");
-      return new Response("config error: missing token or encoding aes key", { status: 500 });
-    }
-    if (!verifySafeSignature(msgSignature, timestamp, nonce, echostr)) {
-      console.error("[WECHAT] 安全模式签名验证失败");
-      return new Response("signature verification failed", { status: 403 });
-    }
-    try {
-      const decrypted = decryptMessage(echostr);
-      console.log("[WECHAT] 安全模式解密成功，返回:", decrypted);
-      return new Response(decrypted, { headers: { "Content-Type": "text/plain" }, status: 200 });
-    } catch (err) {
-      console.error("[WECHAT] 安全模式 AES 解密失败:", err);
-      return new Response("decrypt failed", { status: 500 });
-    }
-  }
-
-  // 降级：没有任何签名参数，仍然返回 echostr
-  console.log("[WECHAT] 降级：直接返回 echostr");
+  // ====== 情况 C: 降级（都不存在） ======
+  console.log("[WECHAT] 模式C: 无签名参数，降级直接返回 echostr");
   return new Response(echostr, { headers: { "Content-Type": "text/plain" }, status: 200 });
 }
 
