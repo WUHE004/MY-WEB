@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>点冰童装管理系统 - 操作手册</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #1a1a1a; line-height: 1.7; background: #f5f5f5; }
+.page { max-width: 1100px; margin: 0 auto; padding: 20px; background: #fff; min-height: 100vh; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+.cover { text-align: center; padding: 60px 20px; border-bottom: 3px solid #1a1a1a; margin-bottom: 40px; }
+.cover h1 { font-size: 2.5em; font-weight: 900; margin-bottom: 10px; color: #1a1a1a; }
+.cover .subtitle { font-size: 1.2em; color: #666; }
+.cover .version { margin-top: 30px; font-size: 0.9em; color: #999; }
+.toc { background: #f9f9f9; border: 3px solid #ddd; border-radius: 12px; padding: 24px; margin-bottom: 40px; }
+.toc h2 { font-size: 1.4em; font-weight: 900; margin-bottom: 16px; }
+.toc ol { padding-left: 20px; columns: 2; column-gap: 40px; }
+.toc ol li { margin-bottom: 6px; break-inside: avoid; }
+.toc ol li a { color: #4A90E2; text-decoration: none; font-weight: 600; }
+.toc ol li a:hover { text-decoration: underline; }
+@media (max-width: 600px) { .toc ol { columns: 1; } }
+h2 { font-size: 1.8em; font-weight: 900; border-bottom: 3px solid #1a1a1a; padding-bottom: 8px; margin: 50px 0 20px; }
+h3 { font-size: 1.3em; font-weight: 800; margin: 24px 0 12px; color: #333; }
+h4 { font-size: 1.1em; font-weight: 700; margin: 16px 0 8px; }
+p { margin-bottom: 12px; color: #444; }
+.box { background: #f9f9f9; border: 3px solid #ddd; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+.box-info { background: #e8f4fd; border-color: #4A90E2; }
+.box-warn { background: #fff8e1; border-color: #f0a020; }
+.box-tip { background: #e8f5e9; border-color: #4caf50; }
+.box-title { font-weight: 900; font-size: 1.1em; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+ul, ol { padding-left: 24px; margin-bottom: 12px; }
+li { margin-bottom: 6px; color: #444; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; border: 3px solid #1a1a1a; border-radius: 12px; overflow: hidden; }
+th { background: #1a1a1a; color: #fff; padding: 12px 16px; text-align: left; font-weight: 800; font-size: 0.9em; }
+td { padding: 10px 16px; border-bottom: 1px solid #eee; font-size: 0.9em; }
+tr:nth-child(even) td { background: #f9f9f9; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 700; }
+.tag-red { background: #f44336; color: #fff; }
+.tag-blue { background: #2196f3; color: #fff; }
+.tag-green { background: #4caf50; color: #fff; }
+.tag-gray { background: #eee; color: #555; }
+.check { color: #4caf50; font-weight: 900; }
+.cross { color: #ccc; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border: 2px solid #1a1a1a; border-radius: 8px; font-weight: 700; font-size: 0.85em; }
+.btn-dark { background: #1a1a1a; color: #fff; }
+.btn-light { background: #fff; color: #1a1a1a; }
+.sep { border: none; border-top: 2px dashed #ddd; margin: 30px 0; }
+details { background: #f9f9f9; border: 2px solid #ddd; border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; }
+details summary { font-weight: 700; cursor: pointer; list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+details[open] summary { margin-bottom: 10px; }
+.faq-q { color: #4A90E2; font-weight: 900; }
+.faq-a { color: #4caf50; font-weight: 900; }
+.footer { text-align: center; padding: 30px; margin-top: 50px; border-top: 3px solid #ddd; color: #999; font-size: 0.9em; }
+@media print {
+  body { background: #fff; }
+  .page { box-shadow: none; max-width: 100%; }
+  .toc, .box, details { break-inside: avoid; }
+  h2 { break-before: page; }
+  h2:first-of-type { break-before: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- ===== 封面 ===== -->
+<div class="cover">
+  <h1>点冰童装管理系统</h1>
+  <p class="subtitle">操 作 手 册</p>
+  <p class="version">版本 1.0 &nbsp;|&nbsp; 2025年6月</p>
+</div>
+
+<!-- ===== 目录 ===== -->
+<div class="toc">
+  <h2>目录</h2>
+  <ol>
+    <li><a href="#s1">系统概述</a></li>
+    <li><a href="#s2">登录与注册</a></li>
+    <li><a href="#s3">权限体系</a></li>
+    <li><a href="#s4">首页</a></li>
+    <li><a href="#s5">商品管理</a></li>
+    <li><a href="#s6">操作界面</a></li>
+    <li><a href="#s7">管理总表</a></li>
+    <li><a href="#s8">直播选品</a></li>
+    <li><a href="#s9">数据导入</a></li>
+    <li><a href="#s10">照片生成（AI试衣）</a></li>
+    <li><a href="#s11">成员管理</a></li>
+    <li><a href="#s12">财务与物流</a></li>
+    <li><a href="#s13">个人信息</a></li>
+    <li><a href="#s14">移动端操作指南</a></li>
+    <li><a href="#s15">常见问题</a></li>
+  </ol>
+</div>
+
+<!-- ===== 1. 系统概述 ===== -->
+<h2 id="s1">一、系统概述</h2>
+
+<div class="box box-info">
+  <div class="box-title">关于点冰童装管理系统</div>
+  <p>点冰童装管理系统是一套专为<strong>童装批发/零售业务</strong>打造的综合性管理平台，集成了商品管理、销售记录、退货处理、库存入库、直播选品、AI 照片生成、财务管理、成员协作等核心功能。</p>
+  <p>系统支持 <strong>电脑端（桌面端）</strong> 和 <strong>手机端（移动端）</strong> 两种访问方式，通过浏览器访问以下地址即可使用：</p>
+  <p style="text-align:center;font-size:1.2em;font-weight:900;margin:16px 0;"><a href="https://dianbing.top" style="color:#4A90E2;">https://dianbing.top</a></p>
+</div>
+
+<div class="box">
+  <div class="box-title">快速开始</div>
+  <ol>
+    <li>打开浏览器访问 <strong>https://dianbing.top</strong></li>
+    <li>点击「登录」按钮，使用手机号注册或登录</li>
+    <li>登录后根据角色权限访问不同功能模块</li>
+    <li>建议将网站添加到手机桌面（支持 PWA），获得类似 App 的使用体验</li>
+  </ol>
+</div>
+
+<div class="box">
+  <div class="box-title">电脑端 vs 手机端</div>
+  <table>
+    <tr><th>特性</th><th>电脑端</th><th>手机端</th></tr>
+    <tr><td>导航方式</td><td>左侧竖向导航栏</td><td>底部 Tab 导航栏</td></tr>
+    <tr><td>数据导入</td><td>支持 Excel 导入</td><td>不支持</td></tr>
+    <tr><td>编辑模式</td><td>支持编辑和导出</td><td>不支持</td></tr>
+    <tr><td>筛选排序</td><td>按钮式下拉 + 直接选择</td><td>按钮式下拉</td></tr>
+    <tr><td>PWA 安装</td><td>支持</td><td>支持</td></tr>
+    <tr><td>扫码输入</td><td>支持（扫码枪）</td><td>支持（调用摄像头）</td></tr>
+  </table>
+</div>
+
+<!-- ===== 2. 登录与注册 ===== -->
+<h2 id="s2">二、登录与注册</h2>
+
+<h3>2.1 注册新账号</h3>
+<ol>
+  <li>在登录页面点击 <strong>「没有账号？去注册」</strong></li>
+  <li>填写用户名（必填）、手机号（11位，必填）、收货地址（选填）</li>
+  <li>设置密码（至少6位）</li>
+  <li>点击「注册」按钮完成注册</li>
+  <li>注册成功后自动跳转回登录页面</li>
+</ol>
+
+<div class="box box-warn">
+  <div class="box-title">⚠️ 注意</div>
+  <p>新注册用户默认为「顾客」角色，权限受限。如需更高权限，请联系管理员在「成员管理」中修改角色。</p>
+</div>
+
+<h3>2.2 登录</h3>
+<ol>
+  <li>输入手机号和密码</li>
+  <li>点击「登录」按钮</li>
+  <li>登录成功后自动跳转首页</li>
+</ol>
+
+<!-- ===== 3. 权限体系 ===== -->
+<h2 id="s3">三、权限体系</h2>
+
+<p>系统设有三种角色，不同角色拥有不同的功能权限：</p>
+
+<table>
+  <tr><th>角色</th><th>标识色</th><th>可访问功能</th><th>说明</th></tr>
+  <tr>
+    <td><strong>管理员</strong><br><span class="tag tag-red">admin</span></td>
+    <td>红色</td>
+    <td>全部功能</td>
+    <td>拥有系统最高权限，可管理成员、修改角色、查看所有数据</td>
+  </tr>
+  <tr>
+    <td><strong>后台操作</strong><br><span class="tag tag-blue">operator</span></td>
+    <td>蓝色</td>
+    <td>首页、商品、操作界面、个人信息</td>
+    <td>可进行销售、退货、入库等日常操作，但不能管理成员和查看财务数据</td>
+  </tr>
+  <tr>
+    <td><strong>顾客</strong><br><span class="tag tag-green">customer</span></td>
+    <td>绿色</td>
+    <td>首页、商品浏览、个人信息</td>
+    <td>仅可浏览商品和基础信息</td>
+  </tr>
+</table>
+
+<h3>功能权限对照表</h3>
+<table>
+  <tr><th>功能模块</th><th>管理员</th><th>后台操作</th><th>顾客</th></tr>
+  <tr><td>首页</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+  <tr><td>商品浏览</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+  <tr><td>操作界面（销售/退货/入库/打包/调整/照片生成）</td><td class="check">✓</td><td class="check">✓</td><td class="cross">✗</td></tr>
+  <tr><td>管理总表（财务/售出/退货/入库）</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>直播选品</td><td class="check">✓</td><td class="check">✓</td><td class="cross">✗</td></tr>
+  <tr><td>数据导入</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>成员管理</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>仪表盘</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>个人信息</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+</table>
+
+<!-- ===== 4. 首页 ===== -->
+<h2 id="s4">四、首页</h2>
+
+<div class="box">
+  <div class="box-title">功能概览</div>
+  <ul>
+    <li><strong>欢迎信息：</strong>显示当前登录用户名和角色标识</li>
+    <li><strong>热销排行：</strong>展示 Top 10 热销商品，点击可跳转直播选品页</li>
+    <li><strong>快捷操作入口：</strong>商品管理、直播选品、操作界面、数据导入</li>
+    <li><strong>消息通知：</strong>显示最新订单和系统消息</li>
+    <li><strong>添加桌面快捷方式：</strong>手机端可一键安装 PWA 到桌面（iOS/Android 均有引导提示）</li>
+  </ul>
+</div>
+
+<div class="box box-tip">
+  <div class="box-title">💡 PWA 安装（添加到桌面）</div>
+  <p>网站支持 PWA 技术，可以像 App 一样安装到手机桌面：</p>
+  <ul>
+    <li><strong>Android：</strong>浏览器打开 https://dianbing.top → 点击浏览器菜单 → 选择「添加到主屏幕」</li>
+    <li><strong>iOS (Safari)：</strong>打开 https://dianbing.top → 点击底部「分享」按钮 → 选择「添加到主屏幕」</li>
+    <li><strong>电脑端：</strong>Chrome/Edge 浏览器地址栏右侧会出现安装图标</li>
+  </ul>
+  <p style="font-size:0.85em;color:#888;">安装后桌面图标为点冰童装 Logo，名称为「点冰童装」</p>
+</div>
+
+<!-- ===== 5. 商品管理 ===== -->
+<h2 id="s5">五、商品管理</h2>
+
+<h3>5.1 商品展示</h3>
+<p>浏览所有商品，支持搜索和筛选：</p>
+<ul>
+  <li><strong>搜索：</strong>顶部搜索框输入商品名称或货号</li>
+  <li><strong>排序：</strong>搜索框右侧排序按钮，支持按售卖/退货/库存/入库/利润排序</li>
+  <li><strong>筛选：</strong>排序按钮旁筛选按钮，支持按售卖状态、库存、价值范围筛选</li>
+  <li><strong>商品卡片：</strong>显示商品图片、名称、价格、库存、利润等</li>
+  <li><strong>链接跳转：</strong>点击商品可查看详情或跳转关联链接</li>
+</ul>
+
+<h3>5.2 商品后台管理 <span class="tag tag-red">仅管理员</span></h3>
+<p>访问路径：商品页 → 管理员入口 → 商品后台管理</p>
+
+<ul>
+  <li><strong>商品展示 Tab：</strong>管理商品上下架、编辑价格、删除商品</li>
+  <li><strong>筛选 + 排序：</strong>搜索框右侧筛选（售卖状态/库存/价值/错误库存）和排序按钮</li>
+  <li><strong>商品编辑：</strong>点击编辑按钮可修改商品名称、价格、货架号等</li>
+  <li><strong>商品上下架：</strong>点击播放/暂停图标控制商品在直播选品中的显示</li>
+  <li><strong>商品转架：</strong>支持将商品从一个货架转移到另一个货架</li>
+  <li><strong>售卖详情 Tab：</strong>查看每件商品的销售汇总统计</li>
+  <li><strong>直播抖音 Tab：</strong>管理商品关联的抖音链接</li>
+</ul>
+
+<!-- ===== 6. 操作界面 ===== -->
+<h2 id="s6">六、操作界面</h2>
+<p>操作界面是日常业务的核心入口，包含 6 个子功能模块：</p>
+
+<h3>6.1 商品销售</h3>
+<ol>
+  <li>扫描或输入商品货号（Sale ID）</li>
+  <li>系统自动加载商品信息（名称、图片、库存）</li>
+  <li>选择销售尺码和数量（支持多尺码同时销售）</li>
+  <li>填写销售价格和客户信息</li>
+  <li>点击「确认销售」完成记录</li>
+  <li>销售后库存自动扣减，利润自动计算</li>
+</ol>
+<div class="box box-tip">
+  <div class="box-title">💡 提示</div>
+  <p>支持扫码枪扫描商品条码快速录入，也支持手机摄像头扫码。</p>
+</div>
+
+<h3>6.2 商品退货</h3>
+<ol>
+  <li>输入退货商品货号</li>
+  <li>选择退货尺码和数量</li>
+  <li>填写退货原因（可选）</li>
+  <li>点击「确认退货」完成记录</li>
+  <li>退货后库存自动恢复，扣减利润</li>
+</ol>
+
+<h3>6.3 商品入库</h3>
+<ol>
+  <li>输入商品货号（新商品需先在数据导入中录入）</li>
+  <li>选择入库尺码和数量</li>
+  <li>填写入库成本价格</li>
+  <li>点击「确认入库」完成</li>
+  <li>入库后库存自动增加</li>
+</ol>
+
+<h3>6.4 商品打包</h3>
+<ol>
+  <li>扫描或输入商品货号</li>
+  <li>选择需要打包的尺码和数量</li>
+  <li>填写打包备注（如快递单号）</li>
+  <li>点击「确认打包」完成</li>
+</ol>
+
+<h3>6.5 库存调整</h3>
+<ol>
+  <li>输入商品货号</li>
+  <li>查看当前库存情况</li>
+  <li>对各尺码的库存进行增减调整</li>
+  <li>填写调整原因</li>
+  <li>点击「确认调整」保存</li>
+</ol>
+<div class="box box-warn">
+  <div class="box-title">⚠️ 注意</div>
+  <p>库存调整会记录操作日志，请谨慎操作。</p>
+</div>
+
+<h3>6.6 照片生成（AI 模特试衣）</h3>
+<ol>
+  <li>选择商品照片（从商品库中选择或上传）</li>
+  <li>选择模特照片（从模特库中选择或上传）</li>
+  <li>选择 AI 模型（详见 <a href="#s10">第十章</a>）</li>
+  <li>点击「生成照片」等待 AI 处理</li>
+  <li>生成结果可下载到本地</li>
+</ol>
+
+<!-- ===== 7. 管理总表 ===== -->
+<h2 id="s7">七、管理总表</h2>
+
+<p>底部导航栏「管理」→ 进入管理总表，包含 4 个 Tab：</p>
+
+<h3>7.1 总表 Tab</h3>
+<p>商品的综合数据视图：</p>
+<ul>
+  <li><strong>搜索：</strong>按商品名称或货号搜索</li>
+  <li><strong>筛选按钮：</strong>搜索框右侧黑色按钮，点击弹出下拉框，内含：
+    <ul>
+      <li>剩余库存筛选（尾货 / 不足5手 / 5手以上 / 10手以上）</li>
+      <li>库存价值筛选（0-100 / 101-300 / 301-500 / 500以上）</li>
+      <li>错误库存筛选（标记负库存商品）</li>
+      <li>重置所有筛选按钮</li>
+    </ul>
+  </li>
+  <li><strong>排序按钮：</strong>筛选按钮旁黑色按钮，支持按售卖/退货/库存/入库/利润排序</li>
+  <li><strong>商品卡片：</strong>显示图片、货号、名称、价格、库存、利润、月销量等</li>
+</ul>
+
+<h3>7.2 售出 Tab</h3>
+<ul>
+  <li>查看所有销售记录汇总</li>
+  <li>按日期筛选销售记录</li>
+  <li>支持编辑模式和导出功能（桌面端）</li>
+  <li>显示销售总额、利润等统计信息</li>
+</ul>
+
+<h3>7.3 退货 Tab</h3>
+<ul>
+  <li>查看所有退货记录汇总</li>
+  <li>按日期筛选退货记录</li>
+  <li>支持编辑模式和导出功能（桌面端）</li>
+</ul>
+
+<h3>7.4 入库 Tab</h3>
+<ul>
+  <li>查看所有入库记录</li>
+  <li>支持编辑模式</li>
+  <li>显示入库商品、数量、成本等信息</li>
+</ul>
+
+<!-- ===== 8. 直播选品 ===== -->
+<h2 id="s8">八、直播选品</h2>
+
+<h3>8.1 直播选品</h3>
+<p>访问路径：底部导航「操作」→ 「直播选品」</p>
+<ul>
+  <li><strong>搜索商品：</strong>顶部搜索框输入名称或货号</li>
+  <li><strong>筛选：</strong>售卖状态筛选（在售/售罄）、库存筛选（低/中/高）、价值筛选（低/中/高）</li>
+  <li><strong>排序：</strong>筛选栏右侧排序按钮，支持按售卖/退货/库存/入库/利润</li>
+  <li><strong>商品卡片：</strong>展示图片、名称、库存、利润、月销量等</li>
+  <li><strong>点击图片：</strong>放大预览商品照片</li>
+  <li><strong>选品操作：</strong>将商品标记为直播选品，生成选品清单</li>
+  <li><strong>导出功能：</strong>导出选品清单</li>
+</ul>
+
+<h3>8.2 每日选品</h3>
+<ul>
+  <li>查看和管理每日选品列表</li>
+  <li>添加/移除选品商品</li>
+  <li>调整选品顺序</li>
+</ul>
+
+<!-- ===== 9. 数据导入 ===== -->
+<h2 id="s9">九、数据导入 <span class="tag tag-red">仅管理员</span></h2>
+
+<h3>9.1 导入商品数据</h3>
+<ol>
+  <li>准备 Excel (.xlsx) 文件，包含以下列：<br>
+    <strong>货号、名称、成本价、售价、尺码（S/M/L/XL/2XL/3XL）、货架号、厂家</strong></li>
+  <li>点击上传区域选择文件或拖拽文件到上传区域</li>
+  <li>系统自动解析并预览数据</li>
+  <li>确认无误后点击「导入」按钮</li>
+  <li>查看导入结果（成功/失败数量）</li>
+</ol>
+<div class="box box-warn">
+  <div class="box-title">⚠️ 注意</div>
+  <p>导入前请确保货号不重复，否则会覆盖已有商品数据。此功能仅支持电脑端操作。</p>
+</div>
+
+<h3>9.2 补充商品照片</h3>
+<ol>
+  <li>准备以货号命名的图片文件（如：DD001.jpg）</li>
+  <li>批量上传图片文件</li>
+  <li>系统自动匹配货号并关联照片</li>
+</ol>
+
+<!-- ===== 10. 照片生成 ===== -->
+<h2 id="s10">十、照片生成（AI 试衣）</h2>
+
+<div class="box box-info">
+  <div class="box-title">模型库</div>
+  <p>照片生成模块内置了多种 AI 模型，可通过「模型库」按钮进行管理：</p>
+</div>
+
+<h3>10.1 内置模型</h3>
+<table>
+  <tr><th>模型名称</th><th>提供方</th><th>免费额度</th><th>说明</th></tr>
+  <tr>
+    <td>🫘 豆包 Seedream</td>
+    <td>字节跳动</td>
+    <td>按 API 计费</td>
+    <td>通用图像生成模型，支持图生图</td>
+  </tr>
+  <tr>
+    <td>⚡ Qwen-Image-Edit</td>
+    <td>阿里云百炼</td>
+    <td>100 张</td>
+    <td>千问图像编辑模型，支持多图输入</td>
+  </tr>
+  <tr>
+    <td>👗 AI试衣 Plus</td>
+    <td>阿里云百炼</td>
+    <td>400 张</td>
+    <td>专业虚拟试衣模型，效果最佳</td>
+  </tr>
+</table>
+
+<h3>10.2 模型库管理</h3>
+<ul>
+  <li><strong>切换模型：</strong>点击「模型库」按钮，在弹窗中选择内置模型或自定义模型</li>
+  <li><strong>添加自定义模型：</strong>点击「添加」按钮，填入 API 地址、Key、模型ID、请求模板和响应路径</li>
+  <li><strong>编辑模型：</strong>点击齿轮图标修改自定义模型配置</li>
+  <li><strong>删除模型：</strong>点击垃圾桶图标删除自定义模型</li>
+</ul>
+
+<h3>10.3 用量追踪</h3>
+<p>每个模型旁显示剩余免费使用次数，数据存储在云端（Supabase），换设备登录也能看到。</p>
+
+<div class="box box-info">
+  <div class="box-title">模特库</div>
+  <p>点击「模特库」按钮可管理模特照片，支持上传、删除模特照片，用于 AI 试衣生成。</p>
+</div>
+
+<!-- ===== 11. 成员管理 ===== -->
+<h2 id="s11">十一、成员管理 <span class="tag tag-red">仅管理员</span></h2>
+
+<div class="box">
+  <div class="box-title">成员列表功能</div>
+  <ul>
+    <li><strong>查看成员：</strong>列表显示用户名、手机号、权限等级、在线状态、注册时间</li>
+    <li><strong>在线状态：</strong>绿色圆点表示在线，灰色表示离线，显示最后在线时间</li>
+    <li><strong>修改角色：</strong>管理员可通过下拉菜单修改成员角色（管理员/后台操作/顾客）</li>
+    <li><strong>修改密码：</strong>管理员可重置成员密码</li>
+    <li><strong>删除成员：</strong>点击删除按钮移除成员</li>
+  </ul>
+</div>
+
+<div class="box box-tip">
+  <div class="box-title">💡 在线状态说明</div>
+  <p>成员登录后每 30 秒向服务器发送心跳，离开页面时自动标记离线。超时 90 秒未收到心跳也会自动标记为离线。</p>
+</div>
+
+<!-- ===== 12. 财务与物流 ===== -->
+<h2 id="s12">十二、财务与物流</h2>
+
+<h3>12.1 平台费用</h3>
+<p>访问路径：管理 → 费用管理 → 平台费用</p>
+<ul>
+  <li>记录和管理各平台的运营费用（如抖音店铺扣点、推广费等）</li>
+  <li>支持按日期记录和统计</li>
+</ul>
+
+<h3>12.2 物流费用</h3>
+<p>访问路径：管理 → 费用管理 → 物流费用</p>
+<ul>
+  <li>管理快递运费模板</li>
+  <li>记录每笔订单的物流费用</li>
+</ul>
+
+<!-- ===== 13. 个人信息 ===== -->
+<h2 id="s13">十三、个人信息</h2>
+
+<h3>账户设置</h3>
+<ul>
+  <li><strong>查看信息：</strong>显示用户名、手机号、角色、注册时间</li>
+  <li><strong>修改密码：</strong>输入新密码进行修改</li>
+  <li><strong>编辑地址：</strong>修改收货地址</li>
+  <li><strong>退出登录：</strong>点击退出登录按钮</li>
+</ul>
+
+<!-- ===== 14. 移动端操作指南 ===== -->
+<h2 id="s14">十四、移动端操作指南</h2>
+
+<h3>14.1 导航方式</h3>
+<p>移动端使用底部 Tab 导航栏，不同角色看到的导航项不同：</p>
+
+<table>
+  <tr><th>导航项</th><th>功能</th><th>管理员</th><th>后台操作</th><th>顾客</th></tr>
+  <tr><td>首页</td><td>系统概览与热销排行</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+  <tr><td>商品</td><td>浏览和搜索商品</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+  <tr><td>操作</td><td>销售/退货/入库/打包/调整/照片生成</td><td class="check">✓</td><td class="check">✓</td><td class="cross">✗</td></tr>
+  <tr><td>管理</td><td>总表/售出/退货/入库汇总</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>仪表</td><td>数据仪表盘</td><td class="check">✓</td><td class="cross">✗</td><td class="cross">✗</td></tr>
+  <tr><td>信息</td><td>个人账户设置</td><td class="check">✓</td><td class="check">✓</td><td class="check">✓</td></tr>
+</table>
+
+<h3>14.2 移动端特色优化</h3>
+<ul>
+  <li><strong>筛选/排序一体化：</strong>搜索框右侧同高度放置筛选和排序按钮，节省屏幕空间</li>
+  <li><strong>紧凑卡片布局：</strong>商品展示采用卡片式布局，信息一目了然</li>
+  <li><strong>触屏友好：</strong>按钮和交互区域足够大，方便手指操作</li>
+  <li><strong>响应式设计：</strong>自动适配不同屏幕尺寸</li>
+  <li><strong>PWA 支持：</strong>可添加到手机桌面，离线时仍可访问缓存内容</li>
+</ul>
+
+<!-- ===== 15. 常见问题 ===== -->
+<h2 id="s15">十五、常见问题</h2>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 为什么 WiFi 加载比移动流量慢？</summary>
+  <p><span class="faq-a">A:</span> Vercel CDN 在国内不同 ISP 的路由策略不同，有时 WiFi 走的是较慢的线路。建议使用移动流量访问，或刷新页面重试。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 为什么成员管理显示「从未上线」？</summary>
+  <p><span class="faq-a">A:</span> 需要在 Supabase 中确认 members 表有 is_online 和 last_online 列。如果列不存在，请管理员在 Supabase SQL Editor 中执行建表 SQL。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> AI 试衣为什么没有额度还能生图？</summary>
+  <p><span class="faq-a">A:</span> 阿里云百炼为新用户提供免费额度（如 Qwen-Image-Edit 100张，AI试衣 Plus 400张），有效期 90 天。额度用完前可以正常使用。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 如何在手机上添加快捷方式？</summary>
+  <p><span class="faq-a">A:</span> Android：浏览器菜单 → 添加到主屏幕。iOS(Safari)：分享按钮 → 添加到主屏幕。桌面图标为点冰童装 Logo。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 忘记密码怎么办？</summary>
+  <p><span class="faq-a">A:</span> 请联系管理员重置密码。管理员在「成员管理」页面可以修改任何成员的密码。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 如何修改成员权限？</summary>
+  <p><span class="faq-a">A:</span> 管理员在「成员管理」页面，点击对应成员的权限等级下拉菜单，选择新角色即可。角色变更后成员端会自动刷新。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 库存变成负数怎么办？</summary>
+  <p><span class="faq-a">A:</span> 可能是销售时数量录错，或退货没有正确入库。可以使用「库存调整」功能手动修正，或通过管理总表的「错误库存」筛选定位问题商品。</p>
+</details>
+
+<details>
+  <summary><span class="faq-q">Q:</span> 如何批量导入商品？</summary>
+  <p><span class="faq-a">A:</span> 准备 Excel 文件（含货号、名称、成本价、售价、尺码等列），在「数据导入」页面（仅电脑端）上传。照片可通过「补充商品照片」功能批量上传。</p>
+</details>
+
+<!-- 底部 -->
+<div class="footer">
+  <p>点冰童装管理系统 v1.0</p>
+  <p>最后更新：2025年6月</p>
+</div>
+
+</div>
+</body>
+</html>

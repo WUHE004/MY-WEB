@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>移动端管理界面预览 - 点冰童装</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f5;
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+  }
+  
+  /* 手机框 */
+  .phone-frame {
+    width: 390px;
+    max-width: 100%;
+    min-height: 844px;
+    background: #fff;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 0 0 2px #333, 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .phone-header {
+    background: #fff;
+    padding: 16px;
+    border-bottom: 3px solid #000;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .phone-header h1 {
+    font-size: 18px;
+    font-weight: 900;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .phone-content {
+    padding: 12px;
+    overflow-y: auto;
+    max-height: 760px;
+  }
+  
+  /* 筛选栏 - 可折叠 */
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .filter-toggle {
+    background: #4A90E2;
+    color: #fff;
+    border: 2px solid #2a6fc0;
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .filter-panel {
+    display: none;
+    width: 100%;
+    background: #f8f9fa;
+    border: 2px solid #ddd;
+    border-radius: 12px;
+    padding: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .filter-panel.show { display: flex; }
+  .filter-panel input, .filter-panel select {
+    padding: 6px 10px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 100px;
+  }
+  .action-btn {
+    background: #FF6B7A;
+    color: #fff;
+    border: 2px solid #cc4050;
+    border-radius: 10px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  
+  /* 卡片列表 */
+  .card-list { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: #fff;
+    border: 2.5px solid #222;
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 3px 3px 0 #0000001a;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .card:active { transform: translateY(2px); box-shadow: 1px 1px 0 #0000001a; }
+  .card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-row + .card-row { margin-top: 8px; }
+  .card-id {
+    font-size: 10px;
+    font-weight: 700;
+    color: #999;
+  }
+  .card-status {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    color: #fff;
+  }
+  .status-delivered { background: #4A90E2; }
+  .status-pending { background: #FFC93C; color: #333; }
+  .status-done { background: #4CD964; }
+  .card-name {
+    font-size: 14px;
+    font-weight: 800;
+    color: #111;
+    flex: 1;
+  }
+  .card-amount {
+    font-size: 16px;
+    font-weight: 900;
+    color: #FF6B7A;
+  }
+  .card-detail {
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .card-detail span { font-weight: 600; }
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .card-actions button {
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 2px solid #ddd;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-edit { border-color: #4A90E2; color: #4A90E2; }
+  .btn-del { border-color: #FF6B7A; color: #FF6B7A; }
+  
+  /* 对比 - 原表格模式 */
+  .divider {
+    margin: 20px 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #999;
+    text-align: center;
+    border-top: 1px dashed #ddd;
+    padding-top: 12px;
+  }
+  .old-table {
+    width: 100%;
+    font-size: 11px;
+    border-collapse: collapse;
+    overflow-x: auto;
+    display: block;
+  }
+  .old-table th, .old-table td {
+    padding: 8px 6px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+    white-space: nowrap;
+  }
+  .old-table th { font-weight: 800; color: #999; }
+  
+  /* 切换按钮 */
+  .tab-switch {
+    display: flex;
+    gap: 0;
+    border: 2.5px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .tab-switch button {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .tab-switch button.active {
+    background: #222;
+    color: #fff;
+  }
+  .tab-panel { display: none; }
+  .tab-panel.show { display: block; }
+</style>
+</head>
+<body>
+
+<div class="phone-frame">
+  <div class="phone-header">
+    <h1>📊 销售记录</h1>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+      <span style="font-size:12px;font-weight:700;color:#999">共 24 条</span>
+      <span style="margin-left:auto;font-size:11px;font-weight:700;color:#4A90E2">滑动对比 ▸</span>
+    </div>
+  </div>
+  <div class="phone-content">
+    
+    <!-- 页面切换 -->
+    <div class="tab-switch" id="tabSwitch">
+      <button class="active" onclick="switchTab('card')">📱 卡片布局</button>
+      <button onclick="switchTab('table')">📋 旧表格</button>
+    </div>
+
+    <!-- ======== 卡片布局（新方案）========= -->
+    <div class="tab-panel show" id="tabCard">
+      
+      <!-- 筛选栏 - 默认折叠 -->
+      <div class="filter-bar">
+        <input type="text" placeholder="🔍 搜索商品/ID..." style="flex:2">
+        <button class="filter-toggle" onclick="document.querySelector('.filter-panel').classList.toggle('show')">
+          ⚙ 筛选 ▾
+        </button>
+        <button class="action-btn">+ 新增</button>
+      </div>
+      <div class="filter-panel">
+        <select><option>全部状态</option><option>已发货</option><option>待发货</option><option>已完成</option></select>
+        <input type="date" placeholder="开始日期">
+        <input type="date" placeholder="结束日期">
+      </div>
+
+      <!-- 卡片列表 -->
+      <div class="card-list">
+        <div class="card">
+          <div class="card-row">
+            <span class="card-id">#DD20240601001</span>
+            <span class="card-status status-delivered">已发货</span>
+          </div>
+          <div class="card-row">
+            <span class="card-name">夏季短袖T恤</span>
+            <span class="card-amount">¥99.80</span>
+          </div>
+          <div class="card-row" style="margin-top:4px">
+            <div class="card-detail">
+              <span>👤 张女士</span>
+              <span>📦 x2</span>
+              <span>🕐 06-01 14:30</span>
+            </div>
+          </div>
+          <div class="card-row" style="margin-top:8px">
+            <div class="card-actions">
+              <button class="btn-edit">✏️ 编辑</button>
+              <button class="btn-del">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row">
+            <span class="card-id">#DD20240601002</span>
+            <span class="card-status status-pending">待发货</span>
+          </div>
+          <div class="card-row">
+            <span class="card-name">儿童运动裤</span>
+            <span class="card-amount">¥59.90</span>
+          </div>
+          <div class="card-row" style="margin-top:4px">
+            <div class="card-detail">
+              <span>👤 李先生</span>
+              <span>📦 x1</span>
+              <span>🕐 06-01 12:20</span>
+            </div>
+          </div>
+          <div class="card-row" style="margin-top:8px">
+            <div class="card-actions">
+              <button class="btn-edit">✏️ 编辑</button>
+              <button class="btn-del">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row">
+            <span class="card-id">#DD20240531003</span>
+            <span class="card-status status-done">已完成</span>
+          </div>
+          <div class="card-row">
+            <span class="card-name">女童连衣裙</span>
+            <span class="card-amount">¥89.90</span>
+          </div>
+          <div class="card-row" style="margin-top:4px">
+            <div class="card-detail">
+              <span>👤 王女士</span>
+              <span>📦 x1</span>
+              <span>🕐 05-31 18:15</span>
+            </div>
+          </div>
+          <div class="card-row" style="margin-top:8px">
+            <div class="card-actions">
+              <button class="btn-edit">✏️ 编辑</button>
+              <button class="btn-del">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row">
+            <span class="card-id">#DD20240531004</span>
+            <span class="card-status status-delivered">已发货</span>
+          </div>
+          <div class="card-row">
+            <span class="card-name">男童卫衣套装</span>
+            <span class="card-amount">¥159.80</span>
+          </div>
+          <div class="card-row" style="margin-top:4px">
+            <div class="card-detail">
+              <span>👤 赵先生</span>
+              <span>📦 x2</span>
+              <span>🕐 05-31 10:00</span>
+            </div>
+          </div>
+          <div class="card-row" style="margin-top:8px">
+            <div class="card-actions">
+              <button class="btn-edit">✏️ 编辑</button>
+              <button class="btn-del">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-row">
+            <span class="card-id">#DD20240530005</span>
+            <span class="card-status status-done">已完成</span>
+          </div>
+          <div class="card-row">
+            <span class="card-name">婴儿连体衣</span>
+            <span class="card-amount">¥119.70</span>
+          </div>
+          <div class="card-row" style="margin-top:4px">
+            <div class="card-detail">
+              <span>👤 刘女士</span>
+              <span>📦 x3</span>
+              <span>🕐 05-30 20:30</span>
+            </div>
+          </div>
+          <div class="card-row" style="margin-top:8px">
+            <div class="card-actions">
+              <button class="btn-edit">✏️ 编辑</button>
+              <button class="btn-del">🗑 删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== 旧表格布局（对比）========= -->
+    <div class="tab-panel" id="tabTable">
+      <div style="overflow-x:auto;border:2px solid #ddd;border-radius:12px">
+        <table class="old-table">
+          <thead>
+            <tr>
+              <th>订单号</th>
+              <th>商品</th>
+              <th>客户</th>
+              <th>金额</th>
+              <th>数量</th>
+              <th>状态</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>DD0601001</td><td>夏季短袖T恤</td><td>张女士</td>
+              <td>¥99.80</td><td>x2</td>
+              <td>已发货</td>
+              <td>14:30</td>
+              <td>编辑 删除</td>
+            </tr>
+            <tr>
+              <td>DD0601002</td><td>儿童运动裤</td><td>李先生</td>
+              <td>¥59.90</td><td>x1</td>
+              <td>待发货</td>
+              <td>12:20</td>
+              <td>编辑 删除</td>
+            </tr>
+            <tr>
+              <td>DD0531003</td><td>女童连衣裙</td><td>王女士</td>
+              <td>¥89.90</td><td>x1</td>
+              <td>已完成</td>
+              <td>18:15</td>
+              <td>编辑 删除</td>
+            </tr>
+            <tr>
+              <td>DD0531004</td><td>男童卫衣套装</td><td>赵先生</td>
+              <td>¥159.80</td><td>x2</td>
+              <td>已发货</td>
+              <td>10:00</td>
+              <td>编辑 删除</td>
+            </tr>
+            <tr>
+              <td>DD0530005</td><td>婴儿连体衣</td><td>刘女士</td>
+              <td>¥119.70</td><td>x3</td>
+              <td>已完成</td>
+              <td>20:30</td>
+              <td>编辑 删除</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px;font-size:12px;color:#999;text-align:center">
+        ⚠ 注意：右侧有横向滚动条，列太多难以看清
+      </p>
+    </div>
+
+    <!-- 说明 -->
+    <div style="margin-top:20px;padding:12px;background:#fffbe6;border-radius:12px;border:2px solid #ffd666">
+      <p style="font-size:12px;font-weight:700;color:#b8860b">
+        💡 新布局特点：<br>
+        ① 表格 → 卡片（卡片自动撑满宽度）<br>
+        ② 筛选栏默认折叠，节省空间<br>
+        ③ 操作按钮使用图标+文字<br>
+        ④ 关键信息突出显示（金额红色、状态彩色标签）
+      </p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab-switch button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('show'));
+  document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('show');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>

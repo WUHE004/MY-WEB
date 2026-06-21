@@ -197,10 +197,9 @@ export async function POST(request: NextRequest) {
 
     // 自定义提示词或默认提示词
     const p = prompts || {};
-    const promptClothingDesc = p.clothingDesc || "请严格按照这张图片，详细描述这件衣服的每一个特征，必须精确：1.款式类型（如圆领短袖T恤、连帽卫衣、A字连衣裙、Polo衫、衬衫等）2.所有颜色（主色、辅色、每个部位的颜色）3.所有图案和花纹（位置、形状、颜色、大小）4.领口形状和袖型 5.面料材质 6.任何字母、数字、印花、logo、口袋等细节。必须详细具体，不得遗漏任何特征。";
-    const promptShootingScript = p.shootingScript || "根据以下服装信息，为这件童装撰写一份专业的拍摄脚本，详细描述：1. 儿童模特选择（性别、年龄范围、肤色、气质类型）2. 模特的妆容和发型设计 3. 模特的动作和姿势 4. 拍摄环境和场景。请用中文简洁描述，控制在200字以内，直接输出脚本文字，不要加序号或标签。\n\n服装信息：{{CLOTHING_DESC}}";
-    const promptModel = p.modelPrompt || "一个中国儿童模特穿着一件{{CLOTHING_DESC}}，{{SHOOTING_SCRIPT}}。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。竖版高清全身照，专业儿童服装摄影，自然光线，温馨氛围。";
-    const promptFlat = p.flatPrompt || "一件{{CLOTHING_DESC}}的白色背景专业平铺展示图，服装平整展开，正面展示。衣服的款式、颜色、图案、材质必须与描述完全一致，不能有任何偏差。纯白色背景，专业电商产品摄影，高清，无阴影，无模特。";
+    const promptClothingDesc = p.clothingDesc || `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
+    const promptModel = p.modelPrompt || "A realistic studio photo of a Chinese child wearing a {{GARMENT_DESC}}. The garment looks exactly as described — same color, same pattern prints, same material texture, same neckline and sleeves. Full body vertical shot, plain neutral studio background, soft natural light, warm atmosphere, no collages, no montage, single photo, highly realistic.";
+    const promptFlat = p.flatPrompt || "A professionally shot flat-lay product photo of a {{GARMENT_DESC}}. The garment matches the description exactly — same color, same pattern prints, same material texture, same neckline and sleeves. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
     console.log("Agnes 步骤0: 查询商品详情...");
@@ -215,8 +214,8 @@ export async function POST(request: NextRequest) {
 
     console.log("商品信息文本:\n", productText);
 
-    // ===== 步骤 1: 视觉模型 → 根据衣服照片精确识别服装款式、颜色、花纹、材质 =====
-    console.log("Agnes 步骤1: 精确识别服装...");
+    // ===== 步骤 1: 视觉模型 → 英文关键词精确识别 =====
+    console.log("Agnes 步骤1: 视觉识别英文关键词...");
     const descRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
       headers: {
@@ -232,7 +231,8 @@ export async function POST(request: NextRequest) {
             { type: "text", text: promptClothingDesc },
           ],
         }],
-        max_tokens: 600,
+        max_tokens: 500,
+        temperature: 0.2,
       }),
     });
 
@@ -242,55 +242,35 @@ export async function POST(request: NextRequest) {
       throw new Error(`Agnes 服装识别失败: ${descData.error?.message || JSON.stringify(descData)}`);
     }
 
-    const clothingDesc = descData?.choices?.[0]?.message?.content || "";
-    console.log("服装识别结果:", clothingDesc);
+    let rawDesc = descData?.choices?.[0]?.message?.content || "";
+    console.log("识别原始输出:", rawDesc);
 
-    if (!clothingDesc) {
+    // 尝试从 JSON 中提取；失败则直接用原文
+    let garmentDesc = rawDesc;
+    try {
+      const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        garmentDesc = Object.values(parsed)
+          .filter((v) => v && String(v).trim())
+          .join(", ");
+      }
+    } catch (_e) {
+      console.log("JSON解析失败，使用原文");
+    }
+
+    if (!garmentDesc) {
       throw new Error("Agnes 未返回服装描述");
     }
+    console.log("服装描述 (用于生成):", garmentDesc);
 
-    // ===== 步骤 2: 文本模型 → 基于服装描述撰写专业拍摄脚本 =====
-    console.log("Agnes 步骤2: 撰写拍摄脚本...");
-    const scriptRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${AGNES_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "agnes-2.0-flash",
-        messages: [{
-          role: "user",
-          content: [{ type: "text", text: promptShootingScript.replace("{{CLOTHING_DESC}}", clothingDesc) }],
-        }],
-        max_tokens: 500,
-      }),
-    });
-
-    const scriptData = await scriptRes.json();
-    if (!scriptRes.ok) {
-      console.error("Agnes 拍摄脚本错误:", scriptData);
-      throw new Error(`Agnes 拍摄脚本生成失败: ${scriptData.error?.message || JSON.stringify(scriptData)}`);
-    }
-
-    const shootingScript = scriptData?.choices?.[0]?.message?.content || "";
-    console.log("拍摄脚本:", shootingScript);
-
-    if (!shootingScript) {
-      throw new Error("Agnes 未返回拍摄脚本");
-    }
-
-    // ===== 步骤 3 & 4: 并行生成模特试穿图和白底平铺图（将服装描述直接嵌入prompt） =====
-    console.log("Agnes 步骤3&4: 并行生成图片...");
+    // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图 =====
+    console.log("Agnes 步骤2&3: 并行生成图片...");
 
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
-    const modelPrompt = promptModel
-      .replace("{{CLOTHING_DESC}}", clothingDesc)
-      .replace("{{SHOOTING_SCRIPT}}", shootingScript);
-
-    const flatPrompt = promptFlat
-      .replace("{{CLOTHING_DESC}}", clothingDesc);
+    const modelPrompt = promptModel.replace("{{GARMENT_DESC}}", garmentDesc);
+    const flatPrompt = promptFlat.replace("{{GARMENT_DESC}}", garmentDesc);
 
     const fetchHeaders = {
       "Content-Type": "application/json",
@@ -301,12 +281,21 @@ export async function POST(request: NextRequest) {
       fetch(`${AGNES_BASE}/images/generations`, {
         method: "POST",
         headers: fetchHeaders,
-        body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: modelPrompt, size: "1024x1536", seed: randomSeed }),
+        body: JSON.stringify({
+          model: "agnes-image-2.0-flash",
+          prompt: modelPrompt,
+          size: "1024x1536",
+          seed: randomSeed,
+        }),
       }),
       fetch(`${AGNES_BASE}/images/generations`, {
         method: "POST",
         headers: fetchHeaders,
-        body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: flatPrompt, size: "1024x1024" }),
+        body: JSON.stringify({
+          model: "agnes-image-2.0-flash",
+          prompt: flatPrompt,
+          size: "1024x1024",
+        }),
       }),
     ]);
 
@@ -352,8 +341,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       generated_url: modelImageUrl,
       flat_url: flatImageUrl,
-      clothing_desc: clothingDesc,
-      shooting_script: shootingScript,
+      clothing_desc: garmentDesc,
       product_text: productText,
       wechat_sent: textSent && wechatModelSent && wechatFlatSent,
       sale_id,
