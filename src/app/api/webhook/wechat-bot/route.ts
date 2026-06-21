@@ -344,9 +344,25 @@ export async function GET(request: NextRequest) {
   return new Response(echostr, { headers: { "Content-Type": "text/plain" }, status: 200 });
 }
 
-// ===== POST: 处理用户消息 =====
+// ===== XML 被动响应构造 =====
+function buildXmlTextResponse(fromUserName: string, toUserName: string, content: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  return `<xml>
+  <ToUserName><![CDATA[${toUserName}]]></ToUserName>
+  <FromUserName><![CDATA[${fromUserName}]]></FromUserName>
+  <CreateTime>${now}</CreateTime>
+  <MsgType><![CDATA[text]]></MsgType>
+  <Content><![CDATA[${content}]]></Content>
+</xml>`;
+}
+
+function xmlResponse(fromUserName: string, toUserName: string, content: string): Response {
+  const xml = buildXmlTextResponse(fromUserName, toUserName, content);
+  return new Response(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+}
+
+// ===== POST: 消息解析工具 =====
 function extractField(xml: string, fieldName: string): string {
-  // 兼容 <Field>value</Field> 和 <Field><![CDATA[value]]></Field>
   const pattern = new RegExp(`<${fieldName}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${fieldName}>`);
   const match = xml.match(pattern);
   return match ? match[1].trim() : "";
@@ -354,128 +370,166 @@ function extractField(xml: string, fieldName: string): string {
 
 function looksLikeProductCode(text: string): boolean {
   if (!text) return false;
-  // 商品编号通常 2-12 位，包含字母数字和连字符
   const cleaned = text.trim();
   if (cleaned.length < 2 || cleaned.length > 15) return false;
-  // 如果包含大量 XML 关键字/长串乱码，不是商品编号
   if (/xml|ToUserName|FromUserName|Encrypt|MsgType|CDATA/i.test(cleaned)) return false;
-  // 必须以字母或数字开头（商品编号不会以乱码符号开头）
   return /^[A-Za-z0-9]/.test(cleaned) && /^[\w\-\/]+$/.test(cleaned);
 }
 
+interface ParsedMessage {
+  toUserName: string;
+  fromUserName: string;
+  content: string;
+}
+
+function parseWechatMessage(rawBody: string): ParsedMessage {
+  const result: ParsedMessage = { toUserName: "", fromUserName: "", content: "" };
+
+  const encryptContent = extractField(rawBody, "Encrypt");
+
+  if (encryptContent && WECHAT_ENCODING_AES_KEY) {
+    try {
+      const decryptedXml = decryptMessage(encryptContent);
+      console.log("[WECHAT-PARSE] 解密后内容前300字符:", decryptedXml.substring(0, 300));
+      result.toUserName = extractField(decryptedXml, "ToUserName");
+      result.fromUserName = extractField(decryptedXml, "FromUserName");
+      result.content = extractField(decryptedXml, "Content");
+      console.log("[WECHAT-PARSE] 模式: 加密", { to: result.toUserName, from: result.fromUserName, content: result.content });
+    } catch (err) {
+      console.error("[WECHAT-PARSE] 解密失败:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (!result.content) {
+    result.toUserName = result.toUserName || extractField(rawBody, "ToUserName");
+    result.fromUserName = result.fromUserName || extractField(rawBody, "FromUserName");
+    result.content = extractField(rawBody, "Content");
+    if (result.content) {
+      console.log("[WECHAT-PARSE] 模式: 明文", { to: result.toUserName, from: result.fromUserName, content: result.content });
+    }
+  }
+
+  if (!result.content) {
+    try {
+      const body = JSON.parse(rawBody);
+      result.content = body?.text?.content || body?.Text?.Content || body?.content || body?.message || "";
+    } catch (_e) { /* 不是 JSON */ }
+  }
+
+  return result;
+}
+
+// ===== 异步图片生成（setTimeout 内部，通过 webhook 发到群） =====
+async function processImagesAsync(code: string, photoUrl: string) {
+  try {
+    console.log("[WECHAT-IMG] ====== 开始异步图片生成 ======");
+    await sendTextToWechat(`🖼️ 商品 ${code} 正在生成商品图和模特试穿图，请稍候...`);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_SITE_URL
+        ? `${process.env.NEXT_PUBLIC_SITE_URL}/api/photo-gen/agnes`
+        : `${process.env.NEXT_PUBLIC_URL || "http://localhost:3000"}/api/photo-gen/agnes`;
+
+      console.log("[WECHAT-IMG] 调用 Agnes API:", apiUrl);
+      const apiRes = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sale_id: code,
+          product_photo_url: photoUrl,
+          skip_text_query: true,
+          only_images: true,
+        }),
+      });
+
+      if (apiRes.ok) {
+        const result = await apiRes.json();
+        console.log("[WECHAT-IMG] Agnes API 响应:", JSON.stringify(result).substring(0, 200));
+      } else {
+        const errorText = await apiRes.text();
+        console.error("[WECHAT-IMG] Agnes API 失败:", apiRes.status, errorText.substring(0, 200));
+        await sendImageToWechat(photoUrl);
+      }
+    } catch (apiErr) {
+      console.error("[WECHAT-IMG] 调用 Agnes API 异常:", apiErr instanceof Error ? apiErr.message : apiErr);
+      await sendImageToWechat(photoUrl);
+    }
+
+    console.log("[WECHAT-IMG] ====== 异步图片生成完成 ======");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[WECHAT-IMG] 异步图片生成错误:", msg);
+    try {
+      await sendTextToWechat(`❌ 商品 ${code} 图片生成时出错：${msg.substring(0, 100)}`);
+    } catch (_e) { /* 忽略 webhook 失败 */ }
+  }
+}
+
+// ===== POST 主入口：同步解析 → 查询商品 → 返回 XML 被动响应；图片异步 setTimeout =====
 export async function POST(request: NextRequest) {
   try {
     console.log("[WECHAT] ====== POST 收到消息 ======");
-    const contentType = request.headers.get("content-type") || "";
     const rawBody = await request.text();
-    console.log("[WECHAT] Content-Type:", contentType);
-    console.log("[WECHAT] 原始消息长度:", rawBody.length, "前300字符:", rawBody.substring(0, 300));
 
-    // 步骤 1: 判断消息模式（明文/加密）并提取内容
-    let finalContent = "";
-    let processingPath = "";
+    const parsed = parseWechatMessage(rawBody);
+    const { toUserName, fromUserName } = parsed;
 
-    // 优先尝试：如果有 Encrypt 节点，尝试解密
-    const encryptContent = extractField(rawBody, "Encrypt");
-    console.log("[WECHAT] 提取到 Encrypt 内容长度:", encryptContent.length);
+    // 回复 XML：ToUserName = 原 FromUserName（用户），FromUserName = 原 ToUserName（企业 CorpID）
+    const replyTo = fromUserName;
+    const replyFrom = toUserName;
 
-    if (encryptContent && WECHAT_ENCODING_AES_KEY) {
-      processingPath = "加密模式";
-      console.log("[WECHAT] 模式: 安全/加密模式，尝试 AES 解密...");
-      try {
-        const decryptedXml = decryptMessage(encryptContent);
-        console.log("[WECHAT] 解密成功，解密后内容前300字符:", decryptedXml.substring(0, 300));
-
-        // 从解密后的 XML 中提取 Content
-        const contentFromDecrypted = extractField(decryptedXml, "Content");
-        if (contentFromDecrypted) {
-          finalContent = contentFromDecrypted;
-          console.log("[WECHAT] 从解密后 XML 提取 Content:", finalContent);
-        } else {
-          // 没有 Content？可能不是文本消息，尝试其他字段
-          console.warn("[WECHAT] 解密后的 XML 中没有 Content 字段");
-          console.warn("[WECHAT] 解密后的完整内容:", decryptedXml);
-        }
-      } catch (err) {
-        console.error("[WECHAT] 解密失败:", err instanceof Error ? err.message : err);
-      }
-    } else if (encryptContent && !WECHAT_ENCODING_AES_KEY) {
-      processingPath = "加密但无key";
-      console.warn("[WECHAT] 检测到加密消息，但 WECHAT_ENCODING_AES_KEY 环境变量未设置");
+    if (!parsed.content || parsed.content.trim().length < 2) {
+      console.log("[WECHAT] 内容为空，XML 返回提示");
+      return xmlResponse(replyFrom, replyTo, "📝 请发送商品编号，例如：A12345");
     }
 
-    // 步骤 2: 如果加密模式没提取到内容，尝试明文模式直接提取
-    if (!finalContent) {
-      processingPath = processingPath || "明文模式（fallback）";
-      const plainContent = extractField(rawBody, "Content");
-      if (plainContent) {
-        finalContent = plainContent;
-        console.log("[WECHAT] 从原始 XML（明文）提取 Content:", finalContent);
-      }
-    }
-
-    // 步骤 3: 都失败？尝试解析 JSON 格式
-    if (!finalContent) {
-      try {
-        const body = JSON.parse(rawBody);
-        finalContent = body?.text?.content || body?.Text?.Content || body?.content || body?.message || "";
-        if (finalContent) processingPath = "JSON 格式";
-      } catch (_e) { /* 不是 JSON */ }
-    }
-
-    console.log("[WECHAT] 最终解析路径:", processingPath, "内容:", finalContent);
-
-    if (!finalContent || finalContent.trim().length < 2) {
-      await sendTextToWechat("📝 请发送商品编号，例如：A12345");
-      return NextResponse.json({ status: "no_content" }, { status: 200 });
-    }
-
-    // 步骤 4: 提取商品编号
-    const code = finalContent.split("\n")[0].trim();
-    console.log("[WECHAT] 原始内容:", code);
+    const code = parsed.content.split("\n")[0].trim();
+    console.log("[WECHAT] 用户内容:", code);
 
     if (!looksLikeProductCode(code)) {
       console.warn("[WECHAT] 内容不像商品编号:", code);
-      await sendTextToWechat(
-        `⚠️ 没有识别到正确的商品编号。\n` +
-        `你发送的内容：${code.substring(0, 50)}\n` +
-        `请直接发送商品编号（字母+数字，2-12位），例如：A12345`
+      return xmlResponse(
+        replyFrom,
+        replyTo,
+        `⚠️ 没有识别到正确的商品编号。\n你发送的内容：${code.substring(0, 50)}\n请直接发送商品编号（字母+数字，2-12位），例如：A12345`
       );
-      return NextResponse.json({ status: "invalid_code", content: code }, { status: 200 });
     }
 
-    console.log("[WECHAT] 查询商品编号:", code);
+    console.log("[WECHAT] 同步查询商品编号:", code);
 
-    // 步骤 5: 查询商品信息
     const product = await getProductDetail(code);
     if (!product) {
-      await sendTextToWechat(`❌ 未找到商品编号: ${code}\n请检查编号是否正确，或在库存系统中确认该商品已录入。`);
-      return NextResponse.json({ status: "not_found", code }, { status: 200 });
+      console.log("[WECHAT] 未找到商品，XML 返回错误");
+      return xmlResponse(
+        replyFrom,
+        replyTo,
+        `❌ 未找到商品编号: ${code}\n请检查编号是否正确，或在库存系统中确认该商品已录入。`
+      );
     }
 
     const stats = await getSalesStats(code);
     const productText = buildProductText(product, stats);
-    await sendTextToWechat(productText);
 
-    // 步骤 6: 发送白底图（有则用，没有则生成）
+    // 异步图片生成：setTimeout 触发，不等待
     const photoUrl = product.photo as string;
     if (photoUrl) {
-      await sendTextToWechat("🖼️ 正在生成商品白底图，请稍候...");
-      const flatUrl = await generateFlatImage(photoUrl);
-      if (flatUrl) {
-        await sendImageToWechat(flatUrl);
-      } else {
-        await sendImageToWechat(photoUrl);
-      }
+      setTimeout(() => {
+        processImagesAsync(code, photoUrl).catch((e) => {
+          console.error("[WECHAT] setTimeout 异步图片任务异常:", e instanceof Error ? e.message : e);
+        });
+      }, 50);
     } else {
-      await sendTextToWechat("ℹ️ 该商品暂无照片，无法生成白底图");
+      setTimeout(() => {
+        sendTextToWechat(`ℹ️ 商品 ${code} 暂无照片，无法生成商品图`).catch(() => {});
+      }, 50);
     }
 
-    return NextResponse.json({ status: "ok", code }, { status: 200 });
+    // 同步返回 XML 文本被动响应 —— 不再通过 webhook 把文本发到群
+    console.log("[WECHAT] 返回 XML 被动响应");
+    return xmlResponse(replyFrom, replyTo, productText);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[WECHAT] 处理错误:", msg);
-    await sendTextToWechat(`❌ 系统处理时出错：${msg.substring(0, 100)}`);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[WECHAT] POST 入口错误:", msg);
+    return xmlResponse("", "", `❌ 系统处理时出错：${msg.substring(0, 100)}`);
   }
 }

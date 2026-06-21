@@ -91,7 +91,7 @@ export default function PhotoGenPage() {
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
   const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
   const [generatingError, setGeneratingError] = useState<Record<string, string>>({});
-  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "custom">("doubao");
+  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "agnes" | "custom">("doubao");
 
   // 模型使用量追踪（从服务端 Supabase 读取，跨设备同步）
   const FREE_QUOTA: Record<string, number> = {
@@ -632,10 +632,12 @@ export default function PhotoGenPage() {
                   ? "border-purple-500 bg-purple-100 text-purple-700"
                   : aiModel === "aitryon"
                   ? "border-orange-500 bg-orange-100 text-orange-700"
+                  : aiModel === "agnes"
+                  ? "border-pink-500 bg-pink-100 text-pink-700"
                   : "border-green-500 bg-green-100 text-green-700"
               }`}
             >
-              {aiModel === "doubao" ? "🫘 豆包 Seedream" : aiModel === "qwen" ? "⚡ Qwen-Image-Edit" : aiModel === "aitryon" ? "👗 AI试衣 Plus" : `⚙️ ${customModels.find((m) => m.id === selectedCustomModelId)?.name || "自定义"}`}
+              {aiModel === "doubao" ? "🫘 豆包 Seedream" : aiModel === "qwen" ? "⚡ Qwen-Image-Edit" : aiModel === "aitryon" ? "👗 AI试衣 Plus" : aiModel === "agnes" ? "✨ Agnes 图生图" : `⚙️ ${customModels.find((m) => m.id === selectedCustomModelId)?.name || "自定义"}`}
             </button>
             {aiModel === "doubao" && (
               <span className="text-gray-400 font-medium">已用 {getUsage("doubao")} 次</span>
@@ -649,6 +651,9 @@ export default function PhotoGenPage() {
               <span className={`font-extrabold ${(getQuotaRemaining("aitryon") ?? 0) > 50 ? "text-gray-500" : "text-red-500"}`}>
                 免费剩余 {getQuotaRemaining("aitryon")} 张
               </span>
+            )}
+            {aiModel === "agnes" && (
+              <span className="text-gray-400 font-medium">已用 {getUsage("agnes")} 次</span>
             )}
           </div>
 
@@ -777,6 +782,17 @@ export default function PhotoGenPage() {
                 }`}
               >
                 👗 AI试衣 Plus
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAiModel("agnes"); setShowModelPicker(false); }}
+                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
+                  aiModel === "agnes"
+                    ? "border-pink-500 bg-pink-500 text-white"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-pink-400"
+                }`}
+              >
+                ✨ Agnes 图生图
               </button>
             </div>
 

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// GET: 获取所有模特
 export async function GET() {
   try {
     const { data, error } = await supabase
       .from("model_library")
       .select("*")
+      .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -19,7 +19,6 @@ export async function GET() {
   }
 }
 
-// POST: 新增模特
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -29,9 +28,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "缺少 name 或 photo_url" }, { status: 400 });
     }
 
+    const { data: maxData, error: maxError } = await supabase
+      .from("model_library")
+      .select("sort_order")
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (maxError) {
+      return NextResponse.json({ error: maxError.message }, { status: 500 });
+    }
+
+    const maxOrder = maxData?.sort_order ?? -1;
+
     const { data, error } = await supabase
       .from("model_library")
-      .insert({ name, photo_url })
+      .insert({ name, photo_url, sort_order: maxOrder + 1 })
       .select()
       .single();
 
@@ -45,7 +57,29 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE: 删除模特
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { orders } = body;
+
+    if (!orders || !Array.isArray(orders)) {
+      return NextResponse.json({ error: "缺少 orders 或格式错误" }, { status: 400 });
+    }
+
+    for (const o of orders) {
+      if (!o.id || typeof o.sort_order !== "number") continue;
+      await supabase
+        .from("model_library")
+        .update({ sort_order: o.sort_order })
+        .eq("id", o.id);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);

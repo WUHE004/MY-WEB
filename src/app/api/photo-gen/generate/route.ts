@@ -5,16 +5,18 @@ import sharp from "sharp";
 const DOUBAO_API_KEY = process.env.DOUBAO_API_KEY || "";
 const DOUBAO_ENDPOINT_ID = process.env.DOUBAO_ENDPOINT_ID || "";
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || "";
+const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 
 const DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3";
+const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/api/v1";
 // Qwen 图片编辑需要走 multimodal-generation 端点（非 image-generation）
 const QWEN_IMAGE_EDIT_ENDPOINT = `${DASHSCOPE_BASE}/services/aigc/multimodal-generation/generation`;
 const MAX_SIZE_BYTES = 200 * 1024; // 200KB
 const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
-type ModelType = "doubao" | "qwen" | "aitryon" | "custom";
+type ModelType = "doubao" | "qwen" | "aitryon" | "agnes" | "custom";
 
 // 压缩图片到 200KB 以内
 async function compressImage(inputBuffer: Buffer): Promise<Buffer> {
@@ -203,6 +205,111 @@ async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): 
   }
 
   throw new Error("AI试衣任务超时 (120s)");
+}
+
+// 调用 Agnes 图生图模型（Agnes视觉识别 + Qwen图生图）
+async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<string | null> {
+  if (!AGNES_API_KEY) {
+    throw new Error("Agnes API Key 未配置");
+  }
+  if (!DASHSCOPE_API_KEY) {
+    throw new Error("DashScope API Key 未配置（Agnes模型需要 Qwen 图生图）");
+  }
+
+  // 步骤1: 用 Agnes 视觉模型识别衣服，提取精确的英文关键词
+  console.log("Agnes: 识别衣服特征...");
+  const descPrompt = `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
+
+  try {
+    const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${AGNES_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "agnes-vlm-2-flash",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: productPhotoUrl } },
+              { type: "text", text: descPrompt },
+            ],
+          },
+        ],
+        temperature: 0.2,
+      }),
+    });
+
+    const visionData = await visionRes.json();
+    const rawDesc = visionData?.choices?.[0]?.message?.content || "";
+    let garmentDesc = rawDesc;
+    try {
+      const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        garmentDesc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
+      }
+    } catch (_e) { /* 保持原文 */ }
+    console.log("Agnes: 服装描述:", garmentDesc);
+
+    // 步骤2: 用 Qwen Image Edit Plus 生成模特试穿图
+    console.log("Agnes: 生成模特试穿图...");
+    const productBase64 = await urlToBase64DataUri(productPhotoUrl);
+    const modelBase64 = await urlToBase64DataUri(modelPhotoUrl);
+
+    const prompt = `This is a virtual try-on task. Image 1 is a clothing photo showing the garment clearly. Image 2 is a child model. Your task: Make the child model wear this exact garment. The garment (${garmentDesc}) must be preserved perfectly — exact same garment style, exact same main color, exact same pattern design and placement, exact same fabric texture and material, exact same neckline and sleeves, exact same details. The child model should look natural and photorealistic — natural pose, natural expression, natural lighting. Keep the model's face and body shape the same as in image 2. Full body shot. Photorealistic, high quality, no watermark.`;
+
+    const qwenRes = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${DASHSCOPE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "qwen-image-edit-plus",
+        input: {
+          messages: [
+            {
+              role: "user",
+              content: [
+                { image: productBase64 },
+                { image: modelBase64 },
+                { text: prompt },
+              ],
+            },
+          ],
+        },
+        parameters: {
+          n: 1,
+          watermark: false,
+        },
+      }),
+    });
+
+    const qwenData = await qwenRes.json();
+    if (!qwenRes.ok) {
+      console.error("Agnes: Qwen API 错误:", JSON.stringify(qwenData));
+      throw new Error(`图片生成失败: ${qwenData.message || JSON.stringify(qwenData)}`);
+    }
+
+    const imageUrl =
+      qwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
+      || qwenData?.output?.results?.[0]?.url
+      || qwenData?.output?.images?.[0];
+
+    if (!imageUrl) {
+      console.error("Agnes: Qwen 返回无图片:", JSON.stringify(qwenData));
+      throw new Error("图片生成失败：未返回图片");
+    }
+
+    console.log("Agnes: 生成成功:", imageUrl);
+    return imageUrl;
+  } catch (err) {
+    console.error("Agnes: 生成失败:", err);
+    throw err;
+  }
 }
 
 // 调用豆包 Seedream API
@@ -436,7 +543,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { sale_id, product_photo_url, model_id, ai_model, custom_model, member_id } = body;
 
-    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "aitryon" ? "aitryon" : ai_model === "custom" ? "custom" : "doubao";
+    const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "aitryon" ? "aitryon" : ai_model === "agnes" ? "agnes" : ai_model === "custom" ? "custom" : "doubao";
 
     if (!sale_id || !model_id) {
       return NextResponse.json({ error: "缺少 sale_id 或 model_id" }, { status: 400 });
@@ -469,6 +576,8 @@ export async function POST(request: NextRequest) {
       generatedUrl = await callQwenImageEdit(product_photo_url, modelPhotoUrl);
     } else if (activeModel === "aitryon") {
       generatedUrl = await callAitryonPlus(product_photo_url, modelPhotoUrl);
+    } else if (activeModel === "agnes") {
+      generatedUrl = await callAgnesModel(product_photo_url, modelPhotoUrl);
     } else {
       generatedUrl = await callDoubaoSeedream(product_photo_url, modelPhotoUrl);
     }
