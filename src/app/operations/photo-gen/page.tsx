@@ -73,8 +73,9 @@ export default function PhotoGenPage() {
 
   // 提示词自定义
   const DEFAULT_PROMPTS = {
-    clothingDesc: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt、hoodie、dress、polo、shirt、sweatshirt、jacket等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。示例：{\"garment_type\":\"round neck short-sleeve cotton t-shirt\",\"main_color\":\"pure white\",\"patterns\":\"blue uppercase word printed on chest, red cartoon character below the text\",\"neckline_sleeves\":\"round neck, short sleeves\",\"material\":\"270gsm cotton fabric\",\"details\":\"ribbed collar, straight hem\"}。只输出JSON，不要额外文字。",
-    modelPrompt: "A realistic studio photo of a Chinese child wearing {{GARMENT_DESC}}. The garment looks exactly as described — same garment type, same exact color, same pattern prints, same material texture, same neckline and sleeves. Full body vertical shot, plain neutral studio background, soft natural light, warm atmosphere, no collages, no montage, single photo, highly realistic.",
+    clothingDesc: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt、hoodie、dress、polo、shirt、sweatshirt、jacket、romper、vest、skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。",
+    sceneScript: "Based on this garment description, write a brief 2-3 sentence English description of a stylish photoshoot scene for a kids fashion lookbook. Include: (1) a specific outdoor/cafe/street/rooftop/staircase setting with real details (asphalt ground, glass doors, wooden stairs, tiled walls, etc.), (2) natural lighting (golden hour sunlight, soft window light, warm afternoon sun with shadows), (3) the child model's pose (crouching, sitting on stairs, standing casually by a door, walking, etc.), (4) matching fashion accessories (knit hat, small crossbody bag, sunglasses, colorful necktie, canvas tote bag, boots, sneakers, hair clips, braids — pick 2-3 that fit the garment style). Keep it vivid and concrete. Avoid any studio/neutral/plain/white background words.\n\nGarment: {{GARMENT_DESC}}",
+    modelPrompt: "A high-resolution, photorealistic kids fashion editorial photo. A cute Chinese child (with a lovely natural expression and hairstyle) wearing a {{GARMENT_DESC}}. {{SCENE_DESC}}. The garment details match perfectly — same color, same pattern prints and placement, same fabric texture, same neckline and sleeves. Full body shot, eye-level angle, natural skin tones, highly detailed and sharp, professional photography, no collages, no montage, single candid photo.",
     flatPrompt: "A professionally shot flat-lay product photo of {{GARMENT_DESC}}. The garment matches the description exactly — same garment type, same color, same patterns, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.",
   };
   const [customPrompts, setCustomPrompts] = useState<typeof DEFAULT_PROMPTS>(() => {
@@ -945,11 +946,11 @@ export default function PhotoGenPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <p className="text-xs text-gray-400 mb-4">占位符: {"{{GARMENT_DESC}}"} 会被视觉模型识别的服装英文关键词替换</p>
+            <p className="text-xs text-gray-400 mb-4">占位符: {"{{GARMENT_DESC}}"}（服装英文关键词） / {"{{SCENE_DESC}}"}（场景/动作/配饰，自动生成）</p>
 
             <div className="space-y-4 max-h-[60vh] overflow-y-auto">
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装识别提示词（视觉模型→输出英文关键词，用于生成）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装识别提示词（视觉模型→输出英文关键词）</label>
                 <textarea
                   rows={5}
                   value={editingPrompts.clothingDesc}
@@ -958,7 +959,16 @@ export default function PhotoGenPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 模特图生成提示词（{"{{GARMENT_DESC}}"} 会被自动替换）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 场景/动作/配饰脚本（文本模型→基于服装风格生成，{"{{GARMENT_DESC}}"}会被替换）</label>
+                <textarea
+                  rows={6}
+                  value={editingPrompts.sceneScript}
+                  onChange={(e) => setEditingPrompts({ ...editingPrompts, sceneScript: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 模特图生成提示词（{"{{GARMENT_DESC}}"} + {"{{SCENE_DESC}}"}会被替换）</label>
                 <textarea
                   rows={4}
                   value={editingPrompts.modelPrompt}
@@ -967,7 +977,7 @@ export default function PhotoGenPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 平铺图生成提示词（{"{{GARMENT_DESC}}"} 会被自动替换）</label>
+                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤4: 平铺图生成提示词（{"{{GARMENT_DESC}}"}会被替换）</label>
                 <textarea
                   rows={4}
                   value={editingPrompts.flatPrompt}

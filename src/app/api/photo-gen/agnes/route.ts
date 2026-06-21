@@ -197,8 +197,9 @@ export async function POST(request: NextRequest) {
 
     // 自定义提示词或默认提示词
     const p = prompts || {};
-    const promptClothingDesc = p.clothingDesc || `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
-    const promptModel = p.modelPrompt || "A realistic studio photo of a Chinese child wearing a {{GARMENT_DESC}}. The garment looks exactly as described — same color, same pattern prints, same material texture, same neckline and sleeves. Full body vertical shot, plain neutral studio background, soft natural light, warm atmosphere, no collages, no montage, single photo, highly realistic.";
+    const promptClothingDesc = p.clothingDesc || `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
+    const promptSceneScript = p.sceneScript || `Based on this garment description, write a brief 2-3 sentence English description of a stylish photoshoot scene for a kids fashion lookbook. Include: (1) a specific outdoor/cafe/street/rooftop/staircase setting with real details (asphalt ground, glass doors, wooden stairs, tiled walls, etc.), (2) natural lighting (golden hour sunlight, soft window light, warm afternoon sun with shadows), (3) the child model's pose (crouching, sitting on stairs, standing casually by a door, walking, etc.), (4) matching fashion accessories (knit hat, small crossbody bag, sunglasses, colorful necktie, canvas tote bag, boots, sneakers, hair clips, braids — pick 2-3 that fit the garment style). Keep it vivid and concrete. Avoid any studio/neutral/plain/white background words.\n\nGarment: {{GARMENT_DESC}}`;
+    const promptModel = p.modelPrompt || "A high-resolution, photorealistic kids fashion editorial photo. A cute Chinese child (with a lovely natural expression and hairstyle) wearing a {{GARMENT_DESC}}. {{SCENE_DESC}}. The garment details match perfectly — same color, same pattern prints and placement, same fabric texture, same neckline and sleeves. Full body shot, eye-level angle, natural skin tones, highly detailed and sharp, professional photography, no collages, no montage, single candid photo.";
     const promptFlat = p.flatPrompt || "A professionally shot flat-lay product photo of a {{GARMENT_DESC}}. The garment matches the description exactly — same color, same pattern prints, same material texture, same neckline and sleeves. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.";
 
     // ===== 步骤 0: 查询商品详情和销售数据 =====
@@ -264,18 +265,44 @@ export async function POST(request: NextRequest) {
     }
     console.log("服装描述 (用于生成):", garmentDesc);
 
+    const fetchHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AGNES_API_KEY}`,
+    };
+
+    // ===== 步骤 1.5: 文本模型 → 基于服装描述生成场景/动作/光线/配饰 =====
+    console.log("Agnes 步骤1.5: 生成场景/动作/配饰脚本...");
+    let sceneDesc = "";
+    try {
+      const scenePrompt = promptSceneScript.replace("{{GARMENT_DESC}}", garmentDesc);
+      const sceneRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+        method: "POST",
+        headers: fetchHeaders,
+        body: JSON.stringify({
+          model: "agnes-2.0-flash",
+          messages: [{ role: "user", content: scenePrompt }],
+          max_tokens: 300,
+          temperature: 0.85,
+        }),
+      });
+      const sceneData = await sceneRes.json();
+      sceneDesc = sceneData?.choices?.[0]?.message?.content || "";
+    } catch (e) {
+      console.warn("场景脚本生成失败，使用默认场景:", e);
+    }
+
+    if (!sceneDesc.trim()) {
+      sceneDesc = "Outdoor setting on asphalt pavement in warm afternoon sunlight with soft shadows. The child crouches naturally with one hand resting near the ground. A cute knit beanie and small crossbody bag complete the casual street-style look.";
+    }
+    console.log("场景描述 (用于生成):", sceneDesc);
+
     // ===== 步骤 2 & 3: 并行生成模特试穿图和白底平铺图 =====
     console.log("Agnes 步骤2&3: 并行生成图片...");
 
     const randomSeed = Math.floor(Math.random() * 2147483647);
 
-    const modelPrompt = promptModel.replace("{{GARMENT_DESC}}", garmentDesc);
+    const modelPrompt = promptModel.replace("{{GARMENT_DESC}}", garmentDesc).replace("{{SCENE_DESC}}", sceneDesc);
     const flatPrompt = promptFlat.replace("{{GARMENT_DESC}}", garmentDesc);
-
-    const fetchHeaders = {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AGNES_API_KEY}`,
-    };
 
     const [modelRes, flatRes] = await Promise.all([
       fetch(`${AGNES_BASE}/images/generations`, {
