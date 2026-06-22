@@ -3,8 +3,9 @@ import { supabase } from "@/lib/supabase";
 import sharp from "sharp";
 
 const MAX_WIDTH = 800;
-const QUALITY = 75;
+const QUALITY = 85;
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
+const SUPABASE_PAGE_SIZE = 1000; // Supabase 默认每页 1000 行
 
 // GET: 获取 Supabase Storage 中已存在的照片文件名列表（用于前端去重）
 export async function GET() {
@@ -40,14 +41,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未提供照片文件" }, { status: 400 });
     }
 
-    // 查询所有入库记录中 photo 字段为文件名（非 URL）的记录
-    const { data: allRecords, error: fetchError } = await supabase
-      .from("inbound_records")
-      .select("id, sale_id, photo");
+    // 分页查询所有入库记录中 photo 字段为文件名（非 URL）的记录
+    // 突破 Supabase 默认 1000 行限制
+    let allRecords: { id: number; sale_id: string; photo: string | null }[] = [];
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error: fetchError } = await supabase
+        .from("inbound_records")
+        .select("id, sale_id, photo")
+        .range(page * SUPABASE_PAGE_SIZE, (page + 1) * SUPABASE_PAGE_SIZE - 1)
+        .order("id", { ascending: true });
 
-    if (fetchError) {
-      return NextResponse.json({ error: `查询入库记录失败: ${fetchError.message}` }, { status: 500 });
+      if (fetchError) {
+        return NextResponse.json({ error: `查询入库记录失败: ${fetchError.message}` }, { status: 500 });
+      }
+
+      if (data && data.length > 0) {
+        allRecords = allRecords.concat(data);
+        page++;
+      } else {
+        hasMore = false;
+      }
     }
+    console.log(`[补充照片] 共查询到 ${allRecords.length} 条入库记录`);
 
     // 构建文件名到记录ID的映射（photo 字段为文件名，非 URL）
     // 同时支持多级匹配：精确匹配、去扩展名匹配、大小写不敏感匹配
@@ -128,32 +145,46 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // 压缩图片
+      // 压缩图片（JPEG 格式，兼容性最好）
       let compressed: Buffer;
+      let finalExt = "jpg";
+      let finalContentType = "image/jpeg";
       try {
         const arrayBuffer = await file.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         compressed = await sharp(buffer)
           .resize(MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: QUALITY })
+          .jpeg({ quality: QUALITY })
           .toBuffer();
       } catch (sharpError) {
         const msg = sharpError instanceof Error ? sharpError.message : "未知错误";
-        errors.push(`${file.name}: 压缩失败 - ${msg}`);
-        continue;
+        // sharp 失败时降级：直接上传原图（不压缩）
+        console.warn(`[补充照片] sharp 压缩失败 (${file.name}): ${msg}，改上传原图`);
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          compressed = Buffer.from(arrayBuffer);
+          // 保留原始扩展名
+          const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+          if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
+          else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
+          else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
+        } catch (rawError) {
+          errors.push(`${file.name}: 读取文件失败`);
+          continue;
+        }
       }
 
       // 上传到 Supabase Storage
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 6);
-      const storagePath = `imports/${timestamp}_${random}_${fileNameWithoutExt}.webp`;
+      const storagePath = `imports/${timestamp}_${random}_${fileNameWithoutExt}.${finalExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from("product-photos")
         .upload(storagePath, compressed, {
-          contentType: "image/webp",
+          contentType: finalContentType,
           upsert: true,
-          cacheControl: "3600",
+          cacheControl: "max-age=3600",
         });
 
       if (uploadError) {
