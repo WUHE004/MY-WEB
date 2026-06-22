@@ -235,34 +235,15 @@ function buildProductText(
 async function generateFlatImageOnly(productPhotoUrl: string): Promise<string | null> {
   if (!AGNES_API_KEY) return null;
   try {
-    // 步骤1: 用 Agnes 视觉模型识别衣服
-    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-vlm-2-flash",
-        messages: [{ role: "user", content: [
-          { type: "image_url", image_url: { url: productPhotoUrl } },
-          { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type, main_color, patterns（每个图案的位置+形状+颜色+大小）, neckline_sleeves, material, details。只输出JSON，不要额外文字。" },
-        ]}],
-        temperature: 0.2,
-      }),
-    });
-    const textData = await textRes.json();
-    let desc = textData?.choices?.[0]?.message?.content || "a piece of clothing";
-    try {
-      const jsonMatch = desc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) { const parsed = JSON.parse(jsonMatch[0]); desc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", "); }
-    } catch (_e) {}
-
-    // 步骤2: 用 Agnes 文生图生成白底电商图
     const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
       body: JSON.stringify({
         model: "agnes-image-2.0-flash",
-        prompt: `A professionally shot flat-lay product photo of ${desc}. The garment matches the description exactly — same garment type, same color, same pattern prints, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
+        prompt: `Transform the garment into a professionally shot flat-lay product photo. Preserve the exact garment type, colors, patterns, prints, fabric texture, every detail from the photo. Laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography.`,
         size: "1024x1024",
+        tags: ["img2img"],
+        extra_body: { image: [productPhotoUrl], response_format: "url" },
       }),
     });
     const flatData = await flatRes.json();

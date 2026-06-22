@@ -207,46 +207,23 @@ async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): 
   throw new Error("AI试衣任务超时 (120s)");
 }
 
-// 调用 Agnes 只生成白底平铺图（一键生成 flat_only 用，纯 Agnes 免费模型）
+// 调用 Agnes 只生成白底平铺图（一键生成 flat_only 用，Agnes图生图保留细节）
 async function callAgnesFlatOnly(productPhotoUrl: string): Promise<string | null> {
   if (!AGNES_API_KEY) {
     throw new Error("Agnes API Key 未配置");
   }
 
-  console.log("Agnes-Flat: 识别衣服特征...");
+  console.log("Agnes-Flat: 生成白底平铺图（图生图）...");
   try {
-    // 步骤1: 用 Agnes 视觉模型识别衣服
-    const descPrompt = `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
-
-    const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-vlm-2-flash",
-        messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: productPhotoUrl } }, { type: "text", text: descPrompt }] }],
-        temperature: 0.2,
-      }),
-    });
-    const visionData = await visionRes.json();
-    let garmentDesc = visionData?.choices?.[0]?.message?.content || "a piece of clothing";
-    try {
-      const jsonMatch = garmentDesc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        garmentDesc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
-      }
-    } catch (_e) { /* 保持原文 */ }
-    console.log("Agnes-Flat: 服装描述:", garmentDesc);
-
-    // 步骤2: 用 Agnes 文生图生成白底平铺图
-    console.log("Agnes-Flat: 生成白底平铺图...");
     const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
       body: JSON.stringify({
         model: "agnes-image-2.0-flash",
-        prompt: `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same colors, same patterns and prints, same fabric texture, every detail. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
+        prompt: `Transform the garment into a professionally shot flat-lay product photo. Preserve the exact garment type, colors, patterns, prints, fabric texture, every detail from the photo. Laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography.`,
         size: "1024x1024",
+        tags: ["img2img"],
+        extra_body: { image: [productPhotoUrl], response_format: "url" },
       }),
     });
     const flatData = await flatRes.json();
@@ -263,7 +240,7 @@ async function callAgnesFlatOnly(productPhotoUrl: string): Promise<string | null
   }
 }
 
-// 调用 Agnes 模型（Agnes视觉识别 + Agnes文生图，完全免费，不用Qwen）
+// 调用 Agnes 模型（Agnes视觉识别 + Agnes图生图，完全免费）
 async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null } | null> {
   if (!AGNES_API_KEY) {
     throw new Error("Agnes API Key 未配置");
@@ -316,14 +293,20 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
     } catch (_e) { /* 保持默认 */ }
     console.log("Agnes: 模特描述:", modelDesc);
 
-    // 步骤3: 用 Agnes 文生图生成模特试穿图
-    console.log("Agnes: 生成模特试穿图...");
-    const modelPrompt = `A photorealistic full-body photo of ${modelDesc} wearing ${garmentDesc}. The garment must match the description exactly — same garment type, same colors, same pattern prints, same fabric, same neckline, same sleeves, same details. Natural pose, natural studio lighting, front view, on a clean background. Professional product photography, high resolution.`;
+    // 步骤3: 用 Agnes 图生图生成模特试穿图（传入衣服照片+模特照片作为参考）
+    console.log("Agnes: 生成模特试穿图（图生图）...");
+    const modelPrompt = `Make the child model wear the exact garment from the clothing photo. ${garmentDesc}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the clothing photo exactly — same type, same colors, same patterns, same fabric texture, same neckline, same sleeves, same details. Natural studio lighting, full body, front view, clean background, professional product photography.`;
 
     const modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: modelPrompt, size: "1024x1024" }),
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt: modelPrompt,
+        size: "1024x1024",
+        tags: ["img2img"],
+        extra_body: { image: [productPhotoUrl, modelPhotoUrl], response_format: "url" },
+      }),
     });
     const modelData = await modelRes.json();
     if (!modelRes.ok) {
@@ -334,15 +317,21 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
     if (!modelUrl) throw new Error("模特图生成失败：未返回图片");
     console.log("Agnes: 模特图生成成功:", modelUrl);
 
-    // 步骤4: 用 Agnes 文生图生成白底平铺图
-    console.log("Agnes: 生成白底平铺图...");
+    // 步骤4: 用 Agnes 图生图生成白底平铺图（传入衣服照片作为参考）
+    console.log("Agnes: 生成白底平铺图（图生图）...");
     let flatUrl: string | null = null;
     try {
-      const flatPrompt = `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same colors, same patterns and prints, same fabric texture, every detail. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
+      const flatPrompt = `Transform the garment into a professionally shot flat-lay product photo. Preserve the exact garment type, colors, patterns, prints, fabric texture, every detail from the photo. Laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography.`;
       const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-        body: JSON.stringify({ model: "agnes-image-2.0-flash", prompt: flatPrompt, size: "1024x1024" }),
+        body: JSON.stringify({
+          model: "agnes-image-2.0-flash",
+          prompt: flatPrompt,
+          size: "1024x1024",
+          tags: ["img2img"],
+          extra_body: { image: [productPhotoUrl], response_format: "url" },
+        }),
       });
       const flatData = await flatRes.json();
       if (flatRes.ok) {
