@@ -36,6 +36,12 @@ function getAesKey(): Buffer {
   return Buffer.from(WECHAT_ENCODING_AES_KEY + "=", "base64");
 }
 
+function pkcs7Pad(data: Buffer, blockSize: number = 32): Buffer {
+  const padLen = blockSize - (data.length % blockSize);
+  const pad = Buffer.alloc(padLen, padLen);
+  return Buffer.concat([data, pad]);
+}
+
 function pkcs7Unpad(data: Buffer): Buffer {
   const padLen = data[data.length - 1];
   if (padLen < 1 || padLen > 32) {
@@ -49,6 +55,15 @@ function pkcs7Unpad(data: Buffer): Buffer {
     }
   }
   return data.subarray(0, data.length - padLen);
+}
+
+function aesEncrypt(plaintext: Buffer): Buffer {
+  const key = getAesKey();
+  const iv = key.subarray(0, 16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  cipher.setAutoPadding(false);
+  const padded = pkcs7Pad(plaintext, 32);
+  return Buffer.concat([cipher.update(padded), cipher.final()]);
 }
 
 function aesDecrypt(encrypted: Buffer): Buffer {
@@ -471,9 +486,36 @@ function buildXmlTextResponse(fromUserName: string, toUserName: string, content:
 </xml>`;
 }
 
-function xmlResponse(fromUserName: string, toUserName: string, content: string): Response {
+// 加密 XML 响应（企业微信加密模式需要）
+function encryptXmlResponse(xml: string, corpId: string): string {
+  const randomBytes = crypto.randomBytes(16);
+  const xmlBuffer = Buffer.from(xml, "utf-8");
+  const msgLen = Buffer.alloc(4);
+  msgLen.writeUInt32BE(xmlBuffer.length, 0);
+  const corpIdBuffer = Buffer.from(corpId, "utf-8");
+  const plaintext = Buffer.concat([randomBytes, msgLen, xmlBuffer, corpIdBuffer]);
+  const encrypted = aesEncrypt(plaintext);
+  const encryptedBase64 = encrypted.toString("base64");
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = Math.random().toString(36).substring(2, 12);
+  const signature = crypto.createHash("sha1")
+    .update([WECHAT_TOKEN, timestamp, nonce, encryptedBase64].sort().join(""))
+    .digest("hex");
+  return `<xml>
+  <Encrypt><![CDATA[${encryptedBase64}]]></Encrypt>
+  <MsgSignature><![CDATA[${signature}]]></MsgSignature>
+  <TimeStamp>${timestamp}</TimeStamp>
+  <Nonce><![CDATA[${nonce}]]></Nonce>
+</xml>`;
+}
+
+function xmlResponse(fromUserName: string, toUserName: string, content: string, isEncrypted: boolean = false, corpId: string = ""): Response {
   const xml = buildXmlTextResponse(fromUserName, toUserName, content);
-  return new Response(xml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
+  const responseXml = isEncrypted && WECHAT_ENCODING_AES_KEY
+    ? encryptXmlResponse(xml, corpId || fromUserName)
+    : xml;
+  console.log("[WECHAT] 响应模式:", isEncrypted ? "加密" : "明文", "前200字符:", responseXml.substring(0, 200));
+  return new Response(responseXml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
 }
 
 // ===== POST: 消息解析工具 =====
@@ -495,20 +537,24 @@ interface ParsedMessage {
   toUserName: string;
   fromUserName: string;
   content: string;
+  isEncrypted: boolean; // 消息是否加密模式
+  corpId: string; // 企业 CorpID（从解密消息中提取）
 }
 
 function parseWechatMessage(rawBody: string): ParsedMessage {
-  const result: ParsedMessage = { toUserName: "", fromUserName: "", content: "" };
+  const result: ParsedMessage = { toUserName: "", fromUserName: "", content: "", isEncrypted: false, corpId: "" };
 
   const encryptContent = extractField(rawBody, "Encrypt");
 
   if (encryptContent && WECHAT_ENCODING_AES_KEY) {
+    result.isEncrypted = true;
     try {
       const decryptedXml = decryptMessage(encryptContent);
       console.log("[WECHAT-PARSE] 解密后内容前300字符:", decryptedXml.substring(0, 300));
       result.toUserName = extractField(decryptedXml, "ToUserName");
       result.fromUserName = extractField(decryptedXml, "FromUserName");
       result.content = extractField(decryptedXml, "Content");
+      result.corpId = result.toUserName; // 原始 ToUserName 就是 CorpID
       console.log("[WECHAT-PARSE] 模式: 加密", { to: result.toUserName, from: result.fromUserName, content: result.content });
     } catch (err) {
       console.error("[WECHAT-PARSE] 解密失败:", err instanceof Error ? err.message : err);
@@ -545,21 +591,16 @@ async function processFlatImageAsync(code: string, photoUrl: string, userId: str
       console.log("[WECHAT-FLAT] 白底图生成成功:", flatUrl);
       const sent = await sendAppImageMessage(userId, flatUrl);
       if (!sent) {
-        // 应用消息发送失败时降级为 webhook 文本
-        await sendTextToWechat(`商品 ${code} 白底图已生成: ${flatUrl}`).catch(() => {});
+        console.log("[WECHAT-FLAT] 应用消息发送失败（可能缺少企业微信配置），无法发送白底图");
       }
     } else {
-      console.log("[WECHAT-FLAT] 白底图生成失败，发送原始照片");
-      await sendImageToWechat(photoUrl).catch(() => {});
+      console.log("[WECHAT-FLAT] 白底图生成失败，跳过");
     }
 
     console.log("[WECHAT-FLAT] ====== 异步白底图生成完成 ======");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[WECHAT-FLAT] 异步白底图生成错误:", msg);
-    try {
-      await sendTextToWechat(`❌ 商品 ${code} 白底图生成时出错：${msg.substring(0, 100)}`).catch(() => {});
-    } catch (_e) { /* 忽略 webhook 失败 */ }
   }
 }
 
@@ -570,7 +611,7 @@ export async function POST(request: NextRequest) {
     const rawBody = await request.text();
 
     const parsed = parseWechatMessage(rawBody);
-    const { toUserName, fromUserName } = parsed;
+    const { toUserName, fromUserName, isEncrypted, corpId } = parsed;
 
     // 回复 XML：ToUserName = 原 FromUserName（用户），FromUserName = 原 ToUserName（企业 CorpID）
     const replyTo = fromUserName;
@@ -578,7 +619,7 @@ export async function POST(request: NextRequest) {
 
     if (!parsed.content || parsed.content.trim().length < 2) {
       console.log("[WECHAT] 内容为空，XML 返回提示");
-      return xmlResponse(replyFrom, replyTo, "📝 请发送商品编号，例如：A12345");
+      return xmlResponse(replyFrom, replyTo, "📝 请发送商品编号，例如：A12345", isEncrypted, corpId);
     }
 
     const code = parsed.content.split("\n")[0].trim();
@@ -587,9 +628,9 @@ export async function POST(request: NextRequest) {
     if (!looksLikeProductCode(code)) {
       console.warn("[WECHAT] 内容不像商品编号:", code);
       return xmlResponse(
-        replyFrom,
-        replyTo,
-        `⚠️ 没有识别到正确的商品编号。\n你发送的内容：${code.substring(0, 50)}\n请直接发送商品编号（字母+数字，2-12位），例如：A12345`
+        replyFrom, replyTo,
+        `⚠️ 没有识别到正确的商品编号。\n你发送的内容：${code.substring(0, 50)}\n请直接发送商品编号（字母+数字，2-12位），例如：A12345`,
+        isEncrypted, corpId
       );
     }
 
@@ -599,9 +640,9 @@ export async function POST(request: NextRequest) {
     if (!product) {
       console.log("[WECHAT] 未找到商品，XML 返回错误");
       return xmlResponse(
-        replyFrom,
-        replyTo,
-        `❌ 未找到商品编号: ${code}\n请检查编号是否正确，或在库存系统中确认该商品已录入。`
+        replyFrom, replyTo,
+        `❌ 未找到商品编号: ${code}\n请检查编号是否正确，或在库存系统中确认该商品已录入。`,
+        isEncrypted, corpId
       );
     }
 
@@ -622,15 +663,11 @@ export async function POST(request: NextRequest) {
           console.error("[WECHAT] setTimeout 异步白底图任务异常:", e instanceof Error ? e.message : e);
         });
       }, 50);
-    } else {
-      setTimeout(() => {
-        sendTextToWechat(`ℹ️ 商品 ${code} 暂无照片，无法生成白底图`).catch(() => {});
-      }, 50);
     }
 
-    // 同步返回 XML 文本被动响应 —— 包含商品信息 + 原始照片 URL
-    console.log("[WECHAT] 返回 XML 被动响应");
-    return xmlResponse(replyFrom, replyTo, responseText);
+    // 同步返回 XML 被动响应（加密模式下自动加密）
+    console.log("[WECHAT] 返回 XML 被动响应，模式:", isEncrypted ? "加密" : "明文");
+    return xmlResponse(replyFrom, replyTo, responseText, isEncrypted, corpId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[WECHAT] POST 入口错误:", msg);

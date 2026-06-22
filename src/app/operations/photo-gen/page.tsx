@@ -290,8 +290,8 @@ export default function PhotoGenPage() {
         body: JSON.stringify({
           sale_id: sid,
           product_photo_url: photoUrl,
-          model_id: oneshotSelectedModelId,
           ai_model: "agnes",
+          flat_only: true,
           member_id: mid,
         }),
       });

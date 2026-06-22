@@ -207,6 +207,67 @@ async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): 
   throw new Error("AI试衣任务超时 (120s)");
 }
 
+// 调用 Agnes 只生成白底平铺图（一键生成用，不生成模特图）
+async function callAgnesFlatOnly(productPhotoUrl: string): Promise<string | null> {
+  if (!AGNES_API_KEY) {
+    throw new Error("Agnes API Key 未配置");
+  }
+
+  console.log("Agnes-Flat: 识别衣服特征...");
+  let garmentDesc = "a piece of clothing";
+
+  try {
+    // 步骤1: 用 Agnes 视觉模型识别衣服
+    const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-vlm-2-flash",
+        messages: [{ role: "user", content: [
+          { type: "image_url", image_url: { url: productPhotoUrl } },
+          { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。" },
+        ]}],
+        temperature: 0.2,
+      }),
+    });
+    const visionData = await visionRes.json();
+    const rawDesc = visionData?.choices?.[0]?.message?.content || "";
+    garmentDesc = rawDesc;
+    try {
+      const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        garmentDesc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
+      }
+    } catch (_e) { /* 保持原文 */ }
+    console.log("Agnes-Flat: 服装描述:", garmentDesc);
+
+    // 步骤2: 用 Agnes 图生图模型生成白底平铺图
+    console.log("Agnes-Flat: 生成白底平铺图...");
+    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt: `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same color, same patterns, same material, every detail preserved. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
+        size: "1024x1024",
+      }),
+    });
+    const flatData = await flatRes.json();
+    if (flatRes.ok) {
+      const url = flatData?.data?.[0]?.url || null;
+      console.log("Agnes-Flat: 白底图生成成功:", url);
+      return url;
+    } else {
+      console.error("Agnes-Flat: 白底图生成失败:", flatData);
+      return null;
+    }
+  } catch (err) {
+    console.error("Agnes-Flat: 生成异常:", err);
+    return null;
+  }
+}
+
 // 调用 Agnes 图生图模型（Agnes视觉识别 + Qwen图生图 + Agnes白底图）
 async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null } | null> {
   if (!AGNES_API_KEY) {
@@ -572,9 +633,40 @@ function buildProductText(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sale_id, product_photo_url, model_id, ai_model, custom_model, member_id } = body;
+    const { sale_id, product_photo_url, model_id, ai_model, custom_model, member_id, flat_only } = body;
 
     const activeModel: ModelType = ai_model === "qwen" ? "qwen" : ai_model === "aitryon" ? "aitryon" : ai_model === "agnes" ? "agnes" : ai_model === "custom" ? "custom" : "doubao";
+
+    // flat_only 模式：只生成白底图，不需要模特
+    if (flat_only) {
+      if (!sale_id || !product_photo_url) {
+        return NextResponse.json({ error: "缺少 sale_id 或 product_photo_url" }, { status: 400 });
+      }
+
+      console.log(`[flat_only] 使用 ${activeModel} 模型只生成白底图`);
+      let flatUrl: string | null = null;
+
+      if (activeModel === "agnes") {
+        flatUrl = await callAgnesFlatOnly(product_photo_url);
+      } else {
+        // 其他模型不支持 flat_only，降级使用 Agnes
+        flatUrl = await callAgnesFlatOnly(product_photo_url);
+      }
+
+      if (!flatUrl) {
+        return NextResponse.json({ error: "白底图生成失败" }, { status: 500 });
+      }
+
+      // 记录用量
+      if (member_id) {
+        await supabase.from("model_usage").insert({
+          member_id,
+          model_name: activeModel,
+        }).then(({ error }) => { if (error) console.error("用量记录失败:", error.message); });
+      }
+
+      return NextResponse.json({ flat_url: flatUrl, sale_id });
+    }
 
     if (!sale_id || !model_id) {
       return NextResponse.json({ error: "缺少 sale_id 或 model_id" }, { status: 400 });
