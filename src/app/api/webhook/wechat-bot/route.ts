@@ -4,6 +4,8 @@ import sharp from "sharp";
 import crypto from "crypto";
 
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
+const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
+const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_TOKEN = process.env.WECHAT_TOKEN || "";
 const WECHAT_ENCODING_AES_KEY = process.env.WECHAT_ENCODING_AES_KEY || "";
 const MAX_SIZE_BYTES = 200 * 1024;
@@ -11,17 +13,6 @@ const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 const WECHAT_CORP_ID = process.env.WECHAT_CORP_ID || "";
 const WECHAT_CORP_SECRET = process.env.WECHAT_CORP_SECRET || "";
 const WECHAT_AGENT_ID = process.env.WECHAT_AGENT_ID || "";
-const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || "";
-const QWEN_IMAGE_EDIT_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
-
-// ===== 工具函数 =====
-async function urlToBase64DataUri(imageUrl: string): Promise<string> {
-  const res = await fetch(imageUrl);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  const base64 = buffer.toString("base64");
-  const contentType = res.headers.get("content-type") || "image/jpeg";
-  return `data:${contentType};base64,${base64}`;
-}
 
 // ===== 企业微信 access_token 缓存 =====
 let cachedAccessToken: string | null = null;
@@ -242,29 +233,40 @@ function buildProductText(
 
 // ===== 生成白底电商图（简化版，只生成白底图，不生成模特图） =====
 async function generateFlatImageOnly(productPhotoUrl: string): Promise<string | null> {
-  if (!DASHSCOPE_API_KEY) return null;
+  if (!AGNES_API_KEY) return null;
   try {
-    const productBase64 = await urlToBase64DataUri(productPhotoUrl);
-    const flatPrompt = `Transform this exact clothing into a professionally shot flat-lay product photo. Preserve every detail of the original garment exactly — same garment type, same colors, same patterns and prints in the same positions, same fabric texture, same neckline, same sleeves, same hem. The garment must be laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
-
-    const qwenRes = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
+    // 步骤1: 用 Agnes 视觉模型识别衣服
+    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DASHSCOPE_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
       body: JSON.stringify({
-        model: "qwen-image-edit-plus",
-        input: { messages: [{ role: "user", content: [{ image: productBase64 }, { text: flatPrompt }] }] },
-        parameters: { n: 1, watermark: false },
+        model: "agnes-vlm-2-flash",
+        messages: [{ role: "user", content: [
+          { type: "image_url", image_url: { url: productPhotoUrl } },
+          { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type, main_color, patterns（每个图案的位置+形状+颜色+大小）, neckline_sleeves, material, details。只输出JSON，不要额外文字。" },
+        ]}],
+        temperature: 0.2,
       }),
     });
-    const qwenData = await qwenRes.json();
-    if (!qwenRes.ok) {
-      console.error("[WECHAT-FLAT] Qwen API 错误:", JSON.stringify(qwenData));
-      return null;
-    }
-    return qwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
-      || qwenData?.output?.results?.[0]?.url
-      || qwenData?.output?.images?.[0]
-      || null;
+    const textData = await textRes.json();
+    let desc = textData?.choices?.[0]?.message?.content || "a piece of clothing";
+    try {
+      const jsonMatch = desc.match(/\{[\s\S]*\}/);
+      if (jsonMatch) { const parsed = JSON.parse(jsonMatch[0]); desc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", "); }
+    } catch (_e) {}
+
+    // 步骤2: 用 Agnes 文生图生成白底电商图
+    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt: `A professionally shot flat-lay product photo of ${desc}. The garment matches the description exactly — same garment type, same color, same pattern prints, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
+        size: "1024x1024",
+      }),
+    });
+    const flatData = await flatRes.json();
+    return flatData?.data?.[0]?.url || null;
   } catch (err) {
     console.error("[WECHAT-FLAT] 生成白底图失败:", err);
     return null;
@@ -356,9 +358,23 @@ async function sendAppImageMessage(userId: string, imageUrl: string): Promise<bo
   }
 }
 
-// ===== GET: 企业微信 URL 验证 =====
+// ===== GET: 企业微信 URL 验证 / 调试 =====
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+
+  // ===== 调试模式：返回配置状态 =====
+  if (searchParams.get("debug") === "1") {
+    return NextResponse.json({
+      hasToken: !!WECHAT_TOKEN, tokenLen: WECHAT_TOKEN.length,
+      hasAesKey: !!WECHAT_ENCODING_AES_KEY, aesKeyLen: WECHAT_ENCODING_AES_KEY.length,
+      hasCorpId: !!WECHAT_CORP_ID, corpId: WECHAT_CORP_ID,
+      hasCorpSecret: !!WECHAT_CORP_SECRET,
+      hasAgentId: !!WECHAT_AGENT_ID, agentId: WECHAT_AGENT_ID,
+      hasWebhook: !!WECHAT_WEBHOOK_URL,
+      hasAgnesKey: !!AGNES_API_KEY,
+    });
+  }
+
   const signature = searchParams.get("signature");
   const msgSignature = searchParams.get("msg_signature");
   const timestamp = searchParams.get("timestamp") || "";

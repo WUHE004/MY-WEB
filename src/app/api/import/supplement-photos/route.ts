@@ -164,6 +164,15 @@ export async function POST(request: NextRequest) {
           .resize(MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: QUALITY })
           .toBuffer();
+        // 校验压缩结果：不能太小（正常JPEG至少几百字节）
+        if (compressed.length < 100) {
+          console.warn(`[补充照片] sharp 压缩后文件过小 (${compressed.length}字节)，改上传原图`);
+          compressed = rawBuffer;
+          const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+          if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
+          else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
+          else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
+        }
       } catch (sharpError) {
         const msg = sharpError instanceof Error ? sharpError.message : "未知错误";
         // sharp 失败时降级：直接上传原图（不压缩）
@@ -174,6 +183,12 @@ export async function POST(request: NextRequest) {
         if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
         else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
         else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
+      }
+
+      // 最终校验：确保上传的不是空数据
+      if (compressed.length < 50) {
+        errors.push(`${file.name}: 处理后文件异常 (${compressed.length}字节)`);
+        continue;
       }
 
       // 上传到 Supabase Storage
