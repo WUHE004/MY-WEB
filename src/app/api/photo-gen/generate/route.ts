@@ -207,61 +207,36 @@ async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): 
   throw new Error("AI试衣任务超时 (120s)");
 }
 
-// 调用 Agnes 只生成白底平铺图（一键生成用，不生成模特图）
+// 调用 Agnes 只生成白底平铺图（一键生成 flat_only 用，Qwen图生图保留细节）
 async function callAgnesFlatOnly(productPhotoUrl: string): Promise<string | null> {
-  if (!AGNES_API_KEY) {
-    throw new Error("Agnes API Key 未配置");
+  if (!DASHSCOPE_API_KEY) {
+    throw new Error("DashScope API Key 未配置");
   }
 
-  console.log("Agnes-Flat: 识别衣服特征...");
-  let garmentDesc = "a piece of clothing";
-
+  console.log("Agnes-Flat: 生成白底平铺图（Qwen图生图）...");
   try {
-    // 步骤1: 用 Agnes 视觉模型识别衣服
-    const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-vlm-2-flash",
-        messages: [{ role: "user", content: [
-          { type: "image_url", image_url: { url: productPhotoUrl } },
-          { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。" },
-        ]}],
-        temperature: 0.2,
-      }),
-    });
-    const visionData = await visionRes.json();
-    const rawDesc = visionData?.choices?.[0]?.message?.content || "";
-    garmentDesc = rawDesc;
-    try {
-      const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        garmentDesc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
-      }
-    } catch (_e) { /* 保持原文 */ }
-    console.log("Agnes-Flat: 服装描述:", garmentDesc);
+    const productBase64 = await urlToBase64DataUri(productPhotoUrl);
+    const flatPrompt = `Transform this exact clothing into a professionally shot flat-lay product photo. Preserve every detail of the original garment exactly — same garment type, same colors, same patterns and prints in the same positions, same fabric texture, same neckline, same sleeves, same hem. The garment must be laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
 
-    // 步骤2: 用 Agnes 图生图模型生成白底平铺图
-    console.log("Agnes-Flat: 生成白底平铺图...");
-    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+    const qwenRes = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DASHSCOPE_API_KEY}` },
       body: JSON.stringify({
-        model: "agnes-image-2.0-flash",
-        prompt: `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same color, same patterns, same material, every detail preserved. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
-        size: "1024x1024",
+        model: "qwen-image-edit-plus",
+        input: { messages: [{ role: "user", content: [{ image: productBase64 }, { text: flatPrompt }] }] },
+        parameters: { n: 1, watermark: false },
       }),
     });
-    const flatData = await flatRes.json();
-    if (flatRes.ok) {
-      const url = flatData?.data?.[0]?.url || null;
-      console.log("Agnes-Flat: 白底图生成成功:", url);
-      return url;
-    } else {
-      console.error("Agnes-Flat: 白底图生成失败:", flatData);
+    const qwenData = await qwenRes.json();
+    if (!qwenRes.ok) {
+      console.error("Agnes-Flat: Qwen API 错误:", JSON.stringify(qwenData));
       return null;
     }
+    const url = qwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
+      || qwenData?.output?.results?.[0]?.url
+      || qwenData?.output?.images?.[0];
+    console.log("Agnes-Flat: 白底图生成成功:", url);
+    return url || null;
   } catch (err) {
     console.error("Agnes-Flat: 生成异常:", err);
     return null;
@@ -369,32 +344,32 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
 
     console.log("Agnes: 模特图生成成功:", modelUrl);
 
-    // 步骤3: 用 Agnes 图生图模型生成白底平铺图
-    console.log("Agnes: 生成白底平铺图...");
+    // 步骤3: 用 Qwen 图生图生成白底平铺图（直接用衣服照片作为参考，保留原始细节）
+    console.log("Agnes: 生成白底平铺图（Qwen图生图）...");
     let flatUrl: string | null = null;
     try {
-      const flatPrompt = `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same color, same patterns, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
-      const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      const flatPrompt = `Transform this exact clothing into a professionally shot flat-lay product photo. Preserve every detail of the original garment exactly — same garment type, same colors, same patterns and prints in the same positions, same fabric texture, same neckline, same sleeves, same hem. The garment must be laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
+
+      const flatQwenRes = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${AGNES_API_KEY}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${DASHSCOPE_API_KEY}` },
         body: JSON.stringify({
-          model: "agnes-image-2.0-flash",
-          prompt: flatPrompt,
-          size: "1024x1024",
+          model: "qwen-image-edit-plus",
+          input: { messages: [{ role: "user", content: [{ image: productBase64 }, { text: flatPrompt }] }] },
+          parameters: { n: 1, watermark: false },
         }),
       });
-      const flatData = await flatRes.json();
-      if (flatRes.ok) {
-        flatUrl = flatData?.data?.[0]?.url || null;
+      const flatQwenData = await flatQwenRes.json();
+      if (flatQwenRes.ok) {
+        flatUrl = flatQwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
+          || flatQwenData?.output?.results?.[0]?.url
+          || flatQwenData?.output?.images?.[0];
         console.log("Agnes: 白底图生成成功:", flatUrl);
       } else {
-        console.error("Agnes: 白底图生成失败:", flatData);
+        console.error("Agnes: Qwen白底图生成失败:", flatQwenData);
       }
     } catch (flatErr) {
-      console.error("Agnes: 白底图生成异常:", flatErr);
+      console.error("Agnes: Qwen白底图生成异常:", flatErr);
     }
 
     return { modelUrl, flatUrl };

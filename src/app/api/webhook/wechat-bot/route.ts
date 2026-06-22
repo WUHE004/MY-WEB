@@ -3,8 +3,6 @@ import { supabase } from "@/lib/supabase";
 import sharp from "sharp";
 import crypto from "crypto";
 
-const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
-const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 const WECHAT_TOKEN = process.env.WECHAT_TOKEN || "";
 const WECHAT_ENCODING_AES_KEY = process.env.WECHAT_ENCODING_AES_KEY || "";
@@ -13,6 +11,17 @@ const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 const WECHAT_CORP_ID = process.env.WECHAT_CORP_ID || "";
 const WECHAT_CORP_SECRET = process.env.WECHAT_CORP_SECRET || "";
 const WECHAT_AGENT_ID = process.env.WECHAT_AGENT_ID || "";
+const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || "";
+const QWEN_IMAGE_EDIT_ENDPOINT = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation";
+
+// ===== 工具函数 =====
+async function urlToBase64DataUri(imageUrl: string): Promise<string> {
+  const res = await fetch(imageUrl);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const base64 = buffer.toString("base64");
+  const contentType = res.headers.get("content-type") || "image/jpeg";
+  return `data:${contentType};base64,${base64}`;
+}
 
 // ===== 企业微信 access_token 缓存 =====
 let cachedAccessToken: string | null = null;
@@ -231,98 +240,31 @@ function buildProductText(
   ].join("\n");
 }
 
-// ===== 生成白底平铺图（已废弃，保留用于兼容，实际使用 generateFlatImageOnly） =====
-async function generateFlatImage(productPhotoUrl: string): Promise<string | null> {
-  if (!AGNES_API_KEY) return null;
-  try {
-    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-2.0-flash",
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: productPhotoUrl } },
-            { type: "text", text: "请以英文关键词精确描述这件衣服：garment_type（如t-shirt、hoodie、dress、polo、shirt、jacket），main_color，patterns（位置+形状+颜色+大小的每个图案），neckline_sleeves，material，details。示例：{\"garment_type\":\"round neck short-sleeve cotton t-shirt\",\"main_color\":\"pure white\",\"patterns\":\"blue uppercase word printed on chest, red cartoon character below the text\",\"neckline_sleeves\":\"round neck, short sleeves\",\"material\":\"270gsm cotton fabric\",\"details\":\"ribbed collar, straight hem\"}。只输出JSON。" },
-          ],
-        }],
-        max_tokens: 500,
-        temperature: 0.2,
-      }),
-    });
-
-    const textData = await textRes.json();
-    let desc = textData?.choices?.[0]?.message?.content || "a piece of clothing";
-    try {
-      const jsonMatch = desc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        desc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
-      }
-    } catch (_e) { /* 保持原文本 */ }
-
-    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-image-2.0-flash",
-        prompt: `A professionally shot flat-lay product photo of ${desc}. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
-        size: "1024x1024",
-      }),
-    });
-
-    const flatData = await flatRes.json();
-    return flatData?.data?.[0]?.url || null;
-  } catch (err) {
-    console.error("生成白底图失败:", err);
-    return null;
-  }
-}
-
 // ===== 生成白底电商图（简化版，只生成白底图，不生成模特图） =====
 async function generateFlatImageOnly(productPhotoUrl: string): Promise<string | null> {
-  if (!AGNES_API_KEY) return null;
+  if (!DASHSCOPE_API_KEY) return null;
   try {
-    // 步骤1: 用 Agnes 视觉模型识别衣服
-    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-2.0-flash",
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image_url", image_url: { url: productPhotoUrl } },
-            { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type, main_color, patterns（每个图案的位置+形状+颜色+大小）, neckline_sleeves, material, details。只输出JSON，不要额外文字。" },
-          ],
-        }],
-        max_tokens: 500,
-        temperature: 0.2,
-      }),
-    });
-    const textData = await textRes.json();
-    let desc = textData?.choices?.[0]?.message?.content || "a piece of clothing";
-    try {
-      const jsonMatch = desc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        desc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
-      }
-    } catch (_e) {}
+    const productBase64 = await urlToBase64DataUri(productPhotoUrl);
+    const flatPrompt = `Transform this exact clothing into a professionally shot flat-lay product photo. Preserve every detail of the original garment exactly — same garment type, same colors, same patterns and prints in the same positions, same fabric texture, same neckline, same sleeves, same hem. The garment must be laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
 
-    // 步骤2: 生成白底电商图
-    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+    const qwenRes = await fetch(QWEN_IMAGE_EDIT_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${DASHSCOPE_API_KEY}` },
       body: JSON.stringify({
-        model: "agnes-image-2.0-flash",
-        prompt: `A professionally shot flat-lay product photo of ${desc}. The garment matches the description exactly — same garment type, same color, same pattern prints, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
-        size: "1024x1024",
+        model: "qwen-image-edit-plus",
+        input: { messages: [{ role: "user", content: [{ image: productBase64 }, { text: flatPrompt }] }] },
+        parameters: { n: 1, watermark: false },
       }),
     });
-    const flatData = await flatRes.json();
-    return flatData?.data?.[0]?.url || null;
+    const qwenData = await qwenRes.json();
+    if (!qwenRes.ok) {
+      console.error("[WECHAT-FLAT] Qwen API 错误:", JSON.stringify(qwenData));
+      return null;
+    }
+    return qwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
+      || qwenData?.output?.results?.[0]?.url
+      || qwenData?.output?.images?.[0]
+      || null;
   } catch (err) {
     console.error("[WECHAT-FLAT] 生成白底图失败:", err);
     return null;
@@ -370,8 +312,8 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
 // ===== 发送企业微信应用消息（图片发送到用户） =====
 async function sendAppImageMessage(userId: string, imageUrl: string): Promise<boolean> {
   if (!WECHAT_CORP_ID || !WECHAT_CORP_SECRET || !WECHAT_AGENT_ID) {
-    console.log("[WECHAT-APP] 缺少企业微信应用配置，降级使用 webhook 发送");
-    return await sendTextToWechat(`白底图已生成: ${imageUrl}`);
+    console.log("[WECHAT-APP] 缺少企业微信应用配置，无法发送图片消息");
+    return false;
   }
   try {
     const token = await getAccessToken();
