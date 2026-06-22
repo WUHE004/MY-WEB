@@ -50,18 +50,31 @@ export async function POST(request: NextRequest) {
     }
 
     // 构建文件名到记录ID的映射（photo 字段为文件名，非 URL）
+    // 同时支持多级匹配：精确匹配、去扩展名匹配、大小写不敏感匹配
     const filenameToRecords: Record<string, { id: number; sale_id: string }[]> = {};
+    const caseInsensitiveIndex: Record<string, string[]> = {}; // 小写key → 原始key列表
     for (const rec of allRecords || []) {
       const photoVal = (rec.photo || "").trim();
       if (!photoVal) continue;
       // 跳过已经是 URL 的
       if (photoVal.startsWith("http://") || photoVal.startsWith("https://")) continue;
-      // 提取文件名（去路径和扩展名）
-      const baseName = photoVal.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "").trim();
-      if (!baseName) continue;
-      if (!filenameToRecords[baseName]) filenameToRecords[baseName] = [];
-      filenameToRecords[baseName].push({ id: rec.id, sale_id: rec.sale_id });
+      // 提取文件名（去路径）
+      const fileName = photoVal.replace(/^.*[\\/]/, "").trim();
+      if (!fileName) continue;
+      // 生成多个匹配键：完整文件名、去扩展名
+      const baseName = fileName.replace(/\.[^.]+$/, "").trim();
+      const keys = new Set<string>([fileName, baseName]);
+      for (const k of keys) {
+        if (!k) continue;
+        if (!filenameToRecords[k]) filenameToRecords[k] = [];
+        filenameToRecords[k].push({ id: rec.id, sale_id: rec.sale_id });
+        // 大小写不敏感索引
+        const lower = k.toLowerCase();
+        if (!caseInsensitiveIndex[lower]) caseInsensitiveIndex[lower] = [];
+        if (!caseInsensitiveIndex[lower].includes(k)) caseInsensitiveIndex[lower].push(k);
+      }
     }
+    console.log(`[补充照片] 建立了 ${Object.keys(filenameToRecords).length} 个匹配键，${Object.keys(caseInsensitiveIndex).length} 个大小写索引`);
 
     let processed = 0;
     let matched = 0;
@@ -74,13 +87,35 @@ export async function POST(request: NextRequest) {
     for (const file of photos) {
       processed++;
       const fileNameWithoutExt = file.name.replace(/\.[^.]+$/, "").trim();
-      const key = fileNameWithoutExt;
+      const fileNameFull = file.name.trim();
+
+      // 多级匹配：完整文件名 → 去扩展名 → 大小写不敏感
+      let matchingRecords = filenameToRecords[fileNameFull];
+      if (!matchingRecords || matchingRecords.length === 0) {
+        matchingRecords = filenameToRecords[fileNameWithoutExt];
+      }
+      if (!matchingRecords || matchingRecords.length === 0) {
+        // 大小写不敏感匹配
+        const lowerFull = fileNameFull.toLowerCase();
+        const lowerNoExt = fileNameWithoutExt.toLowerCase();
+        const ciKeys = caseInsensitiveIndex[lowerFull] || caseInsensitiveIndex[lowerNoExt];
+        if (ciKeys) {
+          for (const ciKey of ciKeys) {
+            const records = filenameToRecords[ciKey];
+            if (records && records.length > 0) {
+              matchingRecords = records;
+              break;
+            }
+          }
+        }
+      }
 
       // 检查是否有匹配的入库记录
-      const matchingRecords = filenameToRecords[key];
       if (!matchingRecords || matchingRecords.length === 0) {
+        console.log(`[补充照片] 文件 ${file.name} 无匹配记录，跳过`);
         continue; // 跳过无匹配的文件，不报错
       }
+      console.log(`[补充照片] 文件 ${file.name} 匹配到 ${matchingRecords.length} 条记录: ${matchingRecords.map(r => r.sale_id).join(', ')}`);
       matched++;
 
       // 校验文件
@@ -111,7 +146,7 @@ export async function POST(request: NextRequest) {
       // 上传到 Supabase Storage
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 6);
-      const storagePath = `imports/${timestamp}_${random}_${key}.webp`;
+      const storagePath = `imports/${timestamp}_${random}_${fileNameWithoutExt}.webp`;
 
       const { error: uploadError } = await supabase.storage
         .from("product-photos")

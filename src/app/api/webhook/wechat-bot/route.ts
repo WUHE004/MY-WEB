@@ -10,6 +10,25 @@ const WECHAT_TOKEN = process.env.WECHAT_TOKEN || "";
 const WECHAT_ENCODING_AES_KEY = process.env.WECHAT_ENCODING_AES_KEY || "";
 const MAX_SIZE_BYTES = 200 * 1024;
 const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+const WECHAT_CORP_ID = process.env.WECHAT_CORP_ID || "";
+const WECHAT_CORP_SECRET = process.env.WECHAT_CORP_SECRET || "";
+const WECHAT_AGENT_ID = process.env.WECHAT_AGENT_ID || "";
+
+// ===== 企业微信 access_token 缓存 =====
+let cachedAccessToken: string | null = null;
+let tokenExpireTime: number = 0;
+
+async function getAccessToken(): Promise<string> {
+  if (cachedAccessToken && Date.now() < tokenExpireTime - 300000) {
+    return cachedAccessToken;
+  }
+  const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${WECHAT_CORP_ID}&corpsecret=${WECHAT_CORP_SECRET}`);
+  const data = await res.json();
+  if (data.errcode !== 0) throw new Error(`获取 access_token 失败: ${data.errmsg}`);
+  cachedAccessToken = data.access_token;
+  tokenExpireTime = Date.now() + (data.expires_in || 7200) * 1000;
+  return cachedAccessToken!;
+}
 
 // ===== 企业微信加解密工具 =====
 function getAesKey(): Buffer {
@@ -197,7 +216,7 @@ function buildProductText(
   ].join("\n");
 }
 
-// ===== 生成白底平铺图 =====
+// ===== 生成白底平铺图（已废弃，保留用于兼容，实际使用 generateFlatImageOnly） =====
 async function generateFlatImage(productPhotoUrl: string): Promise<string | null> {
   if (!AGNES_API_KEY) return null;
   try {
@@ -246,6 +265,55 @@ async function generateFlatImage(productPhotoUrl: string): Promise<string | null
   }
 }
 
+// ===== 生成白底电商图（简化版，只生成白底图，不生成模特图） =====
+async function generateFlatImageOnly(productPhotoUrl: string): Promise<string | null> {
+  if (!AGNES_API_KEY) return null;
+  try {
+    // 步骤1: 用 Agnes 视觉模型识别衣服
+    const textRes = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: productPhotoUrl } },
+            { type: "text", text: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type, main_color, patterns（每个图案的位置+形状+颜色+大小）, neckline_sleeves, material, details。只输出JSON，不要额外文字。" },
+          ],
+        }],
+        max_tokens: 500,
+        temperature: 0.2,
+      }),
+    });
+    const textData = await textRes.json();
+    let desc = textData?.choices?.[0]?.message?.content || "a piece of clothing";
+    try {
+      const jsonMatch = desc.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        desc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
+      }
+    } catch (_e) {}
+
+    // 步骤2: 生成白底电商图
+    const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt: `A professionally shot flat-lay product photo of ${desc}. The garment matches the description exactly — same garment type, same color, same pattern prints, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`,
+        size: "1024x1024",
+      }),
+    });
+    const flatData = await flatRes.json();
+    return flatData?.data?.[0]?.url || null;
+  } catch (err) {
+    console.error("[WECHAT-FLAT] 生成白底图失败:", err);
+    return null;
+  }
+}
+
 // ===== 发送企业微信 =====
 async function sendTextToWechat(content: string): Promise<boolean> {
   if (!WECHAT_WEBHOOK_URL) return false;
@@ -280,6 +348,53 @@ async function sendImageToWechat(imageUrl: string): Promise<boolean> {
     return data?.errcode === 0;
   } catch (err) {
     console.error("发送图片失败:", err);
+    return false;
+  }
+}
+
+// ===== 发送企业微信应用消息（图片发送到用户） =====
+async function sendAppImageMessage(userId: string, imageUrl: string): Promise<boolean> {
+  if (!WECHAT_CORP_ID || !WECHAT_CORP_SECRET || !WECHAT_AGENT_ID) {
+    console.log("[WECHAT-APP] 缺少企业微信应用配置，降级使用 webhook 发送");
+    return await sendTextToWechat(`白底图已生成: ${imageUrl}`);
+  }
+  try {
+    const token = await getAccessToken();
+    // 先下载图片
+    const imgRes = await fetch(imageUrl);
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const compressed = await compressImage(imgBuffer);
+
+    // 上传临时素材（使用原生 fetch + Blob，避免 form-data 依赖）
+    const boundary = `----WechatFormBoundary${Date.now()}`;
+    const header = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="flat_image.jpg"\r\nContent-Type: image/jpeg\r\n\r\n`);
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Buffer.concat([header, compressed, footer]);
+
+    const uploadRes = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${token}&type=image`, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body,
+    });
+    const uploadData = await uploadRes.json();
+    if (uploadData.errcode !== 0) throw new Error(`上传素材失败: ${uploadData.errmsg}`);
+    const mediaId = uploadData.media_id;
+
+    // 发送图片消息
+    const sendRes = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        touser: userId,
+        msgtype: "image",
+        agentid: parseInt(WECHAT_AGENT_ID),
+        image: { media_id: mediaId },
+      }),
+    });
+    const sendData = await sendRes.json();
+    return sendData.errcode === 0;
+  } catch (err) {
+    console.error("[WECHAT-APP] 发送应用消息失败:", err);
     return false;
   }
 }
@@ -419,48 +534,31 @@ function parseWechatMessage(rawBody: string): ParsedMessage {
   return result;
 }
 
-// ===== 异步图片生成（setTimeout 内部，通过 webhook 发到群） =====
-async function processImagesAsync(code: string, photoUrl: string) {
+// ===== 异步白底图生成（setTimeout 内部，通过企业微信应用消息发给用户） =====
+async function processFlatImageAsync(code: string, photoUrl: string, userId: string) {
   try {
-    console.log("[WECHAT-IMG] ====== 开始异步图片生成 ======");
-    await sendTextToWechat(`🖼️ 商品 ${code} 正在生成商品图和模特试穿图，请稍候...`);
+    console.log("[WECHAT-FLAT] ====== 开始异步白底图生成 ======");
 
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_SITE_URL
-        ? `${process.env.NEXT_PUBLIC_SITE_URL}/api/photo-gen/agnes`
-        : `${process.env.NEXT_PUBLIC_URL || "http://localhost:3000"}/api/photo-gen/agnes`;
+    const flatUrl = await generateFlatImageOnly(photoUrl);
 
-      console.log("[WECHAT-IMG] 调用 Agnes API:", apiUrl);
-      const apiRes = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sale_id: code,
-          product_photo_url: photoUrl,
-          skip_text_query: true,
-          only_images: true,
-        }),
-      });
-
-      if (apiRes.ok) {
-        const result = await apiRes.json();
-        console.log("[WECHAT-IMG] Agnes API 响应:", JSON.stringify(result).substring(0, 200));
-      } else {
-        const errorText = await apiRes.text();
-        console.error("[WECHAT-IMG] Agnes API 失败:", apiRes.status, errorText.substring(0, 200));
-        await sendImageToWechat(photoUrl);
+    if (flatUrl) {
+      console.log("[WECHAT-FLAT] 白底图生成成功:", flatUrl);
+      const sent = await sendAppImageMessage(userId, flatUrl);
+      if (!sent) {
+        // 应用消息发送失败时降级为 webhook 文本
+        await sendTextToWechat(`商品 ${code} 白底图已生成: ${flatUrl}`).catch(() => {});
       }
-    } catch (apiErr) {
-      console.error("[WECHAT-IMG] 调用 Agnes API 异常:", apiErr instanceof Error ? apiErr.message : apiErr);
-      await sendImageToWechat(photoUrl);
+    } else {
+      console.log("[WECHAT-FLAT] 白底图生成失败，发送原始照片");
+      await sendImageToWechat(photoUrl).catch(() => {});
     }
 
-    console.log("[WECHAT-IMG] ====== 异步图片生成完成 ======");
+    console.log("[WECHAT-FLAT] ====== 异步白底图生成完成 ======");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[WECHAT-IMG] 异步图片生成错误:", msg);
+    console.error("[WECHAT-FLAT] 异步白底图生成错误:", msg);
     try {
-      await sendTextToWechat(`❌ 商品 ${code} 图片生成时出错：${msg.substring(0, 100)}`);
+      await sendTextToWechat(`❌ 商品 ${code} 白底图生成时出错：${msg.substring(0, 100)}`).catch(() => {});
     } catch (_e) { /* 忽略 webhook 失败 */ }
   }
 }
@@ -510,23 +608,29 @@ export async function POST(request: NextRequest) {
     const stats = await getSalesStats(code);
     const productText = buildProductText(product, stats);
 
-    // 异步图片生成：setTimeout 触发，不等待
     const photoUrl = product.photo as string;
+
+    // 构造返回文本：商品信息 + 原始照片 URL
+    const responseText = photoUrl
+      ? productText + "\n\n📷 原始照片：" + photoUrl
+      : productText;
+
+    // 异步白底图生成：setTimeout 触发，不等待
     if (photoUrl) {
       setTimeout(() => {
-        processImagesAsync(code, photoUrl).catch((e) => {
-          console.error("[WECHAT] setTimeout 异步图片任务异常:", e instanceof Error ? e.message : e);
+        processFlatImageAsync(code, photoUrl, fromUserName).catch((e) => {
+          console.error("[WECHAT] setTimeout 异步白底图任务异常:", e instanceof Error ? e.message : e);
         });
       }, 50);
     } else {
       setTimeout(() => {
-        sendTextToWechat(`ℹ️ 商品 ${code} 暂无照片，无法生成商品图`).catch(() => {});
+        sendTextToWechat(`ℹ️ 商品 ${code} 暂无照片，无法生成白底图`).catch(() => {});
       }, 50);
     }
 
-    // 同步返回 XML 文本被动响应 —— 不再通过 webhook 把文本发到群
+    // 同步返回 XML 文本被动响应 —— 包含商品信息 + 原始照片 URL
     console.log("[WECHAT] 返回 XML 被动响应");
-    return xmlResponse(replyFrom, replyTo, productText);
+    return xmlResponse(replyFrom, replyTo, responseText);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[WECHAT] POST 入口错误:", msg);

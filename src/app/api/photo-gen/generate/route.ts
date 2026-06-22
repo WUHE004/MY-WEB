@@ -207,8 +207,8 @@ async function callAitryonPlus(productPhotoUrl: string, modelPhotoUrl: string): 
   throw new Error("AI试衣任务超时 (120s)");
 }
 
-// 调用 Agnes 图生图模型（Agnes视觉识别 + Qwen图生图）
-async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<string | null> {
+// 调用 Agnes 图生图模型（Agnes视觉识别 + Qwen图生图 + Agnes白底图）
+async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null } | null> {
   if (!AGNES_API_KEY) {
     throw new Error("Agnes API Key 未配置");
   }
@@ -219,6 +219,8 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
   // 步骤1: 用 Agnes 视觉模型识别衣服，提取精确的英文关键词
   console.log("Agnes: 识别衣服特征...");
   const descPrompt = `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
+
+  let garmentDesc = "a piece of clothing";
 
   try {
     const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
@@ -244,7 +246,7 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
 
     const visionData = await visionRes.json();
     const rawDesc = visionData?.choices?.[0]?.message?.content || "";
-    let garmentDesc = rawDesc;
+    garmentDesc = rawDesc;
     try {
       const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
@@ -294,18 +296,47 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
       throw new Error(`图片生成失败: ${qwenData.message || JSON.stringify(qwenData)}`);
     }
 
-    const imageUrl =
+    const modelUrl =
       qwenData?.output?.choices?.[0]?.message?.content?.find?.((c: { image?: string }) => c.image)?.image
       || qwenData?.output?.results?.[0]?.url
       || qwenData?.output?.images?.[0];
 
-    if (!imageUrl) {
+    if (!modelUrl) {
       console.error("Agnes: Qwen 返回无图片:", JSON.stringify(qwenData));
       throw new Error("图片生成失败：未返回图片");
     }
 
-    console.log("Agnes: 生成成功:", imageUrl);
-    return imageUrl;
+    console.log("Agnes: 模特图生成成功:", modelUrl);
+
+    // 步骤3: 用 Agnes 图生图模型生成白底平铺图
+    console.log("Agnes: 生成白底平铺图...");
+    let flatUrl: string | null = null;
+    try {
+      const flatPrompt = `A professionally shot flat-lay product photo of ${garmentDesc}. The garment matches the description exactly — same garment type, same color, same patterns, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.`;
+      const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${AGNES_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "agnes-image-2.0-flash",
+          prompt: flatPrompt,
+          size: "1024x1024",
+        }),
+      });
+      const flatData = await flatRes.json();
+      if (flatRes.ok) {
+        flatUrl = flatData?.data?.[0]?.url || null;
+        console.log("Agnes: 白底图生成成功:", flatUrl);
+      } else {
+        console.error("Agnes: 白底图生成失败:", flatData);
+      }
+    } catch (flatErr) {
+      console.error("Agnes: 白底图生成异常:", flatErr);
+    }
+
+    return { modelUrl, flatUrl };
   } catch (err) {
     console.error("Agnes: 生成失败:", err);
     throw err;
@@ -569,6 +600,7 @@ export async function POST(request: NextRequest) {
     // 2. 根据选择的模型调用对应的 API
     console.log(`使用模型: ${activeModel}`);
     let generatedUrl: string | null = null;
+    let flatUrl: string | null = null;
 
     if (activeModel === "custom" && custom_model) {
       generatedUrl = await callCustomModel(product_photo_url, modelPhotoUrl, custom_model);
@@ -577,7 +609,11 @@ export async function POST(request: NextRequest) {
     } else if (activeModel === "aitryon") {
       generatedUrl = await callAitryonPlus(product_photo_url, modelPhotoUrl);
     } else if (activeModel === "agnes") {
-      generatedUrl = await callAgnesModel(product_photo_url, modelPhotoUrl);
+      const agnesResult = await callAgnesModel(product_photo_url, modelPhotoUrl);
+      if (agnesResult) {
+        generatedUrl = agnesResult.modelUrl;
+        flatUrl = agnesResult.flatUrl;
+      }
     } else {
       generatedUrl = await callDoubaoSeedream(product_photo_url, modelPhotoUrl);
     }
@@ -635,6 +671,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       generated_url: generatedUrl,
+      flat_url: flatUrl,
       sale_id,
       wechat_sent: wechatSent,
       model: activeModel,

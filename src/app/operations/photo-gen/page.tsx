@@ -45,17 +45,18 @@ export default function PhotoGenPage() {
   const [activeTab, setActiveTab] = useState<"oneshot" | "dressup">("oneshot");
 
   // 一键生成 (Agnes) 状态
-  const [agnesSearch, setAgnesSearch] = useState("");
   const [agnesUsage, setAgnesUsage] = useState(0);
-  const [agnesGenerating, setAgnesGenerating] = useState<string | null>(null);
-  const [agnesResults, setAgnesResults] = useState<Record<string, { modelUrl: string; flatUrl: string; desc: string }>>({});
-  const [agnesErrors, setAgnesErrors] = useState<Record<string, string>>({});
 
-  // 模特选择弹窗
+  // 模特选择弹窗（AI穿衣 Tab）
   const [showModelSelect, setShowModelSelect] = useState(false);
   const [showModelLibrary, setShowModelLibrary] = useState(false);
   const [activeProduct, setActiveProduct] = useState<Product | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string>("");
+
+  // 模特选择弹窗（一键生成 Tab，独立状态）
+  const [oneshotShowModelSelect, setOneshotShowModelSelect] = useState(false);
+  const [oneshotActiveProduct, setOneshotActiveProduct] = useState<Product | null>(null);
+  const [oneshotSelectedModelId, setOneshotSelectedModelId] = useState<string>("");
 
   // 图片预览（统一顶层状态，避免在 .map() 内使用 useState）
   const [imgPreview, setImgPreview] = useState<string | null>(null);
@@ -71,27 +72,11 @@ export default function PhotoGenPage() {
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
   const [photoPickerProduct, setPhotoPickerProduct] = useState<Product | null>(null);
 
-  // 提示词自定义
-  const DEFAULT_PROMPTS = {
-    clothingDesc: "请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt、hoodie、dress、polo、shirt、sweatshirt、jacket、romper、vest、skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。",
-    sceneScript: "Based on this garment description, write a brief 2-3 sentence English description of a stylish photoshoot scene for a kids fashion lookbook. Include: (1) a specific outdoor/cafe/street/rooftop/staircase setting with real details (asphalt ground, glass doors, wooden stairs, tiled walls, etc.), (2) natural lighting (golden hour sunlight, soft window light, warm afternoon sun with shadows), (3) the child model's pose (crouching, sitting on stairs, standing casually by a door, walking, etc.), (4) matching fashion accessories (knit hat, small crossbody bag, sunglasses, colorful necktie, canvas tote bag, boots, sneakers, hair clips, braids — pick 2-3 that fit the garment style). Keep it vivid and concrete. Avoid any studio/neutral/plain/white background words.\n\nGarment: {{GARMENT_DESC}}",
-    modelPrompt: "A high-resolution, photorealistic kids fashion editorial photo. A cute Chinese child (with a lovely natural expression and hairstyle) wearing a {{GARMENT_DESC}}. {{SCENE_DESC}}. The garment details match perfectly — same color, same pattern prints and placement, same fabric texture, same neckline and sleeves. Full body shot, eye-level angle, natural skin tones, highly detailed and sharp, professional photography, no collages, no montage, single candid photo.",
-    flatPrompt: "A professionally shot flat-lay product photo of {{GARMENT_DESC}}. The garment matches the description exactly — same garment type, same color, same patterns, same material. Laid flat and smooth, front view, on a pure white background, clean sharp edges, no model, no shadow, professional product photography, high resolution.",
-  };
-  const [customPrompts, setCustomPrompts] = useState<typeof DEFAULT_PROMPTS>(() => {
-    try {
-      const saved = localStorage.getItem("agnes_prompts");
-      return saved ? { ...DEFAULT_PROMPTS, ...JSON.parse(saved) } : DEFAULT_PROMPTS;
-    } catch { return DEFAULT_PROMPTS; }
-  });
-  const [showPromptEditor, setShowPromptEditor] = useState(false);
-  const [editingPrompts, setEditingPrompts] = useState<typeof DEFAULT_PROMPTS>({ ...customPrompts });
-
   // 生成状态
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
   const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
   const [generatingError, setGeneratingError] = useState<Record<string, string>>({});
-  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "agnes" | "custom">("doubao");
+  const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "agnes" | "custom">("agnes");
 
   // 模型使用量追踪（从服务端 Supabase 读取，跨设备同步）
   const FREE_QUOTA: Record<string, number> = {
@@ -222,14 +207,6 @@ export default function PhotoGenPage() {
       )
     : products;
 
-  const agnesFilteredProducts = agnesSearch
-    ? products.filter(
-        (p) =>
-          (p.name || "").toLowerCase().includes(agnesSearch.toLowerCase()) ||
-          (p.sale_id || "").toLowerCase().includes(agnesSearch.toLowerCase())
-      )
-    : products;
-
   // ===== 换图生成：上传临时图片 =====
   const handleChangePhoto = (product: Product) => {
     setPhotoPickerProduct(product);
@@ -281,61 +258,58 @@ export default function PhotoGenPage() {
     }
   };
 
-  // ===== 提示词管理 =====
-  const handleSavePrompts = () => {
-    setCustomPrompts({ ...editingPrompts });
-    localStorage.setItem("agnes_prompts", JSON.stringify(editingPrompts));
-    setShowPromptEditor(false);
+  // ===== 一键生成 Tab：打开模特选择弹窗 =====
+  const handleOneshotOpenGen = (product: Product) => {
+    if (models.length === 0) {
+      alert("请先在模特库中添加模特");
+      return;
+    }
+    setOneshotActiveProduct(product);
+    setOneshotSelectedModelId(models[0]?.id || "");
+    setOneshotShowModelSelect(true);
   };
 
-  const handleResetPrompts = () => {
-    setEditingPrompts({ ...DEFAULT_PROMPTS });
-    setCustomPrompts({ ...DEFAULT_PROMPTS });
-    localStorage.setItem("agnes_prompts", JSON.stringify(DEFAULT_PROMPTS));
-    setShowPromptEditor(false);
-  };
-
-  // ===== Agnes 一键生成 =====
-  const handleAgnesGenerate = async (product: Product) => {
-    const sid = product.sale_id;
-    setAgnesGenerating(sid);
-    setAgnesErrors((prev) => {
+  // ===== 一键生成 Tab：调用 API 生成白底图 =====
+  const handleOneshotGenerate = async () => {
+    if (!oneshotActiveProduct || !oneshotSelectedModelId) return;
+    const sid = oneshotActiveProduct.sale_id;
+    setGenerating(sid);
+    setGeneratingError((prev) => {
       const next = { ...prev };
       delete next[sid];
       return next;
     });
 
     const mid = typeof window !== "undefined" ? (localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "") : "";
+    const photoUrl = tempPhotoUrl[sid] || oneshotActiveProduct.photo;
 
     try {
-      const photoUrl = tempPhotoUrl[sid] || product.photo;
-      const res = await fetch("/api/photo-gen/agnes", {
+      const res = await fetch("/api/photo-gen/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sale_id: sid,
           product_photo_url: photoUrl,
+          model_id: oneshotSelectedModelId,
+          ai_model: "agnes",
           member_id: mid,
-          prompts: customPrompts,
         }),
       });
       const data = await res.json();
       if (data.error) {
-        setAgnesErrors((prev) => ({ ...prev, [sid]: data.error }));
-      } else {
-        setAgnesResults((prev) => ({
-          ...prev,
-          [sid]: { modelUrl: data.generated_url, flatUrl: data.flat_url, desc: data.clothing_desc },
-        }));
+        setGeneratingError((prev) => ({ ...prev, [sid]: data.error }));
+      } else if (data.flat_url) {
+        setGeneratedImages((prev) => ({ ...prev, [sid]: data.flat_url }));
         fetchUsage();
       }
     } catch (err) {
-      setAgnesErrors((prev) => ({
+      setGeneratingError((prev) => ({
         ...prev,
         [sid]: err instanceof Error ? err.message : "生成失败",
       }));
     } finally {
-      setAgnesGenerating(null);
+      setGenerating(null);
+      setOneshotShowModelSelect(false);
     }
   };
 
@@ -439,31 +413,34 @@ export default function PhotoGenPage() {
       {/* ===== 一键生成 (Agnes) Tab ===== */}
       {activeTab === "oneshot" && (
         <>
-          {/* 搜索栏 + 模型信息 */}
-          <div className="mb-4 lg:mb-6 space-y-3">
-            <div className="relative">
+          {/* 搜索栏 + 模特库按钮 */}
+          <div className="mb-4 lg:mb-6 flex gap-3 flex-wrap">
+            <div className="flex-1 relative min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
                 type="text"
-                value={agnesSearch}
-                onChange={(e) => setAgnesSearch(e.target.value)}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 placeholder="搜索商品名称或编号..."
                 className="w-full pl-9 pr-4 py-2.5 rounded-xl border-[3px] border-gray-900 text-sm font-medium focus:outline-none"
               />
             </div>
-            <div className="flex items-center gap-2 text-xs flex-wrap">
-              <span className="text-gray-400 font-bold">调用模型:</span>
-              <span className="px-2.5 py-1 rounded-full border-[2px] border-green-500 bg-green-100 text-green-700 font-extrabold">
-                Agnes 2.0
-              </span>
-              <span className="text-gray-400 font-medium">已生成: {agnesUsage} 次</span>
-              <button
-                onClick={() => { setEditingPrompts({ ...customPrompts }); setShowPromptEditor(true); }}
-                className="ml-auto px-2.5 py-1 rounded-full border-[2px] border-gray-400 bg-white text-gray-500 font-bold text-xs hover:border-gray-900 hover:text-gray-900 transition-all"
-              >
-                提示词
-              </button>
-            </div>
+            <button
+              onClick={() => setShowModelLibrary(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] text-white font-extrabold text-sm hover:bg-[#8B49A6] transition-all whitespace-nowrap"
+            >
+              <UserRound className="h-4 w-4" />
+              模特库
+            </button>
+          </div>
+
+          {/* 模型信息 */}
+          <div className="mb-4 lg:mb-6 flex items-center gap-2 text-xs flex-wrap">
+            <span className="text-gray-400 font-bold">调用模型:</span>
+            <span className="px-2.5 py-1 rounded-full border-[2px] border-green-500 bg-green-100 text-green-700 font-extrabold">
+              ✨ Agnes 图生图
+            </span>
+            <span className="text-gray-400 font-medium">已生成: {agnesUsage} 次</span>
           </div>
 
           {loading ? (
@@ -472,10 +449,10 @@ export default function PhotoGenPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              {agnesFilteredProducts.map((product) => {
-                const result = agnesResults[product.sale_id];
-                const isGen = agnesGenerating === product.sale_id;
-                const err = agnesErrors[product.sale_id];
+              {filteredProducts.map((product) => {
+                const isGen = generating === product.sale_id;
+                const err = generatingError[product.sale_id];
+                const generatedUrl = generatedImages[product.sale_id];
                 const tmpUrl = tempPhotoUrl[product.sale_id];
                 const isUploading = uploadingPhoto === product.sale_id;
                 const displayPhoto = tmpUrl || product.photo;
@@ -508,28 +485,18 @@ export default function PhotoGenPage() {
                         {product.shelf_no && <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>}
                         {product.manufacturer && <div className="text-[10px] text-gray-400">厂家: {product.manufacturer}</div>}
 
-                        {result && (
-                          <div className="mt-2 flex gap-1">
+                        {generatedUrl && (
+                          <div className="mt-2">
                             <img
-                              src={result.modelUrl}
-                              alt="模特图"
-                              className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-green-500 cursor-pointer"
-                              onClick={() => setImgPreview(result.modelUrl)}
-                            />
-                            <img
-                              src={result.flatUrl}
-                              alt="平铺图"
-                              className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
-                              onClick={() => setImgPreview(result.flatUrl)}
+                              src={generatedUrl}
+                              alt="白底图"
+                              className="w-full max-h-24 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
+                              onClick={() => setImgPreview(generatedUrl)}
                             />
                           </div>
                         )}
                       </div>
                     </div>
-
-                    {result?.desc && (
-                      <div className="mt-2 text-[10px] text-gray-500 bg-gray-50 rounded-lg px-2 py-1 line-clamp-2">{result.desc}</div>
-                    )}
 
                     {err && (
                       <div className="mt-2 text-xs text-red-500 font-medium bg-red-50 rounded-lg px-2 py-1">{err}</div>
@@ -537,10 +504,10 @@ export default function PhotoGenPage() {
 
                     <div className="flex gap-1.5 mt-2">
                       <button
-                        onClick={() => handleAgnesGenerate(product)}
+                        onClick={() => handleOneshotOpenGen(product)}
                         disabled={isGen}
                         className={`flex-1 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all flex items-center justify-center gap-1 ${
-                          result
+                          generatedUrl
                             ? "bg-green-500 text-white border-green-700"
                             : "bg-gray-900 text-white hover:bg-gray-800"
                         } disabled:opacity-70`}
@@ -549,7 +516,7 @@ export default function PhotoGenPage() {
                           <>
                             <Loader2 className="h-3 w-3 animate-spin" />生成中...
                           </>
-                        ) : result ? (
+                        ) : generatedUrl ? (
                           <>
                             <Sparkles className="h-3 w-3" />重新生成
                           </>
@@ -578,7 +545,7 @@ export default function PhotoGenPage() {
                   </div>
                 );
               })}
-              {agnesFilteredProducts.length === 0 && (
+              {filteredProducts.length === 0 && (
                 <div className="col-span-full flex flex-col items-center justify-center py-16 gap-3">
                   <Package className="h-12 w-12 text-gray-300" />
                   <p className="font-bold text-gray-500 text-sm">暂无商品</p>
@@ -687,7 +654,7 @@ export default function PhotoGenPage() {
         </>
       )}
 
-      {/* 模特选择弹窗 */}
+      {/* 模特选择弹窗（AI穿衣 Tab） */}
       {showModelSelect && activeProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowModelSelect(false)}>
           <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-md max-h-[80vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
@@ -736,6 +703,55 @@ export default function PhotoGenPage() {
         </div>
       )}
 
+      {/* 模特选择弹窗（一键生成 Tab，独立状态） */}
+      {oneshotShowModelSelect && oneshotActiveProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setOneshotShowModelSelect(false)}>
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-md max-h-[80vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-extrabold mb-1">选择模特 - 白底图生成</h3>
+            <p className="text-xs text-gray-500 mb-3">商品: {oneshotActiveProduct.sale_id} - {oneshotActiveProduct.name}</p>
+
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {models.map((model) => (
+                <button
+                  key={model.id}
+                  onClick={() => setOneshotSelectedModelId(model.id)}
+                  className={`relative rounded-xl border-[3px] overflow-hidden transition-all ${
+                    oneshotSelectedModelId === model.id
+                      ? "border-[#9B59B6] ring-2 ring-[#9B59B6]"
+                      : "border-gray-200 hover:border-gray-400"
+                  }`}
+                >
+                  <img src={model.photo_url} alt={model.name} className="w-full aspect-square object-cover" />
+                  <div className={`text-center py-1 text-xs font-extrabold ${
+                    oneshotSelectedModelId === model.id ? "bg-[#9B59B6] text-white" : "bg-gray-100 text-gray-700"
+                  }`}>
+                    {model.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setOneshotShowModelSelect(false)}
+                className="flex-1 py-2.5 rounded-xl border-[3px] border-gray-300 text-sm font-extrabold text-gray-600 hover:bg-gray-50 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleOneshotGenerate}
+                disabled={!oneshotSelectedModelId}
+                className="flex-1 py-2.5 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white text-sm font-extrabold hover:bg-gray-800 transition-all disabled:opacity-50"
+              >
+                <span className="flex items-center justify-center gap-1">
+                  <Sparkles className="h-4 w-4" />生成白底图
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 模型库弹窗 */}
       {showModelPicker && (
         <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/50 p-4 pt-12 overflow-y-auto" onClick={() => setShowModelPicker(false)}>
@@ -750,6 +766,17 @@ export default function PhotoGenPage() {
             {/* 内置模型 */}
             <p className="text-xs font-bold text-gray-400 mb-2">内置模型</p>
             <div className="flex gap-2 mb-4 flex-wrap">
+              <button
+                type="button"
+                onClick={() => { setAiModel("agnes"); setShowModelPicker(false); }}
+                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
+                  aiModel === "agnes"
+                    ? "border-pink-500 bg-pink-500 text-white"
+                    : "border-gray-300 bg-white text-gray-600 hover:border-pink-400"
+                }`}
+              >
+                ✨ Agnes 图生图
+              </button>
               <button
                 type="button"
                 onClick={() => { setAiModel("doubao"); setShowModelPicker(false); }}
@@ -782,17 +809,6 @@ export default function PhotoGenPage() {
                 }`}
               >
                 👗 AI试衣 Plus
-              </button>
-              <button
-                type="button"
-                onClick={() => { setAiModel("agnes"); setShowModelPicker(false); }}
-                className={`flex-1 min-w-[120px] px-3 py-2.5 rounded-xl border-[2px] text-xs font-extrabold transition-all ${
-                  aiModel === "agnes"
-                    ? "border-pink-500 bg-pink-500 text-white"
-                    : "border-gray-300 bg-white text-gray-600 hover:border-pink-400"
-                }`}
-              >
-                ✨ Agnes 图生图
               </button>
             </div>
 
@@ -950,81 +966,6 @@ export default function PhotoGenPage() {
           onClose={() => setShowModelLibrary(false)}
           onRefresh={fetchModels}
         />
-      )}
-
-      {/* 提示词编辑弹窗 */}
-      {showPromptEditor && (
-        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/50 p-4 pt-8 overflow-y-auto" onClick={() => setShowPromptEditor(false)}>
-          <div className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-lg shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-extrabold">Agnes 提示词编辑</h3>
-              <button onClick={() => setShowPromptEditor(false)} className="p-1 rounded-lg hover:bg-gray-100">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 mb-4">占位符: {"{{GARMENT_DESC}}"}（服装英文关键词） / {"{{SCENE_DESC}}"}（场景/动作/配饰，自动生成）</p>
-
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤1: 服装识别提示词（视觉模型→输出英文关键词）</label>
-                <textarea
-                  rows={5}
-                  value={editingPrompts.clothingDesc}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, clothingDesc: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤2: 场景/动作/配饰脚本（文本模型→基于服装风格生成，{"{{GARMENT_DESC}}"}会被替换）</label>
-                <textarea
-                  rows={6}
-                  value={editingPrompts.sceneScript}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, sceneScript: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤3: 模特图生成提示词（{"{{GARMENT_DESC}}"} + {"{{SCENE_DESC}}"}会被替换）</label>
-                <textarea
-                  rows={4}
-                  value={editingPrompts.modelPrompt}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, modelPrompt: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-extrabold text-gray-700 block mb-1">步骤4: 平铺图生成提示词（{"{{GARMENT_DESC}}"}会被替换）</label>
-                <textarea
-                  rows={4}
-                  value={editingPrompts.flatPrompt}
-                  onChange={(e) => setEditingPrompts({ ...editingPrompts, flatPrompt: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border-2 border-gray-300 text-xs font-medium focus:border-gray-900 focus:outline-none resize-y"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <button
-                onClick={handleResetPrompts}
-                className="flex-1 py-2 rounded-xl border-[3px] border-red-300 text-sm font-extrabold text-red-500 hover:bg-red-50 transition-all"
-              >
-                恢复默认
-              </button>
-              <button
-                onClick={() => setShowPromptEditor(false)}
-                className="flex-1 py-2 rounded-xl border-[3px] border-gray-300 text-sm font-extrabold text-gray-600 hover:bg-gray-50 transition-all"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSavePrompts}
-                className="flex-1 py-2 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white text-sm font-extrabold hover:bg-gray-800 transition-all"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* 统一图片预览弹窗 */}
