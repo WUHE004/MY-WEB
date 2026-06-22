@@ -565,16 +565,24 @@ async function processFlatImageAsync(code: string, photoUrl: string, userId: str
 
 // ===== POST 主入口：同步解析 → 查询商品 → 返回 XML 被动响应；图片异步 setTimeout =====
 export async function POST(request: NextRequest) {
+  // 先解析消息，确定加密状态（catch 块也需要用到）
+  let isEncrypted = false;
+  let corpId = "";
+  let replyFrom = "";
+  let replyTo = "";
+
   try {
     console.log("[WECHAT] ====== POST 收到消息 ======");
     const rawBody = await request.text();
+    console.log("[WECHAT] rawBody 前200字符:", rawBody.substring(0, 200));
 
     const parsed = parseWechatMessage(rawBody);
-    const { toUserName, fromUserName, isEncrypted, corpId } = parsed;
+    isEncrypted = parsed.isEncrypted;
+    corpId = parsed.corpId;
+    replyTo = parsed.fromUserName;
+    replyFrom = parsed.toUserName;
 
-    // 回复 XML：ToUserName = 原 FromUserName（用户），FromUserName = 原 ToUserName（企业 CorpID）
-    const replyTo = fromUserName;
-    const replyFrom = toUserName;
+    console.log("[WECHAT] 解析结果: isEncrypted=", isEncrypted, "corpId=", corpId, "replyTo=", replyTo, "replyFrom=", replyFrom);
 
     if (!parsed.content || parsed.content.trim().length < 2) {
       console.log("[WECHAT] 内容为空，XML 返回提示");
@@ -618,7 +626,7 @@ export async function POST(request: NextRequest) {
     // 异步白底图生成：setTimeout 触发，不等待
     if (photoUrl) {
       setTimeout(() => {
-        processFlatImageAsync(code, photoUrl, fromUserName).catch((e) => {
+        processFlatImageAsync(code, photoUrl, replyTo).catch((e) => {
           console.error("[WECHAT] setTimeout 异步白底图任务异常:", e instanceof Error ? e.message : e);
         });
       }, 50);
@@ -630,6 +638,7 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[WECHAT] POST 入口错误:", msg);
-    return xmlResponse("", "", `❌ 系统处理时出错：${msg.substring(0, 100)}`);
+    // 保留加密状态：如果是加密消息，错误响应也要加密
+    return xmlResponse(replyFrom, replyTo, `❌ 系统处理时出错：${msg.substring(0, 100)}`, isEncrypted, corpId);
   }
 }

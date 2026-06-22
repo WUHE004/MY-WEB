@@ -156,29 +156,36 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      let compressed: Buffer;
+      let compressed = rawBuffer; // 默认使用原图
       let finalExt = "jpg";
       let finalContentType = "image/jpeg";
-      try {
-        compressed = await sharp(rawBuffer)
-          .resize(MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality: QUALITY })
-          .toBuffer();
-        // 校验压缩结果：不能太小（正常JPEG至少几百字节）
-        if (compressed.length < 100) {
-          console.warn(`[补充照片] sharp 压缩后文件过小 (${compressed.length}字节)，改上传原图`);
-          compressed = rawBuffer;
-          const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
-          if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
-          else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
-          else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
+      let useSharp = true;
+
+      // 如果原图已经很小（< 200KB），直接上传原图，跳过 sharp 压缩
+      if (rawBuffer.length < 200 * 1024) {
+        useSharp = false;
+        console.log(`[补充照片] ${file.name} 原始大小 ${(rawBuffer.length / 1024).toFixed(1)}KB，直接上传`);
+      }
+
+      if (useSharp) {
+        try {
+          const sharpResult = await sharp(rawBuffer)
+            .resize(MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: QUALITY })
+            .toBuffer();
+          // 校验 JPEG 头：有效 JPEG 必须以 FF D8 FF 开头
+          if (sharpResult.length < 100 || sharpResult[0] !== 0xFF || sharpResult[1] !== 0xD8 || sharpResult[2] !== 0xFF) {
+            console.warn(`[补充照片] sharp 输出无效 (len=${sharpResult.length}, 头=${sharpResult[0]?.toString(16)}${sharpResult[1]?.toString(16)}${sharpResult[2]?.toString(16)})，改上传原图`);
+          } else {
+            compressed = sharpResult;
+          }
+        } catch (sharpError) {
+          console.warn(`[补充照片] sharp 压缩失败 (${file.name}): ${sharpError instanceof Error ? sharpError.message : "未知错误"}，改上传原图`);
         }
-      } catch (sharpError) {
-        const msg = sharpError instanceof Error ? sharpError.message : "未知错误";
-        // sharp 失败时降级：直接上传原图（不压缩）
-        console.warn(`[补充照片] sharp 压缩失败 (${file.name}): ${msg}，改上传原图`);
-        compressed = rawBuffer;
-        // 保留原始扩展名
+      }
+
+      // 如果没用 sharp 或 sharp 失败，保留原图扩展名
+      if (compressed === rawBuffer) {
         const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
         if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
         else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
