@@ -75,6 +75,7 @@ export default function PhotoGenPage() {
   // 生成状态
   const [generating, setGenerating] = useState<string | null>(null); // sale_id
   const [generatedImages, setGeneratedImages] = useState<Record<string, string>>({});
+  const [generatedFlatImages, setGeneratedFlatImages] = useState<Record<string, string>>({}); // 一键生成的白底图
   const [generatingError, setGeneratingError] = useState<Record<string, string>>({});
   const [aiModel, setAiModel] = useState<"doubao" | "qwen" | "aitryon" | "agnes" | "custom">("agnes");
 
@@ -290,16 +291,21 @@ export default function PhotoGenPage() {
         body: JSON.stringify({
           sale_id: sid,
           product_photo_url: photoUrl,
+          model_id: oneshotSelectedModelId,
           ai_model: "agnes",
-          flat_only: true,
           member_id: mid,
         }),
       });
       const data = await res.json();
       if (data.error) {
         setGeneratingError((prev) => ({ ...prev, [sid]: data.error }));
-      } else if (data.flat_url) {
-        setGeneratedImages((prev) => ({ ...prev, [sid]: data.flat_url }));
+      } else {
+        if (data.generated_url) {
+          setGeneratedImages((prev) => ({ ...prev, [sid]: data.generated_url }));
+        }
+        if (data.flat_url) {
+          setGeneratedFlatImages((prev) => ({ ...prev, [sid]: data.flat_url }));
+        }
         fetchUsage();
       }
     } catch (err) {
@@ -453,6 +459,7 @@ export default function PhotoGenPage() {
                 const isGen = generating === product.sale_id;
                 const err = generatingError[product.sale_id];
                 const generatedUrl = generatedImages[product.sale_id];
+                const flatUrl = generatedFlatImages[product.sale_id];
                 const tmpUrl = tempPhotoUrl[product.sale_id];
                 const isUploading = uploadingPhoto === product.sale_id;
                 const displayPhoto = tmpUrl || product.photo;
@@ -485,14 +492,24 @@ export default function PhotoGenPage() {
                         {product.shelf_no && <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>}
                         {product.manufacturer && <div className="text-[10px] text-gray-400">厂家: {product.manufacturer}</div>}
 
-                        {generatedUrl && (
-                          <div className="mt-2">
-                            <img
-                              src={generatedUrl}
-                              alt="白底图"
-                              className="w-full max-h-24 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
-                              onClick={() => setImgPreview(generatedUrl)}
-                            />
+                        {(generatedUrl || flatUrl) && (
+                          <div className="mt-2 flex gap-1">
+                            {generatedUrl && (
+                              <img
+                                src={generatedUrl}
+                                alt="试穿图"
+                                className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-[#9B59B6] cursor-pointer"
+                                onClick={() => setImgPreview(generatedUrl)}
+                              />
+                            )}
+                            {flatUrl && (
+                              <img
+                                src={flatUrl}
+                                alt="白底图"
+                                className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
+                                onClick={() => setImgPreview(flatUrl)}
+                              />
+                            )}
                           </div>
                         )}
                       </div>

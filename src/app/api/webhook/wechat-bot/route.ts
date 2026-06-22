@@ -511,10 +511,11 @@ function encryptXmlResponse(xml: string, corpId: string): string {
 
 function xmlResponse(fromUserName: string, toUserName: string, content: string, isEncrypted: boolean = false, corpId: string = ""): Response {
   const xml = buildXmlTextResponse(fromUserName, toUserName, content);
+  const effectiveCorpId = corpId || WECHAT_CORP_ID || fromUserName;
   const responseXml = isEncrypted && WECHAT_ENCODING_AES_KEY
-    ? encryptXmlResponse(xml, corpId || fromUserName)
+    ? encryptXmlResponse(xml, effectiveCorpId)
     : xml;
-  console.log("[WECHAT] 响应模式:", isEncrypted ? "加密" : "明文", "前200字符:", responseXml.substring(0, 200));
+  console.log("[WECHAT] 响应模式:", isEncrypted ? "加密" : "明文", "corpId:", effectiveCorpId, "前200字符:", responseXml.substring(0, 200));
   return new Response(responseXml, { status: 200, headers: { "Content-Type": "text/xml; charset=utf-8" } });
 }
 

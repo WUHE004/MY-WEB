@@ -146,13 +146,21 @@ export async function POST(request: NextRequest) {
       }
 
       // 压缩图片（JPEG 格式，兼容性最好）
+      // 先读取文件到 buffer（只读一次，避免重复读取导致空 buffer）
+      let rawBuffer: Buffer;
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        rawBuffer = Buffer.from(arrayBuffer);
+      } catch (readError) {
+        errors.push(`${file.name}: 读取文件失败`);
+        continue;
+      }
+
       let compressed: Buffer;
       let finalExt = "jpg";
       let finalContentType = "image/jpeg";
       try {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        compressed = await sharp(buffer)
+        compressed = await sharp(rawBuffer)
           .resize(MAX_WIDTH, undefined, { fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: QUALITY })
           .toBuffer();
@@ -160,18 +168,12 @@ export async function POST(request: NextRequest) {
         const msg = sharpError instanceof Error ? sharpError.message : "未知错误";
         // sharp 失败时降级：直接上传原图（不压缩）
         console.warn(`[补充照片] sharp 压缩失败 (${file.name}): ${msg}，改上传原图`);
-        try {
-          const arrayBuffer = await file.arrayBuffer();
-          compressed = Buffer.from(arrayBuffer);
-          // 保留原始扩展名
-          const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
-          if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
-          else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
-          else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
-        } catch (rawError) {
-          errors.push(`${file.name}: 读取文件失败`);
-          continue;
-        }
+        compressed = rawBuffer;
+        // 保留原始扩展名
+        const origExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        if (origExt === "png") { finalExt = "png"; finalContentType = "image/png"; }
+        else if (origExt === "webp") { finalExt = "webp"; finalContentType = "image/webp"; }
+        else { finalExt = "jpg"; finalContentType = "image/jpeg"; }
       }
 
       // 上传到 Supabase Storage

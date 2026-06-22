@@ -719,7 +719,7 @@ export async function POST(request: NextRequest) {
     const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
     const imageBuffer = await compressImage(rawBuffer);
 
-    // 4. 查询商品详情并发送企业微信（先文本，再图片）
+    // 4. 查询商品详情并发送企业微信（先文本，再试穿图，再白底图）
     let wechatSent = false;
     if (WECHAT_WEBHOOK_URL) {
       try {
@@ -733,7 +733,7 @@ export async function POST(request: NextRequest) {
           : `售卖编号：${sale_id}`;
         await sendTextToWechat(productText);
 
-        // 再发送图片
+        // 再发送试穿图
         const base64Image = imageBuffer.toString("base64");
         const md5 = await computeMd5(imageBuffer);
         const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
@@ -742,8 +742,28 @@ export async function POST(request: NextRequest) {
           body: JSON.stringify({ msgtype: "image", image: { base64: base64Image, md5 } }),
         });
         const wechatData = await wechatRes.json();
-        console.log("企业微信发送结果:", wechatData);
+        console.log("企业微信发送试穿图结果:", wechatData);
         wechatSent = wechatData?.errcode === 0;
+
+        // 最后发送白底图
+        if (flatUrl) {
+          try {
+            const flatRes = await fetch(flatUrl);
+            const flatRawBuffer = Buffer.from(await flatRes.arrayBuffer());
+            const flatCompressed = await compressImage(flatRawBuffer);
+            const flatBase64 = flatCompressed.toString("base64");
+            const flatMd5 = await computeMd5(flatCompressed);
+            const flatWechatRes = await fetch(WECHAT_WEBHOOK_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ msgtype: "image", image: { base64: flatBase64, md5: flatMd5 } }),
+            });
+            const flatWechatData = await flatWechatRes.json();
+            console.log("企业微信发送白底图结果:", flatWechatData);
+          } catch (flatErr) {
+            console.error("微信发送白底图失败:", flatErr);
+          }
+        }
       } catch (wechatErr) {
         console.error("微信发送失败:", wechatErr);
       }
