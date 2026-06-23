@@ -1,13 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// 禁止操作的表（安全白名单外的表）
-const ALLOWED_TABLES = [
-  "inbound_records", "sales_records", "return_records", "members",
-  "model_library", "model_usage", "accounts", "live_selections",
-  "douyin_links", "pack_records", "pack_items", "monthly_revenue",
-  "transactions", "category_data", "platform_revenue", "settings", "links",
-];
+// 表名 → 列名列表
+const TABLE_COLUMNS: Record<string, string[]> = {
+  inbound_records: ["id", "sale_id", "name", "manufacturer", "cost_price", "sell_price", "total_stock", "photo", "shelf_no", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "created_at", "updated_at"],
+  sales_records: ["id", "sale_id", "name", "size", "quantity", "sell_price", "member_id", "member_name", "created_at"],
+  return_records: ["id", "sale_id", "name", "size", "quantity", "member_id", "member_name", "created_at"],
+  members: ["id", "name", "phone", "password", "role", "is_online", "last_online", "address", "recipient", "recipient_phone", "douyin", "created_at"],
+  model_library: ["id", "name", "photo_url", "created_at"],
+  model_usage: ["id", "member_id", "model_name", "created_at"],
+  accounts: ["id", "name", "type", "amount", "created_at"],
+  live_selections: ["id", "sale_id", "name", "created_at"],
+  douyin_links: ["id", "name", "url", "created_at"],
+  pack_records: ["id", "member_id", "member_name", "created_at"],
+  pack_items: ["id", "pack_id", "sale_id", "name", "size", "quantity", "created_at"],
+  monthly_revenue: ["id", "month", "revenue", "cost", "profit", "created_at"],
+  transactions: ["id", "type", "amount", "description", "created_at"],
+  category_data: ["id", "name", "value", "created_at"],
+  platform_revenue: ["id", "platform", "revenue", "created_at"],
+  settings: ["id", "key", "value", "created_at"],
+  links: ["id", "name", "url", "created_at"],
+};
 
 // GET: 获取表数据（分页 + 排序 + 筛选）
 export async function GET(request: NextRequest) {
@@ -20,20 +33,12 @@ export async function GET(request: NextRequest) {
     const order = searchParams.get("order") || "desc";
     const filter = searchParams.get("filter") || "";
 
-    if (!table || !ALLOWED_TABLES.includes(table)) {
+    if (!table || !TABLE_COLUMNS[table]) {
       return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     }
 
+    const columnNames = TABLE_COLUMNS[table];
     const ascending = order === "asc";
-
-    // 先获取列信息用于筛选
-    const { data: columns } = await supabase
-      .from("information_schema.columns")
-      .select("column_name")
-      .eq("table_schema", "public")
-      .eq("table_name", table);
-
-    const columnNames = (columns || []).map((c) => c.column_name as string);
 
     // 构建查询
     let query = supabase.from(table).select("*", { count: "exact" });
@@ -82,7 +87,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { table, data } = body as { table: string; data: Record<string, unknown> };
 
-    if (!table || !ALLOWED_TABLES.includes(table)) {
+    if (!table || !TABLE_COLUMNS[table]) {
       return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     }
     if (!data || typeof data !== "object") {
@@ -120,7 +125,7 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { table, id, data } = body as { table: string; id: string; data: Record<string, unknown> };
 
-    if (!table || !ALLOWED_TABLES.includes(table)) {
+    if (!table || !TABLE_COLUMNS[table]) {
       return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     }
     if (!id) {
@@ -163,7 +168,7 @@ export async function DELETE(request: NextRequest) {
     const table = searchParams.get("table");
     const id = searchParams.get("id");
 
-    if (!table || !ALLOWED_TABLES.includes(table)) {
+    if (!table || !TABLE_COLUMNS[table]) {
       return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     }
     if (!id) {

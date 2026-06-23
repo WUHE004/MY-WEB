@@ -1,58 +1,212 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
 
-// 表名 → 中文名映射
-const TABLE_LABELS: Record<string, string> = {
-  inbound_records: "入库记录",
-  sales_records: "销售记录",
-  return_records: "退货记录",
-  members: "成员管理",
-  model_library: "模特库",
-  model_usage: "模型用量",
-  accounts: "账户管理",
-  live_selections: "直播选品",
-  douyin_links: "抖音链接",
-  pack_records: "打包记录",
-  pack_items: "打包明细",
-  monthly_revenue: "月度营收",
-  transactions: "交易记录",
-  category_data: "分类数据",
-  platform_revenue: "平台营收",
-  settings: "系统设置",
-  links: "快捷链接",
+// 表名 → 中文名 + 列定义
+const TABLE_SCHEMAS: Record<string, { label: string; columns: Array<{ name: string; type: string; nullable: boolean }> }> = {
+  inbound_records: {
+    label: "入库记录",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "sale_id", type: "text", nullable: true },
+      { name: "name", type: "text", nullable: true },
+      { name: "manufacturer", type: "text", nullable: true },
+      { name: "cost_price", type: "numeric", nullable: true },
+      { name: "sell_price", type: "numeric", nullable: true },
+      { name: "total_stock", type: "integer", nullable: true },
+      { name: "photo", type: "text", nullable: true },
+      { name: "shelf_no", type: "text", nullable: true },
+      { name: "size_80", type: "integer", nullable: true },
+      { name: "size_90", type: "integer", nullable: true },
+      { name: "size_95", type: "integer", nullable: true },
+      { name: "size_100", type: "integer", nullable: true },
+      { name: "size_105", type: "integer", nullable: true },
+      { name: "size_110", type: "integer", nullable: true },
+      { name: "size_120", type: "integer", nullable: true },
+      { name: "size_130", type: "integer", nullable: true },
+      { name: "size_140", type: "integer", nullable: true },
+      { name: "size_150", type: "integer", nullable: true },
+      { name: "size_160", type: "integer", nullable: true },
+      { name: "size_170", type: "integer", nullable: true },
+      { name: "size_180", type: "integer", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+      { name: "updated_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  sales_records: {
+    label: "销售记录",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "sale_id", type: "text", nullable: true },
+      { name: "name", type: "text", nullable: true },
+      { name: "size", type: "text", nullable: true },
+      { name: "quantity", type: "integer", nullable: true },
+      { name: "sell_price", type: "numeric", nullable: true },
+      { name: "member_id", type: "text", nullable: true },
+      { name: "member_name", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  return_records: {
+    label: "退货记录",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "sale_id", type: "text", nullable: true },
+      { name: "name", type: "text", nullable: true },
+      { name: "size", type: "text", nullable: true },
+      { name: "quantity", type: "integer", nullable: true },
+      { name: "member_id", type: "text", nullable: true },
+      { name: "member_name", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  members: {
+    label: "成员管理",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "phone", type: "text", nullable: true },
+      { name: "password", type: "text", nullable: true },
+      { name: "role", type: "text", nullable: true },
+      { name: "is_online", type: "boolean", nullable: true },
+      { name: "last_online", type: "timestamptz", nullable: true },
+      { name: "address", type: "text", nullable: true },
+      { name: "recipient", type: "text", nullable: true },
+      { name: "recipient_phone", type: "text", nullable: true },
+      { name: "douyin", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  model_library: {
+    label: "模特库",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "photo_url", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  model_usage: {
+    label: "模型用量",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "member_id", type: "text", nullable: true },
+      { name: "model_name", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  accounts: {
+    label: "账户管理",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "type", type: "text", nullable: true },
+      { name: "amount", type: "numeric", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  live_selections: {
+    label: "直播选品",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "sale_id", type: "text", nullable: true },
+      { name: "name", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  douyin_links: {
+    label: "抖音链接",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "url", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  pack_records: {
+    label: "打包记录",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "member_id", type: "text", nullable: true },
+      { name: "member_name", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  pack_items: {
+    label: "打包明细",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "pack_id", type: "uuid", nullable: true },
+      { name: "sale_id", type: "text", nullable: true },
+      { name: "name", type: "text", nullable: true },
+      { name: "size", type: "text", nullable: true },
+      { name: "quantity", type: "integer", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  monthly_revenue: {
+    label: "月度营收",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "month", type: "text", nullable: true },
+      { name: "revenue", type: "numeric", nullable: true },
+      { name: "cost", type: "numeric", nullable: true },
+      { name: "profit", type: "numeric", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  transactions: {
+    label: "交易记录",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "type", type: "text", nullable: true },
+      { name: "amount", type: "numeric", nullable: true },
+      { name: "description", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  category_data: {
+    label: "分类数据",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "value", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  platform_revenue: {
+    label: "平台营收",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "platform", type: "text", nullable: true },
+      { name: "revenue", type: "numeric", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  settings: {
+    label: "系统设置",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "key", type: "text", nullable: true },
+      { name: "value", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
+  links: {
+    label: "快捷链接",
+    columns: [
+      { name: "id", type: "uuid", nullable: false },
+      { name: "name", type: "text", nullable: true },
+      { name: "url", type: "text", nullable: true },
+      { name: "created_at", type: "timestamptz", nullable: true },
+    ],
+  },
 };
 
 export async function GET() {
   try {
-    // 通过 information_schema 查询所有 public 表及其列信息
-    const { data, error } = await supabase
-      .from("information_schema.columns")
-      .select("table_name, column_name, data_type, is_nullable")
-      .eq("table_schema", "public")
-      .order("table_name", { ascending: true })
-      .order("ordinal_position", { ascending: true });
-
-    if (error) {
-      console.error("查询表结构失败:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // 按表名分组
-    const tableMap = new Map<string, Array<{ name: string; type: string; nullable: boolean }>>();
-    for (const row of (data || [])) {
-      const tn = row.table_name as string;
-      if (!tableMap.has(tn)) tableMap.set(tn, []);
-      tableMap.get(tn)!.push({
-        name: row.column_name as string,
-        type: row.data_type as string,
-        nullable: (row.is_nullable as string) === "YES",
-      });
-    }
-
-    const tables = Array.from(tableMap.entries()).map(([name, columns]) => ({
+    const tables = Object.entries(TABLE_SCHEMAS).map(([name, schema]) => ({
       name,
-      label: TABLE_LABELS[name] || name,
-      columns,
+      label: schema.label,
+      columns: schema.columns,
     }));
 
     return NextResponse.json({ tables });

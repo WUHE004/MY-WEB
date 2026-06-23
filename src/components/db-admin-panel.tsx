@@ -264,7 +264,7 @@ export function DbAdminPanel() {
   };
 
   return (
-    <div className="flex gap-0 h-[calc(100vh-280px)] min-h-[500px]">
+    <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-10 xl:-mx-14 h-[calc(100vh-260px)] min-h-[500px]">
       {/* 左侧表列表 */}
       <div className="w-48 lg:w-56 shrink-0 border-r-[3px] border-gray-200 bg-gray-50 flex flex-col">
         <div className="p-3 border-b-2 border-gray-200">
