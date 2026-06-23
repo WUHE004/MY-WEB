@@ -153,12 +153,12 @@ export default function MembersPage() {
           <ArrowLeft className="h-4 w-4" />
           返回首页
         </Link>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
             <Settings className="h-6 w-6 lg:h-8 lg:w-8 inline mr-2" />
             后台管理
           </h1>
-          {/* Tab 切换 */}
+          {/* Tab 切换 右对齐 */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab("members")}

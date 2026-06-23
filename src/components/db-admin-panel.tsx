@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye } from "lucide-react";
+import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download } from "lucide-react";
 
 interface ColumnInfo {
   name: string;
@@ -59,8 +59,6 @@ export function DbAdminPanel() {
   const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(null);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-
-  // 图片预览放大
   const [previewImg, setPreviewImg] = useState<string | null>(null);
 
   // ===== Storage 管理状态 =====
@@ -76,6 +74,7 @@ export function DbAdminPanel() {
   const [storagePage, setStoragePage] = useState(1);
   const [storagePageSize] = useState(100);
   const [storageTotalPages, setStorageTotalPages] = useState(1);
+  const [validSaleIds, setValidSaleIds] = useState<Set<string>>(new Set());
 
   // ===== 数据库操作 =====
   const fetchTables = useCallback(async () => {
@@ -176,6 +175,28 @@ export function DbAdminPanel() {
     } catch { alert("删除失败"); }
   };
 
+  // 导出 CSV
+  const handleExport = () => {
+    if (!selectedTable || data.length === 0) return;
+    const cols = getDisplayColumns();
+    const BOM = "\uFEFF";
+    const header = cols.map((c) => c.label).join(",");
+    const rows = data.map((row) =>
+      cols.map((col) => {
+        const val = formatCell(row[col.name]);
+        return val.includes(",") || val.includes('"') || val.includes("\n") ? `"${val.replace(/"/g, '""')}"` : val;
+      }).join(",")
+    );
+    const csv = BOM + [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${selectedTable.label}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const formatCell = (val: unknown): string => {
     if (val === null || val === undefined) return "";
     if (typeof val === "boolean") return val ? "是" : "否";
@@ -206,6 +227,17 @@ export function DbAdminPanel() {
   };
 
   // ===== Storage 操作 =====
+  const fetchValidSaleIds = useCallback(async () => {
+    try {
+      const res = await fetch("/api/db-admin?table=inbound_records&page=1&pageSize=5000&sort=sale_id&order=asc");
+      const json = await res.json();
+      if (json.data) {
+        const ids = new Set<string>((json.data as Array<{ sale_id?: string }>).map((r) => r.sale_id || "").filter(Boolean));
+        setValidSaleIds(ids);
+      }
+    } catch { /* 静默 */ }
+  }, []);
+
   const fetchBuckets = useCallback(async () => {
     setStorageLoading(true);
     setStorageError("");
@@ -278,22 +310,22 @@ export function DbAdminPanel() {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const handleInitStorage = () => { setActivePanel("storage"); fetchBuckets(); };
+  const handleInitStorage = () => { setActivePanel("storage"); fetchBuckets(); fetchValidSaleIds(); };
 
-  // 从文件名提取商品编号 (如 H001_1.jpg → H001, IMG_1234.jpg → IMG_1234)
+  // 从文件名匹配入库记录中的商品编号
   const extractSaleId = (fileName: string): string => {
-    // 去掉扩展名
     const nameWithoutExt = fileName.replace(/\.[^.]+$/, "");
-    // 尝试 H001 风格
-    let match = nameWithoutExt.match(/^([A-Za-z]+\d+)/);
-    if (match) return match[1];
-    // 尝试下划线前缀
-    match = nameWithoutExt.match(/^([^_]+)/);
-    if (match && match[1].length >= 2) return match[1];
-    return nameWithoutExt.length <= 20 ? nameWithoutExt : "";
+    // 尝试直接匹配
+    if (validSaleIds.has(nameWithoutExt)) return nameWithoutExt;
+    // 尝试匹配 H001_1 → H001 风格
+    for (const id of validSaleIds) {
+      if (nameWithoutExt.startsWith(id + "_") || nameWithoutExt === id) return id;
+    }
+    // 兜底：提取字母+数字前缀
+    const match = nameWithoutExt.match(/^([A-Za-z]+\d+)/);
+    return match ? match[1] : "";
   };
 
-  // 获取 Storage 文件的公开 URL
   const getStorageFileUrl = (fileName: string): string => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const filePath = currentPath ? `${currentPath}/${fileName}` : fileName;
@@ -301,9 +333,9 @@ export function DbAdminPanel() {
   };
 
   return (
-    <div className="flex gap-0 -mx-4 sm:-mx-6 lg:-mx-10 xl:-mx-14 h-[calc(100vh-260px)] min-h-[500px]">
-      {/* ===== 左侧导航 ===== */}
-      <div className="w-48 lg:w-56 shrink-0 border-r-[3px] border-gray-900 bg-white flex flex-col rounded-l-2xl border-[3px] border-r-[3px]">
+    <div className="flex gap-3 h-[calc(100vh-260px)] min-h-[500px]">
+      {/* ===== 左侧导航（独立圆角矩形 + 投影） ===== */}
+      <div className="w-48 lg:w-56 shrink-0 bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col overflow-hidden">
         {/* 功能切换 */}
         <div className="p-3 border-b-[3px] border-gray-900">
           <div className="flex items-center gap-2 mb-2">
@@ -326,7 +358,6 @@ export function DbAdminPanel() {
           </div>
         </div>
 
-        {/* 数据库模式：表列表 */}
         {activePanel === "database" && (
           <>
             <div className="p-3 border-b-[3px] border-gray-900">
@@ -354,7 +385,6 @@ export function DbAdminPanel() {
           </>
         )}
 
-        {/* Storage 模式：Bucket 列表 */}
         {activePanel === "storage" && (
           <>
             <div className="p-3 border-b-[3px] border-gray-900">
@@ -384,8 +414,8 @@ export function DbAdminPanel() {
         )}
       </div>
 
-      {/* ===== 右侧内容区 ===== */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-r-2xl border-[3px] border-gray-900 border-l-0">
+      {/* ===== 右侧内容区（独立圆角矩形 + 投影） ===== */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
         {/* ===== 数据库模式 ===== */}
         {activePanel === "database" && (
           !selectedTable ? (
@@ -409,6 +439,9 @@ export function DbAdminPanel() {
                 </div>
                 <button onClick={handleAdd} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl border-[3px] border-gray-900 bg-white hover:bg-gray-100 transition-colors">
                   <Plus className="h-3 w-3" />新增
+                </button>
+                <button onClick={handleExport} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl border-[3px] border-gray-900 bg-white hover:bg-gray-100 transition-colors">
+                  <Download className="h-3 w-3" />导出
                 </button>
                 <span className="text-[10px] text-gray-400">共 {total} 条 · 第 {page}/{totalPages} 页</span>
               </div>
@@ -455,7 +488,7 @@ export function DbAdminPanel() {
                                   <div className="group relative inline-flex items-center">
                                     <img
                                       src={imgUrl} alt=""
-                                      className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[5] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left shrink-0"
+                                      className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[2] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left shrink-0"
                                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                                       onClick={() => setPreviewImg(imgUrl)}
                                     />
@@ -569,7 +602,7 @@ export function DbAdminPanel() {
                                   {isImageFile ? (
                                     <div className="group relative shrink-0">
                                       <img src={imageUrl} alt={file.name}
-                                        className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[5] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left"
+                                        className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[2] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left"
                                         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                                         onClick={() => setPreviewImg(imageUrl)} />
                                     </div>
