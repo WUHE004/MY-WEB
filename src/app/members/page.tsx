@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle } from "lucide-react";
+import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle, Database } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
+import { DbAdminPanel } from "@/components/db-admin-panel";
 
 interface Member {
   id: string;
@@ -31,6 +32,7 @@ export default function MembersPage() {
   const [currentRole, setCurrentRole] = useState("");
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
   const [editingPassword, setEditingPassword] = useState<Record<string, string>>({});
+  const [activeTab, setActiveTab] = useState<"members" | "database">("members");
 
   useEffect(() => {
     const role = localStorage.getItem("member_role") || "";
@@ -158,9 +160,41 @@ export default function MembersPage() {
         <p className="text-sm lg:text-lg text-gray-600 font-medium">
           管理所有成员的访问权限等级
         </p>
+
+        {/* Tab 切换 */}
+        <div className="flex items-center gap-2 mt-4">
+          <button
+            onClick={() => setActiveTab("members")}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
+              activeTab === "members"
+                ? "border-gray-900 bg-gray-900 text-white"
+                : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
+            }`}
+          >
+            <Shield className="h-4 w-4" />
+            成员管理
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab("database")}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
+                activeTab === "database"
+                  ? "border-gray-900 bg-gray-900 text-white"
+                  : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
+              }`}
+            >
+              <Database className="h-4 w-4" />
+              数据库管理
+            </button>
+          )}
+        </div>
       </div>
 
-      {error && (
+      {activeTab === "database" ? (
+        <DbAdminPanel />
+      ) : (
+        <>
+          {error && (
         <div className="p-3 rounded-lg bg-red-50 border-2 border-red-200 mb-4">
           <p className="text-sm font-bold text-red-600">{error}</p>
         </div>
@@ -336,6 +370,8 @@ export default function MembersPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </PageWrapper>
   );
 }

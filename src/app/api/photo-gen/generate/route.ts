@@ -240,8 +240,33 @@ async function callAgnesFlatOnly(productPhotoUrl: string): Promise<string | null
   }
 }
 
-// 调用 Agnes 模型（Agnes视觉识别 + Agnes图生图，完全免费）
-async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null } | null> {
+// 调用 Agnes 文本模型生成拍摄场景和配饰描述
+async function callAgnesTextModel(garmentDesc: string, modelDesc: string): Promise<string> {
+  try {
+    const prompt = `Based on this clothing: "${garmentDesc}", worn by ${modelDesc}, generate a professional fashion photoshoot scene and outfit suggestion. If the clothing is a top (t-shirt, shirt, hoodie, etc.), suggest matching bottoms (pants, jeans, skirt) and shoes. If it's a dress, suggest matching shoes and accessories. Describe the scene: location, lighting, composition, camera angle. Output ONLY the scene description in English, under 80 words, format: "Wearing [outfit], [scene description], [photography style]". No extra text.`;
+
+    const res = await fetch(`${AGNES_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-2.0-flash",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 200,
+        temperature: 0.7,
+      }),
+    });
+    const data = await res.json();
+    const scene = data?.choices?.[0]?.message?.content || "";
+    console.log("Agnes: 场景描述:", scene);
+    return scene;
+  } catch (err) {
+    console.error("Agnes: 场景描述生成失败:", err);
+    return "";
+  }
+}
+
+// 调用 Agnes 模型（一键生成流程：白底图 → 场景描述 → 竖版试穿图）
+async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null; sceneDescription: string }> {
   if (!AGNES_API_KEY) {
     throw new Error("Agnes API Key 未配置");
   }
@@ -293,31 +318,11 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
     } catch (_e) { /* 保持默认 */ }
     console.log("Agnes: 模特描述:", modelDesc);
 
-    // 步骤3: 用 Agnes 图生图生成模特试穿图（传入衣服照片+模特照片作为参考）
-    console.log("Agnes: 生成模特试穿图（图生图）...");
-    const modelPrompt = `Make the child model wear the exact garment from the clothing photo. ${garmentDesc}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the clothing photo exactly — same type, same colors, same patterns, same fabric texture, same neckline, same sleeves, same details. Natural studio lighting, full body, front view, clean background, professional product photography.`;
+    // 步骤3: 先调用文本模型生成拍摄场景和配饰
+    console.log("Agnes: 生成拍摄场景和配饰...");
+    const sceneDescription = await callAgnesTextModel(garmentDesc, modelDesc);
 
-    const modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-image-2.0-flash",
-        prompt: modelPrompt,
-        size: "1024x1024",
-        tags: ["img2img"],
-        extra_body: { image: [productPhotoUrl, modelPhotoUrl], response_format: "url" },
-      }),
-    });
-    const modelData = await modelRes.json();
-    if (!modelRes.ok) {
-      console.error("Agnes: 模特图生成失败:", modelData);
-      throw new Error(`模特图生成失败: ${JSON.stringify(modelData)}`);
-    }
-    const modelUrl = modelData?.data?.[0]?.url || null;
-    if (!modelUrl) throw new Error("模特图生成失败：未返回图片");
-    console.log("Agnes: 模特图生成成功:", modelUrl);
-
-    // 步骤4: 用 Agnes 图生图生成白底平铺图（传入衣服照片作为参考）
+    // 步骤4: 图生图生成白底平铺图（传入衣服照片作为参考）
     console.log("Agnes: 生成白底平铺图（图生图）...");
     let flatUrl: string | null = null;
     try {
@@ -344,10 +349,38 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
       console.error("Agnes: 白底图生成异常:", flatErr);
     }
 
-    return { modelUrl, flatUrl };
+    // 步骤5: 图生图生成竖版模特试穿图（白底图+模特照片+场景描述）
+    console.log("Agnes: 生成竖版模特试穿图（图生图）...");
+    const scenePrompt = sceneDescription
+      ? `Make the child model wear the exact garment from the flat lay photo. ${sceneDescription}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Full body shot, vertical composition, professional product photography.`
+      : `Make the child model wear the exact garment from the flat lay photo. ${garmentDesc}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Full body shot, vertical composition, professional product photography.`;
+
+    const modelImages = flatUrl ? [flatUrl, modelPhotoUrl] : [productPhotoUrl, modelPhotoUrl];
+
+    const modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+      body: JSON.stringify({
+        model: "agnes-image-2.0-flash",
+        prompt: scenePrompt,
+        size: "768x1024",
+        tags: ["img2img"],
+        extra_body: { image: modelImages, response_format: "url" },
+      }),
+    });
+    const modelData = await modelRes.json();
+    if (!modelRes.ok) {
+      console.error("Agnes: 竖版试穿图生成失败:", modelData);
+      throw new Error(`竖版试穿图生成失败: ${JSON.stringify(modelData)}`);
+    }
+    const modelUrl = modelData?.data?.[0]?.url || null;
+    if (!modelUrl) throw new Error("竖版试穿图生成失败：未返回图片");
+    console.log("Agnes: 竖版试穿图生成成功:", modelUrl);
+
+    return { modelUrl, flatUrl, sceneDescription };
   } catch (err) {
     console.error("Agnes: 生成失败:", err);
-    return null;
+    return { modelUrl: null, flatUrl: null, sceneDescription: "" };
   }
 }
 
