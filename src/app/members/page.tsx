@@ -153,41 +153,42 @@ export default function MembersPage() {
           <ArrowLeft className="h-4 w-4" />
           返回首页
         </Link>
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
-          <Settings className="h-6 w-6 lg:h-8 lg:w-8 inline mr-2" />
-          后台管理
-        </h1>
-        <p className="text-sm lg:text-lg text-gray-600 font-medium">
-          成员权限 · 数据库 · 存储管理
-        </p>
-
-        {/* Tab 切换 */}
-        <div className="flex items-center gap-2 mt-4">
-          <button
-            onClick={() => setActiveTab("members")}
-            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
-              activeTab === "members"
-                ? "border-gray-900 bg-gray-900 text-white"
-                : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
-            }`}
-          >
-            <Shield className="h-4 w-4" />
-            成员管理
-          </button>
-          {isAdmin && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
+            <Settings className="h-6 w-6 lg:h-8 lg:w-8 inline mr-2" />
+            后台管理
+          </h1>
+          {/* Tab 切换 */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setActiveTab("database")}
+              onClick={() => setActiveTab("members")}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
-                activeTab === "database"
+                activeTab === "members"
                   ? "border-gray-900 bg-gray-900 text-white"
                   : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
               }`}
             >
-              <Database className="h-4 w-4" />
-              数据库管理
+              <Shield className="h-4 w-4" />
+              成员管理
             </button>
-          )}
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab("database")}
+                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
+                  activeTab === "database"
+                    ? "border-gray-900 bg-gray-900 text-white"
+                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
+                }`}
+              >
+                <Database className="h-4 w-4" />
+                数据库管理
+              </button>
+            )}
+          </div>
         </div>
+        <p className="text-sm lg:text-lg text-gray-600 font-medium mt-1">
+          成员权限 · 数据库 · 存储管理
+        </p>
       </div>
 
       {activeTab === "database" ? (

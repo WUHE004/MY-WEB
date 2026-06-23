@@ -280,10 +280,17 @@ export function DbAdminPanel() {
 
   const handleInitStorage = () => { setActivePanel("storage"); fetchBuckets(); };
 
-  // 从文件名提取商品编号 (如 H001_1.jpg → H001)
+  // 从文件名提取商品编号 (如 H001_1.jpg → H001, IMG_1234.jpg → IMG_1234)
   const extractSaleId = (fileName: string): string => {
-    const match = fileName.match(/^([A-Za-z]+\d+)/);
-    return match ? match[1] : "";
+    // 去掉扩展名
+    const nameWithoutExt = fileName.replace(/\.[^.]+$/, "");
+    // 尝试 H001 风格
+    let match = nameWithoutExt.match(/^([A-Za-z]+\d+)/);
+    if (match) return match[1];
+    // 尝试下划线前缀
+    match = nameWithoutExt.match(/^([^_]+)/);
+    if (match && match[1].length >= 2) return match[1];
+    return nameWithoutExt.length <= 20 ? nameWithoutExt : "";
   };
 
   // 获取 Storage 文件的公开 URL
@@ -443,21 +450,18 @@ export function DbAdminPanel() {
                             const imgUrl = isPhoto && isImageUrl(val) ? String(val) : null;
 
                             return (
-                              <td key={col.name} className="py-1 px-2 text-gray-700 max-w-[180px] align-top">
+                              <td key={col.name} className="py-1 px-2 text-gray-700 max-w-[180px] whitespace-nowrap">
                                 {imgUrl ? (
-                                  <div className="group relative inline-block">
+                                  <div className="group relative inline-flex items-center">
                                     <img
                                       src={imgUrl} alt=""
-                                      className="w-16 h-16 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[2.5] group-hover:z-20 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left"
+                                      className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[5] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left shrink-0"
                                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                                       onClick={() => setPreviewImg(imgUrl)}
                                     />
-                                    <div className="text-[9px] text-gray-400 truncate max-w-[150px] mt-0.5" title={imgUrl}>
-                                      {imgUrl.length > 30 ? imgUrl.substring(0, 30) + "..." : imgUrl}
-                                    </div>
                                   </div>
                                 ) : (
-                                  <span className="text-[11px] leading-tight break-all" title={formatCell(val)}>{formatCell(val)}</span>
+                                  <span className="text-[11px] truncate block" title={formatCell(val)}>{formatCell(val)}</span>
                                 )}
                               </td>
                             );
@@ -565,7 +569,7 @@ export function DbAdminPanel() {
                                   {isImageFile ? (
                                     <div className="group relative shrink-0">
                                       <img src={imageUrl} alt={file.name}
-                                        className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[2.5] group-hover:z-20 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left"
+                                        className="w-12 h-12 object-cover rounded-lg border-[2px] border-gray-200 group-hover:scale-[5] group-hover:z-50 group-hover:shadow-xl transition-transform duration-300 cursor-pointer origin-top-left"
                                         onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                                         onClick={() => setPreviewImg(imageUrl)} />
                                     </div>
