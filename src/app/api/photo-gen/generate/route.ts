@@ -352,8 +352,8 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
     // 步骤5: 图生图生成竖版模特试穿图（白底图+模特照片+场景描述）
     console.log("Agnes: 生成竖版模特试穿图（图生图）...");
     const scenePrompt = sceneDescription
-      ? `Make the child model wear the exact garment from the flat lay photo. ${sceneDescription}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Full body shot, vertical composition, professional product photography.`
-      : `Make the child model wear the exact garment from the flat lay photo. ${garmentDesc}. Preserve the model's face, body shape, pose, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Full body shot, vertical composition, professional product photography.`;
+      ? `Make the child model wear the exact garment from the flat lay photo. ${sceneDescription}. Preserve the model's face, body shape, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Simple clean background, soft studio lighting. Natural relaxed pose with small subtle movement, standing naturally. Full body shot, vertical composition.`
+      : `Make the child model wear the exact garment from the flat lay photo. ${garmentDesc}. Preserve the model's face, body shape, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Simple clean background, soft studio lighting. Natural relaxed pose with small subtle movement, standing naturally. Full body shot, vertical composition.`;
 
     const modelImages = flatUrl ? [flatUrl, modelPhotoUrl] : [productPhotoUrl, modelPhotoUrl];
 

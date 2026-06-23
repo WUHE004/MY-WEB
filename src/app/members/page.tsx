@@ -155,10 +155,10 @@ export default function MembersPage() {
         </Link>
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
           <Settings className="h-6 w-6 lg:h-8 lg:w-8 inline mr-2" />
-          成员管理
+          后台管理
         </h1>
         <p className="text-sm lg:text-lg text-gray-600 font-medium">
-          管理所有成员的访问权限等级
+          成员权限 · 数据库 · 存储管理
         </p>
 
         {/* Tab 切换 */}
