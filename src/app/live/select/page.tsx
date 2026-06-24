@@ -242,11 +242,8 @@ export default function LiveSelectPage() {
 
   const confirmClearAll = () => {
     if (!isAdmin) return;
-    const name = memberNameRef.current || "未知设备";
-    fetch("/api/live-selections", {
+    fetch("/api/live-selections?all=true", {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ member_name: name }),
     }).then(() => {
       setSelectedIds([]);
       saveSelectedToStorage([]);
@@ -256,7 +253,7 @@ export default function LiveSelectPage() {
   };
 
   const handleExport = () => {
-    if (selectedProducts.length === 0) {
+    if (allSelectedProducts.length === 0) {
       alert("没有已选商品");
       return;
     }
@@ -289,7 +286,7 @@ export default function LiveSelectPage() {
     const fields = [...allFields, ...sizeFields].filter((f) => f.enabled);
 
     const header = fields.map((f) => f.label).join(",");
-    const rows = selectedProducts.map((p) =>
+    const rows = allSelectedProducts.map((p) =>
       fields.map((f) => {
         let val: unknown;
         if (f.key === "return_rate") {
@@ -337,12 +334,12 @@ export default function LiveSelectPage() {
     const warnings: string[] = [];
 
     // SKU数量检查
-    if (selectedProducts.length > DOUYIN_RULES.MAX_COMBO_SKU) {
-      errors.push(`复合链接最多支持 ${DOUYIN_RULES.MAX_COMBO_SKU} 个SKU，当前已选 ${selectedProducts.length} 个`);
+    if (allSelectedProducts.length > DOUYIN_RULES.MAX_COMBO_SKU) {
+      errors.push(`复合链接最多支持 ${DOUYIN_RULES.MAX_COMBO_SKU} 个SKU，当前已选 ${allSelectedProducts.length} 个`);
     }
 
     // 逐个商品检查
-    selectedProducts.forEach((p) => {
+    allSelectedProducts.forEach((p) => {
       // 商品名称检查
       const name = p.name || p.sale_id;
       if (name.length > DOUYIN_RULES.MAX_NAME_LENGTH) {
@@ -387,7 +384,7 @@ export default function LiveSelectPage() {
   const [showUploadResult, setShowUploadResult] = useState<{ success: boolean; message: string; results?: Array<{ sale_id: string; success: boolean; error?: string }> } | null>(null);
 
   const handleCreateLink = async () => {
-    if (selectedProducts.length === 0) {
+    if (allSelectedProducts.length === 0) {
       alert("没有已选商品");
       return;
     }
@@ -400,7 +397,7 @@ export default function LiveSelectPage() {
     }
 
     // 警告提示
-    let confirmMsg = `将通过 Playwright 自动化打开浏览器，将 ${selectedProducts.length} 个商品上架到抖店。\n\n请确保当前电脑已登录抖店。\n\n`;
+    let confirmMsg = `将通过 Playwright 自动化打开浏览器，将 ${allSelectedProducts.length} 个商品上架到抖店。\n\n请在弹出的浏览器中完成抖店登录（如未登录）。\n\n`;
     if (validation.warnings.length > 0) {
       confirmMsg += `⚠️ 注意事项（${validation.warnings.length}条）：\n${validation.warnings.slice(0, 5).map((w) => "• " + w).join("\n")}\n`;
       if (validation.warnings.length > 5) {
@@ -415,11 +412,11 @@ export default function LiveSelectPage() {
     }
 
     setUploading(true);
-    setUploadProgress({ current: 0, total: selectedProducts.length, msg: "准备中..." });
+    setUploadProgress({ current: 0, total: allSelectedProducts.length, msg: "准备中..." });
 
     try {
       // 构造商品数据
-      const products = selectedProducts.map((p) => {
+      const products = allSelectedProducts.map((p) => {
         const sizes: Record<string, number> = {};
         ALL_SIZES.forEach((s) => {
           const v = Number(p[`size_${s}`]) || 0;
@@ -800,7 +797,7 @@ export default function LiveSelectPage() {
             </div>
             <button
               onClick={handleCreateLink}
-              disabled={uploading || selectedProducts.length === 0}
+              disabled={uploading || allSelectedProducts.length === 0}
               className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg border-[2px] border-[#FFC93C] bg-[#FFC93C] text-gray-900 font-extrabold hover:bg-[#E5B528] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {uploading ? (
@@ -816,14 +813,14 @@ export default function LiveSelectPage() {
             </button>
             <button
               onClick={() => setShowExport(true)}
-              disabled={selectedProducts.length === 0}
+              disabled={allSelectedProducts.length === 0}
               className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg border-[2px] border-[#4A90E2] bg-[#4A90E2] text-white font-extrabold hover:bg-[#3A80D2] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="h-3 w-3" />导出
             </button>
             <button
               onClick={clearAll}
-              disabled={selectedProducts.length === 0}
+              disabled={allSelectedProducts.length === 0}
               className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg border-[2px] border-[#FF6B7A] bg-[#FF6B7A] text-white font-extrabold hover:bg-[#E55A6A] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 className="h-3 w-3" />清空
@@ -1062,7 +1059,7 @@ export default function LiveSelectPage() {
                 className="flex-1 py-2.5 rounded-xl border-[2px] border-[#4A90E2] bg-[#4A90E2] text-white font-extrabold text-sm hover:bg-[#3A80D2] disabled:opacity-50 transition-all"
               >
                 <Download className="h-4 w-4 inline mr-1" />
-                导出 CSV ({selectedProducts.length}款)
+                导出 CSV ({allSelectedProducts.length}款)
               </button>
             </div>
           </div>
@@ -1159,12 +1156,12 @@ export default function LiveSelectPage() {
               <div className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-red-100 border-[3px] border-red-300 mb-3">
                 <Trash2 className="h-7 w-7 text-red-500" />
               </div>
-              <h3 className="text-lg font-extrabold text-gray-900 mb-2">确认清空选品？</h3>
+              <h3 className="text-lg font-extrabold text-gray-900 mb-2">确认清空所有选品？</h3>
               <p className="text-sm text-gray-500 mb-1">
-                将清空您选择的 <span className="font-extrabold text-[#FF6B7A]">{selectedIds.length}</span> 款商品
+                将清空所有成员的 <span className="font-extrabold text-[#FF6B7A]">{totalSelectedCount}</span> 款商品
               </p>
               <p className="text-xs text-gray-400">
-                此操作不可撤销
+                此操作不可撤销，将清除所有成员的选品记录
               </p>
             </div>
             <div className="p-4 border-t-2 border-gray-200 flex gap-2">

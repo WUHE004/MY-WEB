@@ -64,26 +64,37 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE: 清空某成员的选品
+// DELETE: 清空某成员的选品，或清空所有成员选品（all=true）
 export async function DELETE(request: NextRequest) {
   try {
     let member_name: string | null = null;
+    let clearAll = false;
     const { searchParams } = new URL(request.url);
     member_name = searchParams.get("member_name");
+    clearAll = searchParams.get("all") === "true";
 
     // 也支持从 body 获取
-    if (!member_name) {
+    if (!member_name && !clearAll) {
       try {
         const body = await request.json();
         member_name = body.member_name;
+        clearAll = body.all === true;
       } catch { /* ignore */ }
     }
 
-    if (!member_name) {
-      return NextResponse.json({ error: "缺少 member_name" }, { status: 400 });
+    if (!member_name && !clearAll) {
+      return NextResponse.json({ error: "缺少 member_name 或 all 参数" }, { status: 400 });
     }
 
-    const { error } = await supabase.from("live_selections").delete().eq("member_name", member_name);
+    let error: any = null;
+    if (clearAll) {
+      const res = await supabase.from("live_selections").delete().neq("member_name", "");
+      error = res.error;
+    } else {
+      const res = await supabase.from("live_selections").delete().eq("member_name", member_name);
+      error = res.error;
+    }
+
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

@@ -195,14 +195,32 @@ export async function batchUploadProducts(
 
   try {
     // 检查登录
-    const loggedIn = await checkLogin(page);
+    let loggedIn = await checkLogin(page);
     if (!loggedIn) {
-      await context.close();
-      return products.map((p) => ({
-        sale_id: p.sale_id,
-        success: false,
-        error: "抖店未登录，请在弹出的浏览器中完成登录后重试",
-      }));
+      onProgress?.("检测到未登录，正在跳转到抖店登录页...", 0, products.length);
+      // 跳转到抖店登录页，让用户手动登录
+      await page.goto("https://fxg.jinritemai.com/", { waitUntil: "domcontentloaded", timeout: 30000 });
+      // 等待用户登录（最多等120秒，每3秒检测一次）
+      onProgress?.("请在弹出的浏览器中登录抖店，登录成功后将自动继续...", 0, products.length);
+      const maxWait = 120; // 最多等120秒
+      const interval = 3; // 每3秒检测一次
+      let waited = 0;
+      while (waited < maxWait) {
+        await page.waitForTimeout(interval * 1000);
+        waited += interval;
+        loggedIn = await checkLogin(page);
+        if (loggedIn) {
+          onProgress?.("登录成功！开始上架商品...", 0, products.length);
+          break;
+        }
+      }
+      if (!loggedIn) {
+        return products.map((p) => ({
+          sale_id: p.sale_id,
+          success: false,
+          error: "登录超时，请在浏览器中完成抖店登录后重试",
+        }));
+      }
     }
 
     const results: UploadResult[] = [];
