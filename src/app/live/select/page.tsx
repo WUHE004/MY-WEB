@@ -59,16 +59,34 @@ export default function LiveSelectPage() {
   // 导出弹窗
   const [showExport, setShowExport] = useState(false);
   const [exportFields, setExportFields] = useState({
-    name: true,
     sale_id: true,
-    sell_price: true,
-    cost_price: true,
-    remaining: true,
-    sold_total: true,
-    profit: true,
-    inventory_value: true,
+    name: true,
     manufacturer: false,
     shelf_no: false,
+    sell_price: true,
+    cost_price: false,
+    remaining: true,
+    inbound_total: false,
+    sold_total: true,
+    return_total: false,
+    return_rate: false,
+    profit: false,
+    profit_rate: false,
+    inventory_value: false,
+    photo: false,
+    size_80: false,
+    size_90: false,
+    size_95: false,
+    size_100: false,
+    size_105: false,
+    size_110: false,
+    size_120: false,
+    size_130: false,
+    size_140: false,
+    size_150: false,
+    size_160: false,
+    size_170: false,
+    size_180: false,
   });
 
   // 其他成员的选品
@@ -216,10 +234,15 @@ export default function LiveSelectPage() {
   };
 
   // 清空自己选品
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
   const clearAll = () => {
+    setShowClearConfirm(true);
+  };
+
+  const confirmClearAll = () => {
     if (!isAdmin) return;
     const name = memberNameRef.current || "未知设备";
-    // 只清空自己的选品
     fetch("/api/live-selections", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -229,6 +252,7 @@ export default function LiveSelectPage() {
       saveSelectedToStorage([]);
       fetchMemberSelections();
     });
+    setShowClearConfirm(false);
   };
 
   const handleExport = () => {
@@ -237,23 +261,50 @@ export default function LiveSelectPage() {
       return;
     }
 
-    const fields = [
-      { key: "name", label: "商品名称", enabled: exportFields.name },
+    const allFields = [
       { key: "sale_id", label: "商品编号", enabled: exportFields.sale_id },
-      { key: "sell_price", label: "售价", enabled: exportFields.sell_price },
-      { key: "cost_price", label: "进价", enabled: exportFields.cost_price },
-      { key: "remaining", label: "剩余库存", enabled: exportFields.remaining },
-      { key: "sold_total", label: "已售数量", enabled: exportFields.sold_total },
-      { key: "profit", label: "利润", enabled: exportFields.profit },
-      { key: "inventory_value", label: "库存价值", enabled: exportFields.inventory_value },
+      { key: "name", label: "商品名称", enabled: exportFields.name },
       { key: "manufacturer", label: "厂家", enabled: exportFields.manufacturer },
       { key: "shelf_no", label: "货架号", enabled: exportFields.shelf_no },
-    ].filter((f) => f.enabled);
+      { key: "sell_price", label: "售价(元)", enabled: exportFields.sell_price },
+      { key: "cost_price", label: "进价(元)", enabled: exportFields.cost_price },
+      { key: "inbound_total", label: "入库总数", enabled: exportFields.inbound_total },
+      { key: "sold_total", label: "已售数量", enabled: exportFields.sold_total },
+      { key: "return_total", label: "退货数量", enabled: exportFields.return_total },
+      { key: "remaining", label: "剩余库存", enabled: exportFields.remaining },
+      { key: "return_rate", label: "退货率", enabled: exportFields.return_rate },
+      { key: "profit", label: "总利润(元)", enabled: exportFields.profit },
+      { key: "profit_rate", label: "利润率", enabled: exportFields.profit_rate },
+      { key: "inventory_value", label: "库存价值(元)", enabled: exportFields.inventory_value },
+      { key: "photo", label: "商品照片链接", enabled: exportFields.photo },
+    ];
+
+    // 尺码字段
+    const sizeFields = ALL_SIZES.map((s) => ({
+      key: `size_${s}`,
+      label: `尺码${s}`,
+      enabled: exportFields[`size_${s}` as keyof typeof exportFields] as boolean,
+    }));
+
+    const fields = [...allFields, ...sizeFields].filter((f) => f.enabled);
 
     const header = fields.map((f) => f.label).join(",");
     const rows = selectedProducts.map((p) =>
       fields.map((f) => {
-        const val = p[f.key as keyof SummaryProduct];
+        let val: unknown;
+        if (f.key === "return_rate") {
+          const rate = p.sold_total > 0 ? p.return_total / p.sold_total : 0;
+          val = (rate * 100).toFixed(1) + "%";
+        } else if (f.key === "profit_rate") {
+          const profit = (p.sell_price - p.cost_price) * p.sold_total;
+          const revenue = p.sell_price * p.sold_total;
+          const rate = revenue > 0 ? profit / revenue : 0;
+          val = (rate * 100).toFixed(1) + "%";
+        } else if (f.key === "profit") {
+          val = ((p.sell_price - p.cost_price) * p.sold_total).toFixed(2);
+        } else {
+          val = p[f.key as keyof SummaryProduct];
+        }
         if (typeof val === "string" && val.includes(",")) return `"${val}"`;
         return val ?? "";
       }).join(",")
@@ -270,6 +321,66 @@ export default function LiveSelectPage() {
     setShowExport(false);
   };
 
+  // 抖店规范配置
+  const DOUYIN_RULES = {
+    MAX_COMBO_SKU: 10, // 复合链接最多10个SKU
+    MAX_NAME_LENGTH: 60, // 商品名称最长60字
+    MIN_PRICE: 0.01, // 最低价格
+    MAX_PRICE: 999999, // 最高价格
+    MIN_STOCK: 1, // 最低库存
+    IMAGE_FORMATS: ["jpg", "jpeg", "png", "webp"], // 支持的图片格式
+  };
+
+  // 抖店规范校验
+  const validateDouyinRules = () => {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // SKU数量检查
+    if (selectedProducts.length > DOUYIN_RULES.MAX_COMBO_SKU) {
+      errors.push(`复合链接最多支持 ${DOUYIN_RULES.MAX_COMBO_SKU} 个SKU，当前已选 ${selectedProducts.length} 个`);
+    }
+
+    // 逐个商品检查
+    selectedProducts.forEach((p) => {
+      // 商品名称检查
+      const name = p.name || p.sale_id;
+      if (name.length > DOUYIN_RULES.MAX_NAME_LENGTH) {
+        warnings.push(`【${p.sale_id}】商品名称过长（${name.length}字），建议控制在${DOUYIN_RULES.MAX_NAME_LENGTH}字以内`);
+      }
+      if (!name || name.trim().length === 0) {
+        errors.push(`【${p.sale_id}】商品名称不能为空`);
+      }
+
+      // 价格检查
+      const price = Number(p.sell_price) || 0;
+      if (price < DOUYIN_RULES.MIN_PRICE) {
+        errors.push(`【${p.sale_id}】售价不能低于 ¥${DOUYIN_RULES.MIN_PRICE}`);
+      }
+      if (price > DOUYIN_RULES.MAX_PRICE) {
+        errors.push(`【${p.sale_id}】售价不能超过 ¥${DOUYIN_RULES.MAX_PRICE}`);
+      }
+
+      // 库存检查
+      const stock = Number(p.remaining) || 0;
+      if (stock < DOUYIN_RULES.MIN_STOCK) {
+        warnings.push(`【${p.sale_id}】库存不足（${stock}件），建议补充库存后再上架`);
+      }
+
+      // 图片检查
+      if (!p.photo) {
+        warnings.push(`【${p.sale_id}】缺少商品主图`);
+      } else {
+        const ext = p.photo.split("?")[0].split(".").pop()?.toLowerCase() || "";
+        if (!DOUYIN_RULES.IMAGE_FORMATS.includes(ext) && ext !== "") {
+          warnings.push(`【${p.sale_id}】图片格式可能不支持（${ext}），建议使用 JPG/PNG 格式`);
+        }
+      }
+    });
+
+    return { errors, warnings, passed: errors.length === 0 };
+  };
+
   // 做链接：调用 Playwright 自动化上架到抖店
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; msg: string } | null>(null);
@@ -281,7 +392,25 @@ export default function LiveSelectPage() {
       return;
     }
 
-    if (!confirm(`将通过 Playwright 自动化打开浏览器，将 ${selectedProducts.length} 个商品上架到抖店。\n\n请确保当前电脑已登录抖店。\n\n是否继续？`)) {
+    // 抖店规范校验
+    const validation = validateDouyinRules();
+    if (validation.errors.length > 0) {
+      alert(`抖店规范校验不通过：\n\n${validation.errors.join("\n")}`);
+      return;
+    }
+
+    // 警告提示
+    let confirmMsg = `将通过 Playwright 自动化打开浏览器，将 ${selectedProducts.length} 个商品上架到抖店。\n\n请确保当前电脑已登录抖店。\n\n`;
+    if (validation.warnings.length > 0) {
+      confirmMsg += `⚠️ 注意事项（${validation.warnings.length}条）：\n${validation.warnings.slice(0, 5).map((w) => "• " + w).join("\n")}\n`;
+      if (validation.warnings.length > 5) {
+        confirmMsg += `...还有 ${validation.warnings.length - 5} 条提示\n`;
+      }
+      confirmMsg += "\n";
+    }
+    confirmMsg += `抖店复合链接规范：\n• 最多 ${DOUYIN_RULES.MAX_COMBO_SKU} 个SKU\n• 商品名称不超过 ${DOUYIN_RULES.MAX_NAME_LENGTH} 字\n• 价格范围 ¥${DOUYIN_RULES.MIN_PRICE} - ¥${DOUYIN_RULES.MAX_PRICE}\n\n是否继续？`;
+
+    if (!confirm(confirmMsg)) {
       return;
     }
 
@@ -298,10 +427,10 @@ export default function LiveSelectPage() {
         });
         return {
           sale_id: p.sale_id,
-          name: p.name || p.sale_id,
+          name: (p.name || p.sale_id).slice(0, DOUYIN_RULES.MAX_NAME_LENGTH),
           photo: p.photo,
           sell_price: Number(p.sell_price) || 0,
-          remaining: Number(p.remaining) || 0,
+          remaining: Math.max(Number(p.remaining) || 0, DOUYIN_RULES.MIN_STOCK),
           sizes,
           manufacturer: p.manufacturer,
         };
@@ -750,11 +879,14 @@ export default function LiveSelectPage() {
       {showExport && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowExport(false)}>
           <div
-            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-md w-full"
+            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-lg w-full"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
-              <h3 className="text-base font-extrabold text-gray-900">自定义导出</h3>
+              <h3 className="text-base font-extrabold text-gray-900">
+                <Download className="h-5 w-5 inline mr-2 text-[#4A90E2]" />
+                自定义导出
+              </h3>
               <button
                 onClick={() => setShowExport(false)}
                 className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
@@ -763,52 +895,174 @@ export default function LiveSelectPage() {
               </button>
             </div>
 
-            <div className="p-4 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-gray-500 mb-3">选择要导出的字段：</p>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(exportFields).map(([key, value]) => {
-                  const labels: Record<string, string> = {
-                    name: "商品名称",
-                    sale_id: "商品编号",
-                    sell_price: "售价",
-                    cost_price: "进价",
-                    remaining: "剩余库存",
-                    sold_total: "已售数量",
-                    profit: "利润",
-                    inventory_value: "库存价值",
-                    manufacturer: "厂家",
-                    shelf_no: "货架号",
-                  };
-                  return (
-                    <label key={key} className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+            <div className="p-4 max-h-[65vh] overflow-y-auto space-y-4">
+              {/* 基础信息 */}
+              <div>
+                <h4 className="text-xs font-extrabold text-gray-500 mb-2 flex items-center gap-1">
+                  <span className="w-1 h-3 bg-[#4A90E2] rounded-full" />
+                  基础信息
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "sale_id", label: "商品编号" },
+                    { key: "name", label: "商品名称" },
+                    { key: "manufacturer", label: "厂家" },
+                    { key: "shelf_no", label: "货架号" },
+                    { key: "photo", label: "照片链接" },
+                  ].map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={value}
+                        checked={exportFields[f.key as keyof typeof exportFields] as boolean}
                         onChange={() =>
-                          setExportFields((prev) => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))
+                          setExportFields((prev) => ({ ...prev, [f.key]: !prev[f.key as keyof typeof prev] }))
                         }
                         className="h-4 w-4 rounded border-gray-300"
                       />
-                      {labels[key] || key}
+                      {f.label}
                     </label>
-                  );
-                })}
+                  ))}
+                </div>
+              </div>
+
+              {/* 价格信息 */}
+              <div>
+                <h4 className="text-xs font-extrabold text-gray-500 mb-2 flex items-center gap-1">
+                  <span className="w-1 h-3 bg-[#FF6B7A] rounded-full" />
+                  价格信息
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "sell_price", label: "售价" },
+                    { key: "cost_price", label: "进价" },
+                    { key: "inventory_value", label: "库存价值" },
+                  ].map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportFields[f.key as keyof typeof exportFields] as boolean}
+                        onChange={() =>
+                          setExportFields((prev) => ({ ...prev, [f.key]: !prev[f.key as keyof typeof prev] }))
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 库存信息 */}
+              <div>
+                <h4 className="text-xs font-extrabold text-gray-500 mb-2 flex items-center gap-1">
+                  <span className="w-1 h-3 bg-[#4CD964] rounded-full" />
+                  库存信息
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "inbound_total", label: "入库总数" },
+                    { key: "sold_total", label: "已售数量" },
+                    { key: "return_total", label: "退货数量" },
+                    { key: "remaining", label: "剩余库存" },
+                    { key: "return_rate", label: "退货率" },
+                  ].map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportFields[f.key as keyof typeof exportFields] as boolean}
+                        onChange={() =>
+                          setExportFields((prev) => ({ ...prev, [f.key]: !prev[f.key as keyof typeof prev] }))
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 利润信息 */}
+              <div>
+                <h4 className="text-xs font-extrabold text-gray-500 mb-2 flex items-center gap-1">
+                  <span className="w-1 h-3 bg-[#FFC93C] rounded-full" />
+                  利润信息
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "profit", label: "总利润" },
+                    { key: "profit_rate", label: "利润率" },
+                  ].map((f) => (
+                    <label key={f.key} className="flex items-center gap-2 text-xs font-bold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportFields[f.key as keyof typeof exportFields] as boolean}
+                        onChange={() =>
+                          setExportFields((prev) => ({ ...prev, [f.key]: !prev[f.key as keyof typeof prev] }))
+                        }
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      {f.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 尺码库存 */}
+              <div>
+                <h4 className="text-xs font-extrabold text-gray-500 mb-2 flex items-center gap-1">
+                  <span className="w-1 h-3 bg-[#9B59B6] rounded-full" />
+                  尺码库存
+                </h4>
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    onClick={() => {
+                      const next: any = { ...exportFields };
+                      ALL_SIZES.forEach((s) => (next[`size_${s}`] = true));
+                      setExportFields(next);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded border-2 border-gray-300 bg-white text-gray-600 font-bold hover:bg-gray-50"
+                  >全选</button>
+                  <button
+                    onClick={() => {
+                      const next: any = { ...exportFields };
+                      ALL_SIZES.forEach((s) => (next[`size_${s}`] = false));
+                      setExportFields(next);
+                    }}
+                    className="text-[10px] px-2 py-0.5 rounded border-2 border-gray-300 bg-white text-gray-600 font-bold hover:bg-gray-50"
+                  >清空</button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {ALL_SIZES.map((s) => (
+                    <label key={s} className="flex items-center gap-1 text-[11px] font-bold text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={exportFields[`size_${s}` as keyof typeof exportFields] as boolean}
+                        onChange={() =>
+                          setExportFields((prev) => ({ ...prev, [`size_${s}`]: !prev[`size_${s}` as keyof typeof prev] }))
+                        }
+                        className="h-3.5 w-3.5 rounded border-gray-300"
+                      />
+                      {s}码
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
 
             <div className="p-4 border-t-2 border-gray-200 flex gap-2">
               <button
                 onClick={() => setShowExport(false)}
-                className="flex-1 py-2.5 rounded-xl border-[2px] border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50"
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
               >
                 取消
               </button>
               <button
                 onClick={handleExport}
                 disabled={!Object.values(exportFields).some(Boolean)}
-                className="flex-1 py-2.5 rounded-xl border-[2px] border-[#4A90E2] bg-[#4A90E2] text-white font-extrabold text-sm hover:bg-[#3A80D2] disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-[#4A90E2] bg-[#4A90E2] text-white font-extrabold text-sm hover:bg-[#3A80D2] disabled:opacity-50 transition-all"
               >
-                导出 CSV
+                <Download className="h-4 w-4 inline mr-1" />
+                导出 CSV ({selectedProducts.length}款)
               </button>
             </div>
           </div>
@@ -890,6 +1144,43 @@ export default function LiveSelectPage() {
             <p className="text-[10px] text-gray-400 mt-3">
               浏览器已打开，请勿关闭
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* 清空确认弹窗 */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowClearConfirm(false)}>
+          <div
+            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 text-center">
+              <div className="inline-flex items-center justify-center h-14 w-14 rounded-full bg-red-100 border-[3px] border-red-300 mb-3">
+                <Trash2 className="h-7 w-7 text-red-500" />
+              </div>
+              <h3 className="text-lg font-extrabold text-gray-900 mb-2">确认清空选品？</h3>
+              <p className="text-sm text-gray-500 mb-1">
+                将清空您选择的 <span className="font-extrabold text-[#FF6B7A]">{selectedIds.length}</span> 款商品
+              </p>
+              <p className="text-xs text-gray-400">
+                此操作不可撤销
+              </p>
+            </div>
+            <div className="p-4 border-t-2 border-gray-200 flex gap-2">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmClearAll}
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-[#FF6B7A] bg-[#FF6B7A] text-white font-extrabold text-sm hover:bg-[#E55A6A] transition-all"
+              >
+                确认清空
+              </button>
+            </div>
           </div>
         </div>
       )}
