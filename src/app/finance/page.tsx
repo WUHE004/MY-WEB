@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -704,87 +704,143 @@ export default function FinancePage() {
         </div>
       </div>
 
-      {/* 统计栏 */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4 px-2.5 py-1.5 sm:px-3 sm:py-2 bg-white rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4 mb-3 sm:mb-4">
         {viewMode === "summary" && (
           <>
-            <div className="flex items-center justify-between w-full lg:hidden">
-              <div>
-                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">入库</span>
-                <span className="text-xs sm:text-sm font-extrabold text-gray-900 ml-1">{totals.inbound_total}</span>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
+                  <Warehouse className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总入库</span>
               </div>
-              <div>
-                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">剩余</span>
-                <span className="text-xs sm:text-sm font-extrabold text-blue-600 ml-1">{totals.remaining}</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{totals.inbound_total}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-blue-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">剩余库存</span>
               </div>
-              <div>
-                <span className="text-[10px] sm:text-xs text-gray-500 font-bold">价值</span>
-                <span className="text-xs sm:text-sm font-extrabold text-red-500 ml-1">¥{fmt(totals.inventory_value)}</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-600 leading-tight">{totals.remaining}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
+                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">库存价值</span>
               </div>
-            </div>
-            <div className="hidden lg:flex items-center gap-2">
-              <Warehouse className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
-              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{totals.inbound_total}</span>
-            </div>
-            <div className="hidden lg:flex flex-1" />
-            <div className="hidden lg:flex items-center gap-2">
-              <Package className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">剩余</span>
-              <span className="text-sm sm:text-lg font-extrabold text-blue-600">{totals.remaining}</span>
-            </div>
-            <div className="hidden lg:flex flex-1" />
-            <div className="hidden lg:flex items-center gap-2">
-              <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-red-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">价值</span>
-              <span className="text-sm sm:text-lg font-extrabold text-red-500">¥{fmt(totals.inventory_value)}</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-500 leading-tight">¥{fmt(totals.inventory_value)}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">成本价</div>
             </div>
           </>
         )}
         {viewMode === "sales" && (
           <>
-            <div className="flex items-center justify-between w-full">
-              <div>
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">售出</span>
-                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{salesTotals.orderCount}款</span>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
+                  <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">售出款式</span>
               </div>
-              <div>
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">售买</span>
-                <span className="text-sm sm:text-lg font-extrabold text-green-600 ml-1">{salesTotals.totalSold}件</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{salesTotals.orderCount}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
+                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">售出数量</span>
               </div>
-              <div>
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">盈利</span>
-                <span className="text-sm sm:text-lg font-extrabold text-red-500 ml-1">¥{fmt(salesTotals.totalProfit)}</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-600 leading-tight">{salesTotals.totalSold}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
+                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总盈利</span>
               </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-500 leading-tight">¥{fmt(salesTotals.totalProfit)}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">利润</div>
             </div>
           </>
         )}
         {viewMode === "returns" && (
           <>
-            <div className="flex items-center justify-between w-full">
-              <div>
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">退货</span>
-                <span className="text-sm sm:text-lg font-extrabold text-gray-900 ml-1">{returnTotals.orderCount}款</span>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
+                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退货款式</span>
               </div>
-              <div>
-                <span className="text-xs sm:text-sm text-gray-500 font-bold">退回</span>
-                <span className="text-sm sm:text-lg font-extrabold text-yellow-600 ml-1">{returnTotals.totalReturned}件</span>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{returnTotals.orderCount}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
+                  <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退回数量</span>
               </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">{returnTotals.totalReturned}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4 opacity-50">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-400/10 flex items-center justify-center shrink-0">
+                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-400" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-400">退货率</span>
+              </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-400 leading-tight">
+                {salesTotals.totalSold > 0 ? ((returnTotals.totalReturned / salesTotals.totalSold) * 100).toFixed(1) : 0}%
+              </div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">占比</div>
             </div>
           </>
         )}
         {viewMode === "inbound" && (
           <>
-            <div className="flex items-center gap-2">
-              <ArrowDown className="h-4 w-4 sm:h-5 sm:w-5 text-blue-500" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">入库</span>
-              <span className="text-sm sm:text-lg font-extrabold text-gray-900">{filteredInbound.length}种</span>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
+                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">入库款式</span>
+              </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{filteredInbound.length}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">种</div>
             </div>
-            <div className="flex-1" />
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 sm:h-5 sm:w-5 text-[#4A90E2]" />
-              <span className="text-xs sm:text-sm text-gray-500 font-bold">总入库</span>
-              <span className="text-sm sm:text-lg font-extrabold text-[#4A90E2]">{filteredInbound.reduce((s, r) => s + r.total, 0)}件</span>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
+                  <ArrowDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总入库</span>
+              </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{filteredInbound.reduce((s, r) => s + r.total, 0)}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            </div>
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4 opacity-50">
+              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-400/10 flex items-center justify-center shrink-0">
+                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-400" />
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-400">待处理</span>
+              </div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-400 leading-tight">-</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
             </div>
           </>
         )}
