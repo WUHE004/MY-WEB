@@ -644,22 +644,6 @@ export default function FinancePage() {
 
   const shelfRows = useMemo(() => getShelfRows(data), [data]);
 
-  if (loading) {
-    return (
-      <PageWrapper>
-        <div className="space-y-4">
-          <div className="h-8 w-40 bg-gray-200 rounded-lg animate-pulse" />
-          <div className="h-10 bg-gray-200 rounded-xl animate-pulse" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1,2,3,4,5,6].map(i => (
-              <div key={i} className="h-48 bg-gray-200 rounded-xl animate-pulse" />
-            ))}
-          </div>
-        </div>
-      </PageWrapper>
-    );
-  }
-
   const fmt = (n: number) => n.toFixed(2);
   const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
@@ -849,83 +833,50 @@ export default function FinancePage() {
       {/* 搜索 + 筛选按钮 + 编辑/导出 */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
         {/* 搜索框 */}
-        <div className={`relative flex-1 min-w-[200px] ${viewMode === "summary" ? "lg:w-auto lg:flex-none lg:min-w-[280px]" : ""}`}>
+        <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索商品编号/名称..." className="w-full text-sm sm:text-base pl-11 pr-4 py-3 rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all"
+            placeholder="搜索商品编号/名称..."
+            className="w-full h-11 text-sm sm:text-base pl-11 pr-4 rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all"
           />
         </div>
 
-        {/* 移动端：日期筛选 + 刷新按钮紧跟搜索框 */}
-        {(viewMode === "sales" || viewMode === "returns" || viewMode === "inbound") && (
-          <>
-            {viewMode === "sales" && (
-              <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)}
-                className="lg:hidden text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[120px]">
-                <option value="">全部日期</option>
-                {salesDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
-              </select>
-            )}
-            {viewMode === "returns" && (
-              <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)}
-                className="lg:hidden text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[120px]">
-                <option value="">全部日期</option>
-                {returnsDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
-              </select>
-            )}
-            <button onClick={() => {
-              if (viewMode === "sales") { fetchSalesAgg(); fetchSalesDates(); }
-              if (viewMode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
-              if (viewMode === "inbound") fetchInboundAgg();
-            }}
-              className="lg:hidden inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all h-auto shrink-0 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-              <RefreshCw className="h-4 w-4" />刷新
-            </button>
-            {(viewMode === "sales" || viewMode === "returns") && (
-              <button onClick={syncSummary} disabled={syncing}
-                className="lg:hidden inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shrink-0 shadow-[3px_3px_0px_0px_rgba(251,146,60,0.3)] disabled:opacity-50">
-                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-              </button>
-            )}
-          </>
-        )}
-
+        {/* 总表：筛选按钮 - 蓝色系 */}
         {viewMode === "summary" && (
-          <>
-            {/* 筛选按钮 */}
-            <div className="flex gap-2">
-              <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
-                className="text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-                <option value="">剩余库存</option>
-                <option value="tail">尾货</option>
-                <option value="low">不足5手</option>
-                <option value="mid">5手以上</option>
-                <option value="high">10手以上</option>
-              </select>
-              <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
-                className="text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-                <option value="">库存价值</option>
-                <option value="0-100">0-100</option>
-                <option value="101-300">101-300</option>
-                <option value="301-500">301-500</option>
-                <option value="500+">500以上</option>
-              </select>
-              <button onClick={() => setErrorFilter(!errorFilter)}
-                className={`inline-flex items-center text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
-                  errorFilter ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
-                }`}>错误库存</button>
-            </div>
-          </>
+          <div className="flex gap-2 items-center">
+            <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
+              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] font-extrabold bg-white text-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)] cursor-pointer hover:bg-[#4A90E2]/5 transition-all">
+              <option value="">剩余库存</option>
+              <option value="tail">尾货</option>
+              <option value="low">不足5手</option>
+              <option value="mid">5手以上</option>
+              <option value="high">10手以上</option>
+            </select>
+            <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
+              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] font-extrabold bg-white text-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)] cursor-pointer hover:bg-[#4A90E2]/5 transition-all">
+              <option value="">库存价值</option>
+              <option value="0-100">0-100</option>
+              <option value="101-300">101-300</option>
+              <option value="301-500">301-500</option>
+              <option value="500+">500以上</option>
+            </select>
+            <button onClick={() => setErrorFilter(!errorFilter)}
+              className={`h-11 inline-flex items-center text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                errorFilter
+                  ? "bg-[#4A90E2] text-white border-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,1)]"
+                  : "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5 shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]"
+              }`}>错误库存</button>
+          </div>
         )}
 
-        {/* 编辑和导出按钮 - 桌面端 */}
+        {/* 售出：日期 + 编辑 + 同步数据 - 绿色系 */}
         {viewMode === "sales" && (
-          <>
+          <div className="flex gap-2 items-center">
             <select
               value={salesDateFilter}
               onChange={e => setSalesDateFilter(e.target.value)}
-              className="hidden lg:inline-flex text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
             >
               <option value="">全部日期</option>
               {salesDates.map(d => (
@@ -933,23 +884,27 @@ export default function FinancePage() {
               ))}
             </select>
             <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
-                salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[3px_3px_0px_0px_rgba(34,197,94,1)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
+              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                salesEditMode
+                  ? "bg-green-500 text-white border-green-500 shadow-[3px_3px_0px_0px_rgba(34,197,94,1)]"
+                  : "border-green-500 bg-white text-green-600 hover:bg-green-50 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)]"
               }`}>
               {salesEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
             <button onClick={syncSummary} disabled={syncing}
-              className="hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(251,146,60,0.3)] disabled:opacity-50">
+              className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />同步数据
             </button>
-          </>
+          </div>
         )}
+
+        {/* 退货：日期 + 编辑 - 黄色系 */}
         {viewMode === "returns" && (
-          <>
+          <div className="flex gap-2 items-center">
             <select
               value={returnsDateFilter}
               onChange={e => setReturnsDateFilter(e.target.value)}
-              className="hidden lg:inline-flex text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-yellow-500 font-extrabold bg-white text-yellow-600 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] cursor-pointer hover:bg-yellow-50 transition-all"
             >
               <option value="">全部日期</option>
               {returnsDates.map(d => (
@@ -957,34 +912,41 @@ export default function FinancePage() {
               ))}
             </select>
             <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
-                returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[3px_3px_0px_0px_rgba(234,179,8,1)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
+              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                returnsEditMode
+                  ? "bg-yellow-500 text-white border-yellow-500 shadow-[3px_3px_0px_0px_rgba(234,179,8,1)]"
+                  : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)]"
               }`}>
               {returnsEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
-          </>
+          </div>
         )}
+
+        {/* 入库：修改 + 导出 - 蓝色系 */}
         {viewMode === "inbound" && (
-          <>
+          <div className="flex gap-2 items-center">
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
-                inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[3px_3px_0px_0px_rgba(59,130,246,1)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
+              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                inboundEditMode
+                  ? "bg-[#4A90E2] text-white border-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,1)]"
+                  : "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5 shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]"
               }`}>
               {inboundEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />修改</>}
             </button>
             <button onClick={() => setExportModal(true)}
-              className="hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(168,85,247,0.3)]">
+              className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] bg-white text-[#4A90E2] font-extrabold hover:bg-[#4A90E2]/5 transition-all shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]">
               <Download className="h-4 w-4" />导出
             </button>
-          </>
+          </div>
         )}
+
         {editSaveMsg && (
-          <span className={`text-[10px] sm:text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
+          <span className={`text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
             {editSaveMsg}
           </span>
         )}
         {editSaving && (
-          <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs text-blue-500 font-bold">
+          <span className="inline-flex items-center gap-1 text-xs text-blue-500 font-bold">
             <RefreshCw className="h-3 w-3 animate-spin" />保存中...
           </span>
         )}
