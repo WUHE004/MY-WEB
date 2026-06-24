@@ -270,27 +270,73 @@ export default function LiveSelectPage() {
     setShowExport(false);
   };
 
-  // 做链接：复制已选品数据并打开抖店后台
-  const handleCreateLink = () => {
+  // 做链接：调用 Playwright 自动化上架到抖店
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; msg: string } | null>(null);
+  const [showUploadResult, setShowUploadResult] = useState<{ success: boolean; message: string; results?: Array<{ sale_id: string; success: boolean; error?: string }> } | null>(null);
+
+  const handleCreateLink = async () => {
     if (selectedProducts.length === 0) {
       alert("没有已选商品");
       return;
     }
 
-    // 构造规格数据：编号作为规格名，库存数量
-    const specs = selectedProducts.map((p) => `${p.sale_id}:库存${p.remaining}`);
-    const specText = specs.join("\n");
+    if (!confirm(`将通过 Playwright 自动化打开浏览器，将 ${selectedProducts.length} 个商品上架到抖店。\n\n请确保当前电脑已登录抖店。\n\n是否继续？`)) {
+      return;
+    }
 
-    // 复制到剪贴板
-    navigator.clipboard.writeText(specText).then(() => {
-      // 打开抖店后台
-      window.open("https://fxg.jinritemai.com/", "_blank");
-      alert(`已复制 ${selectedProducts.length} 个商品规格到剪贴板，请在抖店后台粘贴使用。\n\n格式：编号:库存数量`);
-    }).catch(() => {
-      // 如果剪贴板失败，仍然打开抖店
-      window.open("https://fxg.jinritemai.com/", "_blank");
-      alert(`已选 ${selectedProducts.length} 个商品，请在抖店后台手动创建复合链接。\n\n规格数据：\n${specText}`);
-    });
+    setUploading(true);
+    setUploadProgress({ current: 0, total: selectedProducts.length, msg: "准备中..." });
+
+    try {
+      // 构造商品数据
+      const products = selectedProducts.map((p) => {
+        const sizes: Record<string, number> = {};
+        ALL_SIZES.forEach((s) => {
+          const v = Number(p[`size_${s}`]) || 0;
+          if (v > 0) sizes[String(s)] = v;
+        });
+        return {
+          sale_id: p.sale_id,
+          name: p.name || p.sale_id,
+          photo: p.photo,
+          sell_price: Number(p.sell_price) || 0,
+          remaining: Number(p.remaining) || 0,
+          sizes,
+          manufacturer: p.manufacturer,
+        };
+      });
+
+      // 调用 API 上架
+      const res = await fetch("/api/douyin/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) {
+        setShowUploadResult({
+          success: false,
+          message: data.error,
+        });
+      } else {
+        setShowUploadResult({
+          success: data.success,
+          message: data.message || `成功 ${data.success_count}/${data.total}`,
+          results: data.results,
+        });
+      }
+    } catch (err) {
+      setShowUploadResult({
+        success: false,
+        message: err instanceof Error ? err.message : "上架失败",
+      });
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
   };
 
   const formatMoney = (v: number | null | undefined) => {
@@ -625,10 +671,19 @@ export default function LiveSelectPage() {
             </div>
             <button
               onClick={handleCreateLink}
-              disabled={selectedProducts.length === 0}
+              disabled={uploading || selectedProducts.length === 0}
               className="inline-flex items-center gap-1 text-xs px-3 py-2 rounded-lg border-[2px] border-[#FFC93C] bg-[#FFC93C] text-gray-900 font-extrabold hover:bg-[#E5B528] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Link2 className="h-3 w-3" />做链接
+              {uploading ? (
+                <>
+                  <div className="h-3 w-3 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
+                  上架中...
+                </>
+              ) : (
+                <>
+                  <Link2 className="h-3 w-3" />做链接
+                </>
+              )}
             </button>
             <button
               onClick={() => setShowExport(true)}
@@ -759,6 +814,86 @@ export default function LiveSelectPage() {
           </div>
         </div>
       )}
+      {/* 上架结果弹窗 */}
+      {showUploadResult && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowUploadResult(null)}>
+          <div
+            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={`flex items-center justify-between p-4 border-b-2 ${showUploadResult.success ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}>
+              <h3 className={`text-base font-extrabold ${showUploadResult.success ? "text-green-700" : "text-red-700"}`}>
+                {showUploadResult.success ? "✓ 上架完成" : "✗ 上架失败"}
+              </h3>
+              <button
+                onClick={() => setShowUploadResult(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[60vh] overflow-y-auto">
+              <p className="text-sm font-bold text-gray-700 mb-3">{showUploadResult.message}</p>
+
+              {showUploadResult.results && showUploadResult.results.length > 0 && (
+                <div className="space-y-1">
+                  {showUploadResult.results.map((r, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold ${
+                        r.success
+                          ? "bg-green-50 text-green-700 border border-green-200"
+                          : "bg-red-50 text-red-700 border border-red-200"
+                      }`}
+                    >
+                      {r.success ? "✓" : "✗"} {r.sale_id}
+                      {r.error && <span className="text-[10px] font-normal ml-auto truncate max-w-[200px]">{r.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="mt-4 text-xs text-gray-500">
+                浏览器窗口已自动打开，请查看操作结果。如有商品未完成，请手动在抖店后台补全。
+              </p>
+            </div>
+
+            <div className="p-4 border-t-2 border-gray-200 flex gap-2">
+              <button
+                onClick={() => window.open("https://fxg.jinritemai.com/", "_blank")}
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-[#4A90E2] bg-[#4A90E2] text-white font-extrabold text-sm hover:bg-[#3A80D2]"
+              >
+                打开抖店后台
+              </button>
+              <button
+                onClick={() => setShowUploadResult(null)}
+                className="flex-1 py-2.5 rounded-xl border-[2px] border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 上架中遮罩 */}
+      {uploading && uploadProgress && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-sm w-full p-6 text-center">
+            <div className="h-12 w-12 mx-auto mb-4 border-4 border-gray-200 border-t-[#FFC93C] rounded-full animate-spin" />
+            <h3 className="text-base font-extrabold text-gray-900 mb-2">正在上架到抖店</h3>
+            <p className="text-xs text-gray-600 mb-3">{uploadProgress.msg}</p>
+            <div className="text-xs text-gray-500">
+              进度: {uploadProgress.current} / {uploadProgress.total}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-3">
+              浏览器已打开，请勿关闭
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 图片大图预览 */}
       <div
         className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
