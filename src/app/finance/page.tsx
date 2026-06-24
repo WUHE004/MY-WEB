@@ -618,7 +618,7 @@ export default function FinancePage() {
     for (const r of filteredSales) {
       const cp = (r.cost_price as number) || 0;
       const total = r.total || 0;
-      const revenue = r.total_revenue || 0;
+      const revenue = (r.total_revenue as number) || ((r.sell_price as number) || 0) * total;
       totalSold += total;
       profit += revenue - cp * total;
     }
@@ -796,14 +796,14 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">{returnTotals.totalReturned}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4 opacity-50">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-400/10 flex items-center justify-center shrink-0">
-                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-400" />
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
+                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
                 </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-400">退货率</span>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退货率</span>
               </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-400 leading-tight">
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-600 leading-tight">
                 {salesTotals.totalSold > 0 ? ((returnTotals.totalReturned / salesTotals.totalSold) * 100).toFixed(1) : 0}%
               </div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">占比</div>
@@ -832,28 +832,28 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{filteredInbound.reduce((s, r) => s + r.total, 0)}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4 opacity-50">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-400/10 flex items-center justify-center shrink-0">
-                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-400" />
+                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
+                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
                 </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-400">待处理</span>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500">入库金额</span>
               </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-400 leading-tight">-</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">¥{fmt(filteredInbound.reduce((s, r) => s + (r.total || 0) * (r.cost_price || 0), 0))}</div>
+              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">成本价</div>
             </div>
           </>
         )}
       </div>
 
       {/* 搜索 + 筛选按钮 + 编辑/导出 */}
-      <div className="flex flex-wrap items-stretch gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-        {/* 移动端：总表搜索占满一行，其他模式搜索和刷新并排 */}
-        <div className={`relative ${viewMode === "summary" ? "w-full lg:flex-1" : "flex-1"}`}>
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 sm:h-4 sm:w-4 text-gray-400 z-10" />
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+        {/* 搜索框 */}
+        <div className={`relative flex-1 min-w-[200px] ${viewMode === "summary" ? "lg:w-auto lg:flex-none lg:min-w-[280px]" : ""}`}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索..." className="neo-input w-full h-full text-xs sm:text-sm pl-10 py-0.5 sm:py-1"
+            placeholder="搜索商品编号/名称..." className="w-full text-sm sm:text-base pl-11 pr-4 py-3 rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all"
           />
         </div>
 
@@ -862,14 +862,14 @@ export default function FinancePage() {
           <>
             {viewMode === "sales" && (
               <select value={salesDateFilter} onChange={e => setSalesDateFilter(e.target.value)}
-                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                className="lg:hidden text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[120px]">
                 <option value="">全部日期</option>
                 {salesDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
               </select>
             )}
             {viewMode === "returns" && (
               <select value={returnsDateFilter} onChange={e => setReturnsDateFilter(e.target.value)}
-                className="lg:hidden text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[100px] sm:max-w-[120px] truncate">
+                className="lg:hidden text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold h-auto shrink-0 max-w-[120px]">
                 <option value="">全部日期</option>
                 {returnsDates.map(d => <option key={d} value={d}>{d.slice(5)}</option>)}
               </select>
@@ -879,13 +879,13 @@ export default function FinancePage() {
               if (viewMode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
               if (viewMode === "inbound") fetchInboundAgg();
             }}
-              className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all h-auto shrink-0">
-              <RefreshCw className="h-3 w-3" />刷新
+              className="lg:hidden inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all h-auto shrink-0 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+              <RefreshCw className="h-4 w-4" />刷新
             </button>
             {(viewMode === "sales" || viewMode === "returns") && (
               <button onClick={syncSummary} disabled={syncing}
-                className="lg:hidden inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shrink-0 disabled:opacity-50">
-                <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                className="lg:hidden inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shrink-0 shadow-[3px_3px_0px_0px_rgba(251,146,60,0.3)] disabled:opacity-50">
+                <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
               </button>
             )}
           </>
@@ -893,10 +893,10 @@ export default function FinancePage() {
 
         {viewMode === "summary" && (
           <>
-            {/* 移动端：筛选按钮换行占满 */}
-            <div className="flex gap-1.5 w-full lg:w-auto">
+            {/* 筛选按钮 */}
+            <div className="flex gap-2">
               <select value={stockFilter} onChange={(e) => setStockFilter(e.target.value)}
-                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                className="text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
                 <option value="">剩余库存</option>
                 <option value="tail">尾货</option>
                 <option value="low">不足5手</option>
@@ -904,7 +904,7 @@ export default function FinancePage() {
                 <option value="high">10手以上</option>
               </select>
               <select value={valueFilter} onChange={(e) => setValueFilter(e.target.value)}
-                className="text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto flex-1 lg:flex-none">
+                className="text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 font-extrabold bg-white text-gray-700 h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
                 <option value="">库存价值</option>
                 <option value="0-100">0-100</option>
                 <option value="101-300">101-300</option>
@@ -912,8 +912,8 @@ export default function FinancePage() {
                 <option value="500+">500以上</option>
               </select>
               <button onClick={() => setErrorFilter(!errorFilter)}
-                className={`inline-flex items-center text-[10px] sm:text-xs px-1.5 py-1 sm:px-2 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto flex-1 lg:flex-none ${
-                  errorFilter ? "bg-red-500 text-white border-red-500 shadow-[2px_2px_0px_0px_rgba(255,0,0,0.3)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
+                className={`inline-flex items-center text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
+                  errorFilter ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]" : "border-red-300 bg-white text-red-500 hover:bg-red-50"
                 }`}>错误库存</button>
             </div>
           </>
@@ -925,7 +925,7 @@ export default function FinancePage() {
             <select
               value={salesDateFilter}
               onChange={e => setSalesDateFilter(e.target.value)}
-              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+              className="hidden lg:inline-flex text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
             >
               <option value="">全部日期</option>
               {salesDates.map(d => (
@@ -933,14 +933,14 @@ export default function FinancePage() {
               ))}
             </select>
             <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-                salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[2px_2px_0px_0px_rgba(34,197,94,0.3)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
+              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
+                salesEditMode ? "bg-green-500 text-white border-green-500 shadow-[3px_3px_0px_0px_rgba(34,197,94,1)]" : "border-green-500 bg-white text-green-600 hover:bg-green-50"
               }`}>
-              {salesEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+              {salesEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
             <button onClick={syncSummary} disabled={syncing}
-              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto disabled:opacity-50">
-              <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />同步数据
+              className="hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-orange-500 bg-white text-orange-600 font-extrabold hover:bg-orange-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(251,146,60,0.3)] disabled:opacity-50">
+              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />同步数据
             </button>
           </>
         )}
@@ -949,7 +949,7 @@ export default function FinancePage() {
             <select
               value={returnsDateFilter}
               onChange={e => setReturnsDateFilter(e.target.value)}
-              className="hidden lg:inline-flex text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto"
+              className="hidden lg:inline-flex text-xs px-3 py-2 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold hover:bg-gray-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
             >
               <option value="">全部日期</option>
               {returnsDates.map(d => (
@@ -957,24 +957,24 @@ export default function FinancePage() {
               ))}
             </select>
             <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-                returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[2px_2px_0px_0px_rgba(234,179,8,0.3)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
+              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
+                returnsEditMode ? "bg-yellow-500 text-white border-yellow-500 shadow-[3px_3px_0px_0px_rgba(234,179,8,1)]" : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50"
               }`}>
-              {returnsEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />编辑</>}
+              {returnsEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
           </>
         )}
         {viewMode === "inbound" && (
           <>
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
-              className={`hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] font-extrabold transition-all h-auto ${
-                inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[2px_2px_0px_0px_rgba(59,130,246,0.3)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
+              className={`hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] font-extrabold transition-all h-auto shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${
+                inboundEditMode ? "bg-blue-500 text-white border-blue-500 shadow-[3px_3px_0px_0px_rgba(59,130,246,1)]" : "border-blue-500 bg-white text-blue-600 hover:bg-blue-50"
               }`}>
-              {inboundEditMode ? <><Save className="h-3 w-3" />保存</> : <><Edit3 className="h-3 w-3" />修改</>}
+              {inboundEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />修改</>}
             </button>
             <button onClick={() => setExportModal(true)}
-              className="hidden lg:inline-flex items-center gap-1 text-[10px] sm:text-xs px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg border-[2px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto">
-              <Download className="h-3 w-3" />导出
+              className="hidden lg:inline-flex items-center gap-1 text-xs px-3 py-2 rounded-xl border-[3px] border-purple-500 bg-white text-purple-600 font-extrabold hover:bg-purple-50 transition-all h-auto shadow-[3px_3px_0px_0px_rgba(168,85,247,0.3)]">
+              <Download className="h-4 w-4" />导出
             </button>
           </>
         )}
