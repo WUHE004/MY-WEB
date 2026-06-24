@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 const mainItems = [
-  { href: "/", label: "仪表盘", icon: LayoutDashboard },
+  { href: "/", label: "首页", icon: LayoutDashboard },
   { href: "/products", label: "商品管理", icon: Package },
   { href: "/links", label: "链接制作", icon: Link2 },
   { href: "/finance", label: "财务报表", icon: BarChart3 },
@@ -47,10 +47,10 @@ export function Sidebar() {
               className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all border-[3px] ${
                 isActive
                   ? "bg-gray-900 text-white border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.2)]"
-                  : "bg-white text-gray-700 border-transparent hover:border-gray-900 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                  : "bg-white text-gray-700 border-transparent hover:border-gray-900 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5"
               }`}
             >
-              <item.icon className="h-5 w-5" />
+              <item.icon className={`h-5 w-5 ${isActive ? "text-pink-400" : ""}`} />
               {item.label}
             </Link>
           );
@@ -66,7 +66,7 @@ export function Sidebar() {
         {bottomItems.map((item) => (
           <button
             key={item.label}
-            className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all border-[3px] border-transparent bg-white text-gray-700 hover:border-gray-900 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+            className="w-full flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-bold transition-all border-[3px] border-transparent bg-white text-gray-700 hover:border-gray-900 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5"
           >
             <item.icon className="h-5 w-5" />
             {item.label}

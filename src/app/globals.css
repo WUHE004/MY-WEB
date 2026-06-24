@@ -160,21 +160,89 @@ body {
   padding: 2px 12px;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - 圆角化处理 */
 ::-webkit-scrollbar {
   width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
   background: #f1f1f1;
-  border-left: 3px solid #171717;
+  border-left: 3px solid #e5e5e5;
+  border-radius: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #171717;
-  border-radius: 0;
+  background: #d1d5db;
+  border-radius: 8px;
+  border: 2px solid #f1f1f1;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #333;
+  background: #9ca3af;
+}
+
+/* Focus outline - 无障碍访问 */
+:focus-visible {
+  outline: 2px solid #4A90E2;
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(74, 144, 226, 0.3);
+  color: inherit;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Table hover row */
+.table-row-hover:hover {
+  background-color: #f9fafb;
+}
+
+/* Image lazy load placeholder */
+.img-loading {
+  background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 50%, #f3f4f6 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Toast 动画 */
+@keyframes toast-in {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-out {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.toast-enter {
+  animation: toast-in 0.3s ease-out;
+}
+
+.toast-exit {
+  animation: toast-out 0.3s ease-in;
 }

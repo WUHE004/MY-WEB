@@ -405,10 +405,24 @@ export default function DashboardPage() {
               <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={v => trendMode === "day" ? v.slice(8) : v.slice(5)} />
               <YAxis yAxisId="left" tick={{ fontSize: 10 }} width={35} label={{ value: "数量", angle: -90, position: "insideLeft", style: { fontSize: 10 }, offset: 0 }} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} width={45} tickFormatter={v => `¥${Number(v).toFixed(0)}`} label={{ value: "金额", angle: 90, position: "insideRight", style: { fontSize: 10 }, offset: 0 }} />
-              <Tooltip formatter={(v: any, n: any) => String(n).includes("金额") ? `¥${Number(v).toFixed(2)}` : v} />
-              <Legend />
-              <Bar yAxisId="left" dataKey="quantity" name="数量(件)" fill="#50C878" radius={[4, 4, 0, 0]} barSize={trendMode === "day" ? 16 : 24} />
-              <Line yAxisId="right" type="monotone" dataKey="amount" name="金额(¥)" stroke="#4A90E2" strokeWidth={2} dot={{ r: 4 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "white",
+                  border: "3px solid #171717",
+                  borderRadius: "12px",
+                  boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                }}
+                formatter={(v: any, n: any) => String(n).includes("金额") ? `¥${Number(v).toFixed(2)}` : v}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: "12px", fontWeight: "bold", paddingTop: "10px" }}
+              />
+              <Bar yAxisId="left" dataKey="quantity" name="数量(件)" fill="#50C878" radius={[4, 4, 0, 0]} barSize={trendMode === "day" ? 16 : 24}>
+                <animate attributeName="opacity" values="0;1;0" dur="2s" repeatCount="indefinite" />
+              </Bar>
+              <Line yAxisId="right" type="monotone" dataKey="amount" name="金额(¥)" stroke="#4A90E2" strokeWidth={3} dot={{ r: 5, fill: "#4A90E2", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 8 }} />
             </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -426,18 +440,30 @@ export default function DashboardPage() {
                   nameKey="name"
                   cx="50%"
                   cy="50%"
-                  outerRadius={95}
-                  label={({ name, percent }) => percent != null ? `${name} ${(percent * 100).toFixed(0)}%` : name}
+                  outerRadius={100}
+                  innerRadius={50}
+                  paddingAngle={2}
+                  label={({ name, percent }) => percent != null && percent > 0.03 ? `${(percent * 100).toFixed(0)}%` : ""}
                   labelLine={{ strokeWidth: 1 }}
                 >
-                  {mfrPie.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {mfrPie.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} stroke="#fff" strokeWidth={2} />)}
                 </Pie>
-                <Tooltip />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "3px solid #171717",
+                    borderRadius: "12px",
+                    boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                  formatter={(value: any) => [`${Number(value).toLocaleString()} 件`, "进货数量"]}
+                />
                 <Legend
                   layout="horizontal"
                   align="center"
                   verticalAlign="bottom"
-                  wrapperStyle={{ fontSize: "10px", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", paddingTop: "8px" }}
+                  wrapperStyle={{ fontSize: "11px", fontWeight: "bold", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", paddingTop: "8px" }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -454,8 +480,20 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={65} />
-                <Tooltip formatter={(v: any) => `${Number(v).toLocaleString()} 件`} />
-                <Bar dataKey="value" name="剩余库存" fill="#4A90E2" radius={[0, 4, 4, 0]} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "3px solid #171717",
+                    borderRadius: "12px",
+                    boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                  formatter={(value: any) => `${Number(value).toLocaleString()} 件`}
+                />
+                <Bar dataKey="value" name="剩余库存" fill="#4A90E2" radius={[0, 4, 4, 0]} barSize={20}>
+                  <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -468,8 +506,20 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" height={60} />
               <YAxis tick={{ fontSize: 11 }} width={35} />
-              <Tooltip />
-              <Bar dataKey="value" name="售出(件)" fill="#50C878" radius={[4, 4, 0, 0]} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "white",
+                  border: "3px solid #171717",
+                  borderRadius: "12px",
+                  boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                  fontSize: "12px",
+                  fontWeight: "bold",
+                }}
+                formatter={(value: any) => `${Number(value).toLocaleString()} 件`}
+              />
+              <Bar dataKey="value" name="售出(件)" fill="#50C878" radius={[4, 4, 0, 0]}>
+                <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
