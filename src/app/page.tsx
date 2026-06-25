@@ -270,38 +270,43 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* Hero Section */}
-      <section className="mb-8 lg:mb-14">
-        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-4 lg:gap-10 items-center">
+      <section className="mb-10 lg:mb-16">
+        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-6 lg:gap-12 items-center">
           {/* Left Content */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
-            className="order-1 lg:order-1 w-full"
+            className="order-1 lg:order-1"
           >
-            <div className="flex flex-col gap-2 lg:gap-3 mb-4 lg:mb-6">
-              <h1 className="text-3xl sm:text-4xl lg:text-6xl font-extrabold text-gray-900 leading-tight">
-                <span className="block text-xl sm:text-2xl lg:text-4xl text-gray-600 mb-1">欢迎来到</span>
-                <span className="inline-block bg-[#FF6B7A] text-white px-2 sm:px-3 lg:px-4 py-1 lg:py-2 text-4xl sm:text-5xl lg:text-7xl">
-                  点冰童装
-                </span>
-              </h1>
-              <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-700">
-                精选优质童装，<span className="text-[#4A90E2]">登录享更多优惠</span>
-              </h2>
+            <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4 mb-3 mt-6 lg:mt-0">
+              <div className="flex-shrink-0">
+                <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-gray-900 leading-[1.1] whitespace-nowrap">
+                  <span className="inline-block text-3xl sm:text-4xl lg:text-[60px] align-bottom">欢迎来到</span>
+                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-5xl sm:text-6xl lg:text-[100px] align-bottom">
+                    点冰童装
+                  </span>
+                </h1>
+                <h2 className="mt-2 whitespace-nowrap flex items-baseline">
+                  <span className="inline-block bg-[#4A90E2] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-4xl sm:text-6xl lg:text-[6rem] font-extrabold leading-none">
+                    选购前
+                  </span>
+                  <span className="text-4xl sm:text-6xl lg:text-[85px] font-extrabold text-gray-900">登录哦</span>
+                </h2>
+              </div>
             </div>
             
-            <p className="text-sm sm:text-base lg:text-lg font-medium text-gray-600 mb-6 lg:mb-8">
-              粉丝群里的商品都可以在这里选购哦～
+            <p className="text-sm lg:text-lg font-medium text-gray-700 mb-6 lg:mb-8 ml-1 mt-4 lg:mt-0">
+              粉丝群里的商品都可以在这里选购哦
             </p>
             
-            {/* 手机端按钮 */}
-            <div className="lg:hidden flex justify-center">
+            {/* 手机端按钮 - 移到 p 下面 */}
+            <div className="lg:hidden flex justify-center mb-8">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-3 text-base w-full max-w-xs justify-center"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-10 py-2.5 text-sm w-full max-w-xs"
               >
-                <ShoppingCart className="h-5 w-5" />
+                <ShoppingCart className="h-4 w-4" />
                 去选购吧
               </Link>
             </div>
@@ -310,26 +315,26 @@ export default function DashboardPage() {
             <div className="hidden lg:inline-block">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4 text-lg"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4"
               >
-                <ShoppingCart className="h-6 w-6" />
+                <ShoppingCart className="h-5 w-5" />
                 去选购吧
               </Link>
             </div>
           </motion.div>
 
-          {/* Right Image */}
+          {/* Right Image - 竖屏模式排在第二位 */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex justify-center order-2 lg:order-2 lg:justify-end w-full"
+            className="flex justify-center order-2 lg:order-2 lg:justify-end lg:mt-0 mt-8"
           >
-            <div className="relative w-[280px] sm:w-[360px] lg:w-[480px] aspect-[4/5] max-h-[500px]">
+            <div className="relative w-[320px] sm:w-[420px] lg:w-[500px] h-[340px] sm:h-[460px] lg:h-[540px]">
               <img
                 src="/images/girl%201.png"
-                alt="点冰童装卡通人物身体"
-                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-full object-contain"
+                alt="Girl body"
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-auto object-contain"
               />
               
               <motion.div
@@ -339,13 +344,13 @@ export default function DashboardPage() {
                   repeat: Infinity, 
                   ease: "easeInOut" 
                 }}
-                style={{ transformOrigin: "bottom center" }}
-                className="absolute top-0 left-0 w-full h-1/2"
+                style={{ transformOrigin: "bottom bottom" }}
+                className="w-full"
               >
                 <img
                   src="/images/girl%202.png"
-                  alt="点冰童装卡通人物头像"
-                  className="w-full h-full object-contain object-bottom"
+                  alt="Girl head"
+                  className="w-full h-auto object-contain"
                 />
               </motion.div>
               
@@ -357,11 +362,11 @@ export default function DashboardPage() {
                   ease: "easeInOut" 
                 }}
                 style={{ transformOrigin: "bottom center" }}
-                className="absolute bottom-[5%] right-[5%] sm:right-[10%] w-[35%] sm:w-[30%]"
+                className="absolute bottom-[1px] right-[20px] sm:right-[30px] lg:right-[40px] w-[120px] sm:w-[170px] lg:w-[200px]"
               >
                 <img
                   src="/images/girl%203.png"
-                  alt="点冰童装卡通人物手势"
+                  alt="Girl hand"
                   className="w-full h-auto object-contain"
                 />
               </motion.div>
