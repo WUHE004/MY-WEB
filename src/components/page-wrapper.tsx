@@ -66,7 +66,7 @@ export function PageWrapper({ children }: PageWrapperProps) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 50, scale: 0.9 }}
               transition={{ duration: 0.3, ease: "easeOut" }}
-              className={`${toastColors[toast.type]} px-6 py-3 rounded-xl border-2 border-[#4B5563] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] font-bold text-sm min-w-[200px] max-w-[400px]`}
+              className={`${toastColors[toast.type]} px-6 py-3 rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] font-bold text-sm min-w-[200px] max-w-[400px]`}
             >
               {toast.message}
             </motion.div>
