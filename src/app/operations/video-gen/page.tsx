@@ -41,12 +41,20 @@ export default function VideoGenPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("folder", "video-photos");
+      formData.append("folder", "products");
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
+      
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `上传失败 (${res.status})`);
+      }
+      
       const data = await res.json();
       
       if (data.error) throw new Error(data.error);
+      if (!data.url) throw new Error("未返回图片地址");
+      
       setPhoto(data.url);
     } catch (err) {
       alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
@@ -66,7 +74,15 @@ export default function VideoGenPage() {
         const res = await fetch(
           `/api/photo-gen/video?video_id=${encodeURIComponent(vid)}&member_id=${encodeURIComponent(mid)}`
         );
-        const data = await res.json();
+        
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          const text = await res.text();
+          console.error("轮询响应不是JSON:", text);
+          return;
+        }
 
         if (data.error) {
           console.error("轮询错误:", data.error);
@@ -131,6 +147,16 @@ export default function VideoGenPage() {
           member_id: mid,
         }),
       });
+
+      if (!res.ok) {
+        const text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          throw new Error(json.error || `服务器错误 (${res.status})`);
+        } catch {
+          throw new Error(text || `请求失败 (${res.status})`);
+        }
+      }
 
       const data = await res.json();
 
