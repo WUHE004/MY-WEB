@@ -1,12 +1,77 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import sharp from "sharp";
 
 const AGNES_API_KEY = process.env.AGNES_API_KEY || "";
 const AGNES_BASE = "https://apihub.agnes-ai.com/v1";
 const WECHAT_WEBHOOK_URL = process.env.WECHAT_WEBHOOK_URL || "";
 
+const STORAGE_BUCKET = "product-photos";
+const TEMP_FOLDER = "temp-videos";
+const MAX_IMAGE_BYTES = 500 * 1024;
+
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 8000;
+
+function base64ToBuffer(base64Str: string): Buffer {
+  const base64 = base64Str.replace(/^data:image\/\w+;base64,/, "");
+  return Buffer.from(base64, "base64");
+}
+
+async function compressImageBuffer(inputBuffer: Buffer): Promise<Buffer> {
+  if (inputBuffer.length <= MAX_IMAGE_BYTES) return inputBuffer;
+  let quality = 80;
+  let buffer = await sharp(inputBuffer)
+    .resize(1280, 1280, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality, mozjpeg: true })
+    .toBuffer();
+  while (buffer.length > MAX_IMAGE_BYTES && quality > 30) {
+    quality -= 15;
+    buffer = await sharp(inputBuffer)
+      .resize(1280, 1280, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+  }
+  return Buffer.from(buffer);
+}
+
+async function uploadTempPhoto(buffer: Buffer): Promise<{ url: string; path: string }> {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  const fileName = `${TEMP_FOLDER}/${timestamp}_${random}.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(fileName, buffer, {
+      contentType: "image/jpeg",
+      upsert: false,
+    });
+
+  if (uploadError) {
+    throw new Error(`图片上传失败: ${uploadError.message}`);
+  }
+
+  const { data: urlData } = supabase.storage
+    .from(STORAGE_BUCKET)
+    .getPublicUrl(fileName);
+
+  return { url: urlData.publicUrl, path: fileName };
+}
+
+async function deleteTempPhoto(filePath: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).remove([filePath]);
+    if (error) {
+      console.warn("[临时图片删除] 失败:", error.message);
+      return false;
+    }
+    console.log("[临时图片删除] 成功:", filePath);
+    return true;
+  } catch (err) {
+    console.warn("[临时图片删除] 异常:", err);
+    return false;
+  }
+}
 
 async function createVideoTask(
   photo_url: string,
@@ -114,7 +179,20 @@ export async function POST(request: NextRequest) {
 
     const negPrompt = negative_prompt || "distorted face, deformed body, extra limbs, morphing, blurry, jittery, flickering, inconsistent background, watermark, text, low quality, ugly, disfigured, bad anatomy, cropped, out of frame";
 
-    const result = await createVideoTask(photo_data, prompt, negPrompt);
+    const rawBuffer = base64ToBuffer(photo_data);
+    const compressedBuffer = await compressImageBuffer(rawBuffer);
+    console.log("[视频生成] 图片压缩后:", Math.round(compressedBuffer.length / 1024), "KB");
+
+    const { url: photoUrl, path: tempPhotoPath } = await uploadTempPhoto(compressedBuffer);
+    console.log("[视频生成] 临时图片URL:", photoUrl);
+
+    let result;
+    try {
+      result = await createVideoTask(photoUrl, prompt, negPrompt);
+    } catch (err) {
+      await deleteTempPhoto(tempPhotoPath);
+      throw err;
+    }
 
     console.log("[Agnes] 任务创建成功:", result);
 
@@ -126,7 +204,7 @@ export async function POST(request: NextRequest) {
           task_id: result.task_id,
           member_id,
           prompt,
-          photo_data: photo_data.substring(0, 100) + "...",
+          photo_data: tempPhotoPath,
           status: result.status,
         });
       } catch (e: any) {
@@ -185,9 +263,27 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Agnes] 查询结果: status=${data.status}, progress=${data.progress}`);
 
+    let tempPhotoPath = "";
+    try {
+      const { data: taskData } = await supabase
+        .from("video_tasks")
+        .select("photo_data")
+        .eq("video_id", videoId)
+        .maybeSingle();
+      if (taskData?.photo_data && taskData.photo_data.startsWith(TEMP_FOLDER + "/")) {
+        tempPhotoPath = taskData.photo_data;
+      }
+    } catch (e: any) {
+      console.warn("[视频生成] 查询临时图片路径失败:", e?.message || e);
+    }
+
     let videoUrl = null;
     if (data.status === "completed") {
       videoUrl = data.remixed_from_video_id;
+
+      if (tempPhotoPath) {
+        await deleteTempPhoto(tempPhotoPath);
+      }
 
       // 发送企业微信通知
       if (videoUrl && WECHAT_WEBHOOK_URL) {
@@ -221,6 +317,10 @@ export async function GET(request: NextRequest) {
     if (data.status === "failed") {
       const errorMsg = data.error?.message || data.error || "视频生成失败";
       console.error("[Agnes] 视频生成失败:", errorMsg);
+
+      if (tempPhotoPath) {
+        await deleteTempPhoto(tempPhotoPath);
+      }
 
       try {
         await supabase
