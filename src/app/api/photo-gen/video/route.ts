@@ -98,10 +98,10 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { photo_url, prompt, member_id, negative_prompt } = body;
+    const { photo_data, prompt, member_id, negative_prompt } = body;
 
-    if (!photo_url) {
-      return NextResponse.json({ error: "缺少 photo_url" }, { status: 400 });
+    if (!photo_data) {
+      return NextResponse.json({ error: "缺少 photo_data (base64图片)" }, { status: 400 });
     }
 
     if (!prompt || prompt.trim() === "") {
@@ -109,12 +109,12 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[视频生成] 创建任务...");
-    console.log("[视频生成] 照片URL:", photo_url);
+    console.log("[视频生成] 照片大小:", Math.round(photo_data.length / 1024), "KB");
     console.log("[视频生成] 提示词:", prompt);
 
     const negPrompt = negative_prompt || "distorted face, deformed body, extra limbs, morphing, blurry, jittery, flickering, inconsistent background, watermark, text, low quality, ugly, disfigured, bad anatomy, cropped, out of frame";
 
-    const result = await createVideoTask(photo_url, prompt, negPrompt);
+    const result = await createVideoTask(photo_data, prompt, negPrompt);
 
     console.log("[Agnes] 任务创建成功:", result);
 
@@ -126,7 +126,7 @@ export async function POST(request: NextRequest) {
           task_id: result.task_id,
           member_id,
           prompt,
-          photo_url,
+          photo_data: photo_data.substring(0, 100) + "...",
           status: result.status,
         });
       } catch (e: any) {

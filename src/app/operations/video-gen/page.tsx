@@ -33,29 +33,44 @@ export default function VideoGenPage() {
     };
   }, []);
 
+  const compressImage = (file: File, maxWidth = 1280, quality = 0.8): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let { width, height } = img;
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Canvas 不可用"));
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = () => reject(new Error("图片加载失败"));
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("folder", "products");
-
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `上传失败 (${res.status})`);
-      }
-      
-      const data = await res.json();
-      
-      if (data.error) throw new Error(data.error);
-      if (!data.url) throw new Error("未返回图片地址");
-      
-      setPhoto(data.url);
+      const base64 = await compressImage(file, 1280, 0.8);
+      setPhoto(base64);
     } catch (err) {
       alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
     } finally {
@@ -141,7 +156,7 @@ export default function VideoGenPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photo_url: photo,
+          photo_data: photo,
           prompt,
           negative_prompt: negativePrompt,
           member_id: mid,
