@@ -422,7 +422,7 @@ export default function ProductsPage() {
             <div
               key={product.sale_id}
               onClick={() => !isPaused && openDetail(product)}
-              className={`bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden transition-all group ${
+              className={`bg-white rounded-2xl border-2 border-[#4B5563] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden transition-all group ${
                 isPaused ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px]"
               }`}
             >
@@ -446,7 +446,7 @@ export default function ProductsPage() {
                   </div>
                 )}
                 {!isPaused && product.remaining <= 0 && (
-                  <div className="absolute top-2 right-2 bg-gray-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                  <div className="absolute top-2 right-2 bg-gray-900/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
                     已售罄
                   </div>
                 )}
@@ -549,7 +549,7 @@ export default function ProductsPage() {
                               stock <= 0
                                 ? "border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed"
                                 : selected
-                                ? "border-[#4A90E2] bg-[#4A90E2]/10 text-[#4A90E2]"
+                                ? "border-2 border-[#4B5563] bg-[#FF8FAB] text-white"
                                 : "border-gray-300 bg-white text-gray-700 hover:border-gray-900"
                             }`}
                           >
