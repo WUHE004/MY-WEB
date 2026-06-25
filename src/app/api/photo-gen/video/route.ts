@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { photo_url, prompt, member_id } = body;
+    const { photo_url, prompt, member_id, negative_prompt } = body;
 
     if (!photo_url) {
       return NextResponse.json({ error: "缺少 photo_url" }, { status: 400 });
@@ -57,10 +57,13 @@ export async function POST(request: NextRequest) {
         model: "agnes-video-v2.0",
         prompt: prompt,
         image: photo_url,
-        height: 768,
-        width: 1152,
+        // 竖屏 9:16 1080p 高质量
+        width: 1080,
+        height: 1920,
         num_frames: 121,
         frame_rate: 24,
+        negative_prompt: negative_prompt || "distorted face, deformed body, extra limbs, morphing, blurry, jittery, flickering, inconsistent background, watermark, text, low quality, ugly, disfigured, bad anatomy, cropped, out of frame",
+        seed: Math.floor(Math.random() * 2147483647),
       }),
     });
 

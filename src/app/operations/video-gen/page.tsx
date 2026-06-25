@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Video, Upload, Loader2, Eye, Edit3, Sparkles, Check, AlertCircle, Send } from "lucide-react";
+import { ArrowLeft, Video, Upload, Loader2, Eye, Edit3, Sparkles, Check, AlertCircle, Send, Volume2, Info } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 
 export default function VideoGenPage() {
@@ -11,8 +11,12 @@ export default function VideoGenPage() {
   const [generating, setGenerating] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [prompt, setPrompt] = useState(
-    "让照片中的小孩动起来，做一些可爱的动作，比如轻轻跳跃、挥手、微笑、转头，保持自然、随性，充满童真，温暖的光线，高质量视频"
+    "The child in the photo comes to life with gentle, natural movements: a soft smile spreading across the face, eyes blinking slowly, head tilting slightly to one side, a tiny wave with one hand, light swaying of the body. The movement is subtle and smooth, like a candid home video. Keep the child's face, outfit, hairstyle, and body proportions exactly the same as the reference photo. Maintain consistent lighting throughout, no morphing or distortion. Soft warm natural light, shallow depth of field, cinematic look, 8K high quality, smooth motion, no flickering, no artifacts."
   );
+  const [negativePrompt, setNegativePrompt] = useState(
+    "distorted face, deformed body, extra limbs, morphing, blurry, jittery, flickering, inconsistent background, watermark, text, low quality, ugly, disfigured, bad anatomy, cropped, out of frame"
+  );
+  const [showNegativePrompt, setShowNegativePrompt] = useState(false);
   const [status, setStatus] = useState<"idle" | "generating" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -123,6 +127,7 @@ export default function VideoGenPage() {
         body: JSON.stringify({
           photo_url: photo,
           prompt,
+          negative_prompt: negativePrompt,
           member_id: mid,
         }),
       });
@@ -240,18 +245,56 @@ export default function VideoGenPage() {
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              rows={3}
+              rows={4}
               className="w-full px-3 py-2 rounded-xl border-[3px] border-gray-900 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#FF6B7A] resize-none"
               placeholder="输入动作描述..."
               disabled={generating}
             />
             <p className="text-[10px] text-gray-400">
-              提示：描述自然、随性、有童真的动作，如：奔跑、跳跃、挥手、旋转等
+              Agnes 对英文提示词识别更精准，建议使用英文描述动作、表情、光照和风格
             </p>
           </div>
         ) : (
           <div className="p-3 rounded-xl border-[3px] border-gray-200 bg-gray-50">
-            <p className="text-xs font-medium text-gray-700 whitespace-pre-wrap">{prompt}</p>
+            <p className="text-xs font-medium text-gray-700 whitespace-pre-wrap line-clamp-3">{prompt}</p>
+          </div>
+        )}
+      </div>
+
+      {/* 负面提示词（排除项） */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-[10px] font-extrabold text-gray-500 flex items-center gap-1">
+            <AlertCircle className="h-3 w-3" />
+            排除项 (negative prompt)
+          </label>
+          <button
+            onClick={() => setShowNegativePrompt(!showNegativePrompt)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border-[2px] text-[10px] font-bold transition-all ${
+              showNegativePrompt ? "border-gray-500 bg-gray-500 text-white" : "border-gray-300 text-gray-400 hover:border-gray-500 hover:text-gray-500"
+            }`}
+          >
+            {showNegativePrompt ? "收起" : "展开"}
+          </button>
+        </div>
+
+        {showNegativePrompt ? (
+          <div className="space-y-2">
+            <textarea
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border-[3px] border-gray-200 text-[10px] text-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400 resize-none"
+              placeholder="不希望出现的内容..."
+              disabled={generating}
+            />
+            <p className="text-[10px] text-gray-400">
+              此内容将作为排除项，帮助减少视频中的穿帮和变形
+            </p>
+          </div>
+        ) : (
+          <div className="p-2 rounded-lg border-[2px] border-dashed border-gray-200 bg-gray-50/50">
+            <p className="text-[10px] text-gray-400 line-clamp-2">{negativePrompt}</p>
           </div>
         )}
       </div>
@@ -344,14 +387,27 @@ export default function VideoGenPage() {
         </div>
       )}
 
-      {/* 模型信息 */}
-      <div className="mt-6 pt-4 border-t border-gray-200">
-        <div className="flex items-center gap-2 text-[10px] text-gray-400">
+      {/* 音频说明 */}
+      <div className="mt-6 p-3 rounded-xl border-[3px] border-[#FF6B7A] bg-[#FF6B7A]/10">
+        <div className="flex items-start gap-2">
+          <Volume2 className="h-4 w-4 text-[#FF6B7A] shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-[#FF6B7A]">音频提示</p>
+            <p className="text-[10px] text-gray-600 mt-1 leading-relaxed">
+              Agnes-Video-V2.0 目前仅生成无声视频。如需添加配音，可在视频生成后使用第三方 TTS 工具（如剪映、CapCut）为视频添加可爱的童声配音。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 参数信息 */}
+      <div className="mt-4 pt-4 border-t border-gray-200">
+        <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400">
           <span className="font-bold">调用模型:</span>
           <span className="px-2 py-0.5 rounded-full border-[2px] border-pink-500 bg-pink-100 text-pink-700 font-extrabold">
             ✨ Agnes-Video-V2.0
           </span>
-          <span className="text-gray-400">| 免费额度最高质量</span>
+          <span className="text-gray-400">| 竖屏 9:16 · 1080p · 5秒</span>
         </div>
       </div>
     </PageWrapper>
