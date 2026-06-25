@@ -363,7 +363,7 @@ export default function ProductsPage() {
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
             <span className="highlight-yellow">快来选购吧</span>
             <span className="ml-2 text-base lg:text-lg font-bold text-gray-500 align-middle">
-              在售 <span className="text-2xl font-extrabold text-[#4CD964]">{products.length}</span> 件
+              在售 <span className="text-2xl font-extrabold text-[#4CD964]">{filtered.length}</span> 件
             </span>
           </h1>
           <p className="text-sm lg:text-lg text-gray-600 font-medium mt-1">
