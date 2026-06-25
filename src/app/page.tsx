@@ -304,7 +304,7 @@ export default function DashboardPage() {
             <div className="lg:hidden flex justify-center mb-8">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-pink flex items-center gap-2 px-10 py-2.5 text-sm w-full max-w-xs"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-10 py-2.5 text-sm w-full max-w-xs"
               >
                 <ShoppingCart className="h-4 w-4" />
                 去选购吧
@@ -315,7 +315,7 @@ export default function DashboardPage() {
             <div className="hidden lg:inline-block">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-pink flex items-center gap-2 px-8 py-4"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4"
               >
                 <ShoppingCart className="h-5 w-5" />
                 去选购吧
@@ -382,7 +382,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
         >
-          <Card className="bg-gradient-to-br from-[#FFF5F7] to-[#FFF0F3] rounded-2xl p-6 border-2 border-[#4B5563]">
+          <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
@@ -451,7 +451,7 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
         >
-          <Card className="h-[400px] flex flex-col bg-gradient-to-br from-[#FFF5F7] to-[#FFF0F3] rounded-2xl p-6 border-2 border-[#4B5563]">
+          <Card className="h-[400px] flex flex-col">
             <CardHeader>
               <CardTitle>最近订单</CardTitle>
             </CardHeader>
