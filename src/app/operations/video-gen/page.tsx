@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Video, Upload, Loader2, Eye, Edit3, Sparkles, Check, AlertCircle, Send } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -16,7 +16,18 @@ export default function VideoGenPage() {
   const [status, setStatus] = useState<"idle" | "generating" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [videoId, setVideoId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -41,6 +52,55 @@ export default function VideoGenPage() {
     }
   };
 
+  const startPolling = (vid: string, mid: string) => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+    }
+
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/photo-gen/video?video_id=${encodeURIComponent(vid)}&member_id=${encodeURIComponent(mid)}`
+        );
+        const data = await res.json();
+
+        if (data.error) {
+          console.error("轮询错误:", data.error);
+          return;
+        }
+
+        if (data.progress !== undefined) {
+          setProgress(data.progress);
+        }
+
+        if (data.status === "completed") {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+          }
+          if (data.video_url) {
+            setVideoUrl(data.video_url);
+            setStatus("success");
+          } else {
+            setErrorMsg("视频生成完成但未获取到视频链接");
+            setStatus("error");
+          }
+          setGenerating(false);
+        }
+
+        if (data.status === "failed") {
+          if (pollTimerRef.current) {
+            clearInterval(pollTimerRef.current);
+          }
+          setErrorMsg(data.error || "视频生成失败");
+          setStatus("error");
+          setGenerating(false);
+        }
+      } catch (err) {
+        console.error("轮询异常:", err);
+      }
+    }, 5000);
+  };
+
   const handleGenerate = async () => {
     if (!photo) {
       alert("请先上传照片");
@@ -51,6 +111,8 @@ export default function VideoGenPage() {
     setStatus("generating");
     setErrorMsg("");
     setVideoUrl(null);
+    setProgress(0);
+    setVideoId(null);
 
     const mid = localStorage.getItem("member_id") || localStorage.getItem("member_phone") || "";
 
@@ -71,17 +133,18 @@ export default function VideoGenPage() {
         throw new Error(data.error);
       }
 
-      if (!data.video_url) {
-        throw new Error("未返回视频URL");
+      if (!data.video_id) {
+        throw new Error("未返回视频任务ID");
       }
 
-      setVideoUrl(data.video_url);
-      setStatus("success");
+      setVideoId(data.video_id);
+      console.log("视频任务创建成功:", data.video_id);
+
+      startPolling(data.video_id, mid);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMsg(message);
       setStatus("error");
-    } finally {
       setGenerating(false);
     }
   };
@@ -143,7 +206,7 @@ export default function VideoGenPage() {
           onChange={handleUpload}
           className="hidden"
         />
-        {photo && (
+        {photo && !generating && (
           <button
             onClick={() => fileInputRef.current?.click()}
             className="mt-2 w-full py-2 rounded-xl border-[3px] border-gray-900 bg-white text-xs font-extrabold hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
@@ -180,6 +243,7 @@ export default function VideoGenPage() {
               rows={3}
               className="w-full px-3 py-2 rounded-xl border-[3px] border-gray-900 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#FF6B7A] resize-none"
               placeholder="输入动作描述..."
+              disabled={generating}
             />
             <p className="text-[10px] text-gray-400">
               提示：描述自然、随性、有童真的动作，如：奔跑、跳跃、挥手、旋转等
@@ -205,7 +269,7 @@ export default function VideoGenPage() {
         {generating ? (
           <>
             <Loader2 className="h-4 w-4 animate-spin" />
-            生成中，请稍候...
+            生成中 {progress > 0 && `${progress}%`}...
           </>
         ) : (
           <>
@@ -218,12 +282,18 @@ export default function VideoGenPage() {
       {/* 状态提示 */}
       {status === "generating" && (
         <div className="mt-3 p-3 rounded-xl border-[3px] border-[#4A90E2] bg-[#4A90E2]/10">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-2">
             <Loader2 className="h-4 w-4 animate-spin text-[#4A90E2]" />
             <div>
               <p className="text-xs font-bold text-gray-700">正在生成视频...</p>
-              <p className="text-[10px] text-gray-500 mt-0.5">使用 Agnes-Video-V2.0 生成</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">使用 Agnes-Video-V2.0 生成 · 预计需要 1-3 分钟</p>
             </div>
+          </div>
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#4A90E2] transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
           </div>
         </div>
       )}
@@ -243,7 +313,6 @@ export default function VideoGenPage() {
               src={videoUrl}
               controls
               className="w-full"
-              autoPlay
             />
           </div>
 
@@ -252,6 +321,8 @@ export default function VideoGenPage() {
               setPhoto(null);
               setVideoUrl(null);
               setStatus("idle");
+              setProgress(0);
+              setVideoId(null);
             }}
             className="w-full py-2 rounded-xl border-[3px] border-gray-900 bg-white text-xs font-extrabold hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
           >
@@ -265,7 +336,10 @@ export default function VideoGenPage() {
         <div className="mt-3 p-3 rounded-xl border-[3px] border-red-500 bg-red-50">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
-            <p className="text-xs font-bold text-red-700">{errorMsg || "生成失败"}</p>
+            <div>
+              <p className="text-xs font-bold text-red-700">生成失败</p>
+              <p className="text-[10px] text-red-600 mt-1">{errorMsg || "未知错误"}</p>
+            </div>
           </div>
         </div>
       )}
