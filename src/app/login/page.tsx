@@ -3,13 +3,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { LogIn, UserPlus, Phone, Lock, User, ArrowLeft, MapPin, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -53,7 +51,7 @@ export default function LoginPage() {
           localStorage.setItem("member_role", data.role);
           localStorage.setItem("member_phone", data.phone);
           localStorage.setItem("member_id", data.id);
-          router.push("/");
+          window.location.href = "/";
         }
       }
     } catch {

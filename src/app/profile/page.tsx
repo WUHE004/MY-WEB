@@ -144,7 +144,8 @@ export default function ProfilePage() {
     localStorage.removeItem("member_name");
     localStorage.removeItem("member_role");
     localStorage.removeItem("member_phone");
-    router.push("/");
+    localStorage.removeItem("member_id");
+    window.location.href = "/";
   };
 
   const handleOpenDouyin = () => {
