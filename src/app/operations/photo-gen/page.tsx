@@ -380,46 +380,46 @@ export default function PhotoGenPage() {
   return (
     <PageWrapper>
       {/* 顶部导航 */}
-      <div className="flex items-center gap-3 mb-4 lg:mb-6 flex-wrap">
-        <Link href="/links" className="flex items-center justify-center h-10 w-10 rounded-xl border-[3px] border-gray-900 hover:bg-gray-100 transition-colors shrink-0">
-          <ArrowLeft className="h-5 w-5" />
+      <div className="flex items-center gap-2 mb-4 lg:mb-6">
+        <Link href="/links" className="flex items-center justify-center h-8 w-8 rounded-xl border-[3px] border-gray-900 hover:bg-gray-100 transition-colors shrink-0">
+          <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="flex-1 min-w-0">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900">
+          <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 truncate">
             <span className="highlight-purple">照片生成</span>
           </h1>
         </div>
         {/* Tab 切换按钮 */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setActiveTab("oneshot")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all ${
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border-[3px] font-extrabold text-xs transition-all ${
               activeTab === "oneshot"
-                ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                ? "border-gray-900 bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                 : "border-gray-300 bg-white text-gray-500 hover:border-gray-900 hover:text-gray-900"
             }`}
           >
-            <Zap className="h-4 w-4" />
+            <Zap className="h-3 w-3" />
             <span className="hidden sm:inline">一键生成</span>
             <span className="sm:hidden">一键</span>
           </button>
           <button
             onClick={() => setActiveTab("dressup")}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all ${
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg border-[3px] font-extrabold text-xs transition-all ${
               activeTab === "dressup"
-                ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                ? "border-gray-900 bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                 : "border-gray-300 bg-white text-gray-500 hover:border-gray-900 hover:text-gray-900"
             }`}
           >
-            <Shirt className="h-4 w-4" />
+            <Shirt className="h-3 w-3" />
             <span className="hidden sm:inline">AI穿衣</span>
             <span className="sm:hidden">穿衣</span>
           </button>
           <Link
             href="/operations/video-gen"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all border-gray-300 bg-white text-gray-500 hover:border-[#FF6B7A] hover:text-[#FF6B7A]"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg border-[3px] font-extrabold text-xs transition-all border-gray-300 bg-white text-gray-500 hover:border-[#FF6B7A] hover:text-[#FF6B7A]"
           >
-            <Video className="h-4 w-4" />
+            <Video className="h-3 w-3" />
             <span className="sm:hidden">视频</span>
             <span className="hidden sm:inline">视频生成</span>
           </Link>
