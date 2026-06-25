@@ -98,7 +98,7 @@ export default function LoginPage() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
-                      className="w-full rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
+                      className="neo-input w-full"
                       placeholder="请输入用户名"
                     />
                   </div>
@@ -116,7 +116,7 @@ export default function LoginPage() {
                     required
                     pattern="[0-9]{11}"
                     maxLength={11}
-                    className="w-full rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
+                    className="neo-input w-full"
                     placeholder="请输入11位手机号"
                   />
                 </div>
@@ -132,51 +132,51 @@ export default function LoginPage() {
                       type="text"
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
-                      className="w-full rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
+                      className="neo-input w-full"
                       placeholder="请输入收货地址（可在个人信息中完善）"
                     />
                   </div>
                 )}
 
                 <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                <Lock className="h-4 w-4 inline mr-1.5" />
-                密码
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                  className="w-full rounded-xl border-[3px] border-gray-200 px-4 py-3 pr-12 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
-                  placeholder="请输入密码（至少6位）"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
-                  tabIndex={-1}
-                >
-                  {showPassword ? (
-                    <EyeOff className="h-5 w-5" />
-                  ) : (
-                    <Eye className="h-5 w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                    <Lock className="h-4 w-4 inline mr-1.5" />
+                    密码
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      className="neo-input w-full pr-12"
+                      placeholder="请输入密码（至少6位）"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 focus:outline-none"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-5 w-5" />
+                      ) : (
+                        <Eye className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
 
                 {error && (
-                  <div className="p-3 rounded-lg bg-red-50 border-2 border-red-200">
-                    <p className="text-sm font-bold text-red-600">{error}</p>
+                  <div className="p-3 rounded-xl border-[3px] border-[#FF6B7A] bg-[#FF6B7A]/10">
+                    <p className="text-sm font-bold text-[#FF6B7A]">{error}</p>
                   </div>
                 )}
 
                 {success && (
-                  <div className="p-3 rounded-lg bg-green-50 border-2 border-green-200">
-                    <p className="text-sm font-bold text-green-600">{success}</p>
+                  <div className="p-3 rounded-xl border-[3px] border-[#4CD964] bg-[#4CD964]/10">
+                    <p className="text-sm font-bold text-[#4CD964]">{success}</p>
                   </div>
                 )}
 

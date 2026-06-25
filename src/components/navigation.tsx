@@ -38,6 +38,7 @@ export function Navigation() {
     if (!memberId) return;
 
     const checkRole = async () => {
+      if (document.hidden) return;
       try {
         const res = await fetch(`/api/members/role?member_id=${encodeURIComponent(memberId)}`);
         const data = await res.json();
@@ -50,8 +51,16 @@ export function Navigation() {
       }
     };
 
-    const interval = setInterval(checkRole, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(checkRole, 30000);
+    const handleVisibility = () => {
+      if (!document.hidden) checkRole();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []);
 
   const navItems = allNavItems.filter((item) => item.roles.includes(role));

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode } from "lucide-react";
+import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode, Upload } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 import Link from "next/link";
 
@@ -399,10 +399,21 @@ export default function ProductsPage() {
           <div className="animate-spin rounded-full h-10 w-10 border-4 border-gray-200 border-t-[#4A90E2]" />
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <Package className="h-12 w-12 text-gray-300" />
-          <p className="font-bold text-gray-500 text-sm lg:text-base">暂无商品数据</p>
-          <p className="text-xs text-gray-400">请在数据导入页面从 WPS 导入 CSV 数据</p>
+        <div className="flex flex-col items-center justify-center py-16 gap-4">
+          <Package className="h-16 w-16 text-gray-300" />
+          <div className="text-center">
+            <p className="font-bold text-gray-600 text-base lg:text-lg mb-1">暂无商品数据</p>
+            <p className="text-sm text-gray-400">请在数据导入页面从 WPS 导入 CSV 数据</p>
+          </div>
+          {isAdmin && (
+            <Link
+              href="/data-import"
+              className="neo-btn neo-btn-blue flex items-center gap-2 px-6 py-2.5 text-sm"
+            >
+              <Upload className="h-4 w-4" />
+              去导入数据
+            </Link>
+          )}
         </div>
       ) : (
         /* 淘宝风格商品网格 */

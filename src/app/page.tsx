@@ -41,6 +41,11 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,25 +54,7 @@ export default function DashboardPage() {
   const [memberRole, setMemberRole] = useState<string | null>(null);
   const [hotProducts, setHotProducts] = useState<Array<{sale_id: string; name: string; total_sold: number; sell_price: number; photo: string; manufacturer: string}>>([]);
   const [availableSaleIds, setAvailableSaleIds] = useState<Set<string>>(new Set());
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const name = localStorage.getItem("member_name");
-    const role = localStorage.getItem("member_role");
-    setMemberName(name);
-    setMemberRole(role);
-
-    // 监听 PWA 安装事件
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener("beforeinstallprompt", handler);
-
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handler);
-    };
-  }, []);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   const fetchHotProducts = async () => {
     try {
@@ -99,6 +86,16 @@ export default function DashboardPage() {
     setMemberRole(role);
     fetchHotProducts();
     fetchAvailableProducts();
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
   }, []);
 
   const fetchAvailableProducts = async () => {
@@ -190,44 +187,44 @@ export default function DashboardPage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="mb-8 lg:mb-12"
+        className="mb-6 lg:mb-10"
       >
-        <div className="rounded-2xl lg:rounded-full border-[3px] border-gray-900 bg-white px-4 lg:px-10 py-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-          <div className="grid grid-cols-3 items-center gap-2 lg:gap-0">
+        <div className="rounded-2xl lg:rounded-full border-[3px] border-gray-900 bg-white px-3 sm:px-4 lg:px-8 py-3 sm:py-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          <div className="grid grid-cols-3 items-center gap-1 sm:gap-2">
             {/* 固定到桌面 */}
-            <div className="flex items-center justify-center gap-2 lg:gap-3">
+            <div className="flex items-center justify-center">
               <button
                 onClick={handleAddToDesktop}
-                className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+                className="flex items-center gap-1.5 sm:gap-2 hover:opacity-80 transition-opacity cursor-pointer"
               >
-                <div className="flex flex-col">
-                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">点击添加</span>
-                  <span className="text-[8px] lg:text-[10px] font-bold text-[#4A90E2]">桌面快捷方式</span>
+                <div className="flex flex-col items-start">
+                  <span className="text-[10px] sm:text-xs lg:text-sm font-extrabold text-gray-900 leading-tight">添加桌面</span>
+                  <span className="text-[8px] sm:text-[10px] font-bold text-[#4A90E2] leading-tight">快捷方式</span>
                 </div>
-                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
-                  <Monitor className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
+                <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shrink-0">
+                  <Monitor className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-white" />
                 </div>
               </button>
             </div>
 
             {/* 用户信息 */}
-            <div className="flex items-center justify-center gap-2 lg:gap-3">
+            <div className="flex items-center justify-center gap-1.5 sm:gap-2">
               <div className="flex flex-col items-center text-center">
-                <span className="text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
+                <span className="text-[10px] sm:text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[60px] sm:max-w-[80px] lg:max-w-[120px] leading-tight">
                   {memberName || "游客"}
                 </span>
                 {memberName && memberRole ? (
-                  <span className={`text-[10px] lg:text-xs font-bold text-white px-2 py-0.5 rounded-full mt-0.5 ${roleColor[memberRole] || "bg-gray-400"}`}>
+                  <span className={`text-[8px] sm:text-[10px] lg:text-xs font-bold text-white px-1.5 sm:px-2 py-0.5 rounded-full mt-0.5 leading-tight ${roleColor[memberRole] || "bg-gray-400"}`}>
                     {roleLabel[memberRole] || memberRole}
                   </span>
                 ) : (
-                  <span className="text-[10px] lg:text-xs font-bold text-gray-400 mt-0.5">
+                  <span className="text-[8px] sm:text-[10px] lg:text-xs font-bold text-gray-400 mt-0.5 leading-tight">
                     未登录
                   </span>
                 )}
               </div>
-              <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#4A90E2] shrink-0">
-                <User className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
+              <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#4A90E2] shrink-0">
+                <User className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-white" />
               </div>
             </div>
 
@@ -235,39 +232,36 @@ export default function DashboardPage() {
             {memberName ? (
               <Link
                 href="/profile"
-                className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
+                className="flex items-center justify-center gap-1.5 sm:gap-2 hover:opacity-80 transition-opacity"
               >
-                <div className="flex flex-col">
-                  <span className="text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[80px] lg:max-w-[120px]">
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] sm:text-xs lg:text-sm font-extrabold text-gray-900 truncate max-w-[60px] sm:max-w-[80px] lg:max-w-[120px] leading-tight">
                     {memberName}
                   </span>
-                  <span className="text-[8px] lg:text-[10px] font-bold text-[#7B61FF] flex items-center gap-0.5">
-                    <Edit3 className="h-3 w-3" />
-                    个人信息
+                  <span className="text-[8px] sm:text-[10px] font-bold text-[#7B61FF] flex items-center gap-0.5 leading-tight">
+                    <Edit3 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                    信息
                   </span>
                 </div>
-                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
-                  <Edit3 className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
+                <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <Edit3 className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-white" />
                 </div>
               </Link>
             ) : (
               <Link
                 href="/login"
-                className="flex items-center justify-center gap-2 lg:gap-3 hover:opacity-80 transition-opacity"
+                className="flex items-center justify-center gap-1.5 sm:gap-2 hover:opacity-80 transition-opacity"
               >
-                <div className="flex flex-col">
-                  <span className="text-[10px] lg:text-xs font-bold text-gray-500">
-                    账户
-                  </span>
-                  <span className="text-xs lg:text-sm font-extrabold text-gray-900">
+                <div className="flex flex-col items-end">
+                  <span className="text-[10px] font-extrabold text-gray-900 leading-tight">
                     登录
                   </span>
-                  <span className="text-[8px] lg:text-[10px] font-bold text-[#7B61FF]">
+                  <span className="text-[8px] sm:text-[10px] font-bold text-[#7B61FF] leading-tight">
                     注册/登录
                   </span>
                 </div>
-                <div className="flex h-10 w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
-                  <LogIn className="h-5 w-5 lg:h-6 lg:w-6 text-white" />
+                <div className="flex h-8 w-8 sm:h-10 sm:w-10 lg:h-12 lg:w-12 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#7B61FF] shrink-0">
+                  <LogIn className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 text-white" />
                 </div>
               </Link>
             )}
@@ -276,43 +270,38 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* Hero Section */}
-      <section className="mb-10 lg:mb-16">
-        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-6 lg:gap-12 items-center">
+      <section className="mb-8 lg:mb-14">
+        <div className="flex flex-col lg:grid lg:grid-cols-2 gap-4 lg:gap-10 items-center">
           {/* Left Content */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
-            className="order-1 lg:order-1"
+            className="order-1 lg:order-1 w-full"
           >
-            <div className="flex flex-col lg:flex-row lg:items-end gap-3 lg:gap-4 mb-3 mt-6 lg:mt-0">
-              <div className="flex-shrink-0">
-                <h1 className="text-4xl sm:text-5xl lg:text-7xl font-extrabold text-gray-900 leading-[1.1] whitespace-nowrap">
-                  <span className="inline-block text-3xl sm:text-4xl lg:text-[60px] align-bottom">欢迎来到</span>
-                  <span className="inline-block bg-[#FF6B7A] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-5xl sm:text-6xl lg:text-[100px] align-bottom">
-                    点冰童装
-                  </span>
-                </h1>
-                <h2 className="mt-2 whitespace-nowrap flex items-baseline">
-                  <span className="inline-block bg-[#4A90E2] text-white px-2 lg:px-3 py-0.5 lg:py-1 mx-1 text-4xl sm:text-6xl lg:text-[6rem] font-extrabold leading-none">
-                    选购前
-                  </span>
-                  <span className="text-4xl sm:text-6xl lg:text-[85px] font-extrabold text-gray-900">登录哦</span>
-                </h2>
-              </div>
+            <div className="flex flex-col gap-2 lg:gap-3 mb-4 lg:mb-6">
+              <h1 className="text-3xl sm:text-4xl lg:text-6xl font-extrabold text-gray-900 leading-tight">
+                <span className="block text-xl sm:text-2xl lg:text-4xl text-gray-600 mb-1">欢迎来到</span>
+                <span className="inline-block bg-[#FF6B7A] text-white px-2 sm:px-3 lg:px-4 py-1 lg:py-2 text-4xl sm:text-5xl lg:text-7xl">
+                  点冰童装
+                </span>
+              </h1>
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-700">
+                精选优质童装，<span className="text-[#4A90E2]">登录享更多优惠</span>
+              </h2>
             </div>
             
-            <p className="text-sm lg:text-lg font-medium text-gray-700 mb-6 lg:mb-8 ml-1 mt-4 lg:mt-0">
-              粉丝群里的商品都可以在这里选购哦
+            <p className="text-sm sm:text-base lg:text-lg font-medium text-gray-600 mb-6 lg:mb-8">
+              粉丝群里的商品都可以在这里选购哦～
             </p>
             
-            {/* 手机端按钮 - 移到 p 下面 */}
-            <div className="lg:hidden flex justify-center mb-8">
+            {/* 手机端按钮 */}
+            <div className="lg:hidden flex justify-center">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-primary flex items-center gap-2 px-10 py-2.5 text-sm w-full max-w-xs"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-3 text-base w-full max-w-xs justify-center"
               >
-                <ShoppingCart className="h-4 w-4" />
+                <ShoppingCart className="h-5 w-5" />
                 去选购吧
               </Link>
             </div>
@@ -321,26 +310,26 @@ export default function DashboardPage() {
             <div className="hidden lg:inline-block">
               <Link
                 href="/products"
-                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4"
+                className="neo-btn neo-btn-primary flex items-center gap-2 px-8 py-4 text-lg"
               >
-                <ShoppingCart className="h-5 w-5" />
+                <ShoppingCart className="h-6 w-6" />
                 去选购吧
               </Link>
             </div>
           </motion.div>
 
-          {/* Right Image - 竖屏模式排在第二位 */}
+          {/* Right Image */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex justify-center order-2 lg:order-2 lg:justify-end lg:mt-0 mt-8"
+            className="flex justify-center order-2 lg:order-2 lg:justify-end w-full"
           >
-            <div className="relative w-[320px] sm:w-[420px] lg:w-[500px] h-[340px] sm:h-[460px] lg:h-[540px]">
+            <div className="relative w-[280px] sm:w-[360px] lg:w-[480px] aspect-[4/5] max-h-[500px]">
               <img
                 src="/images/girl%201.png"
-                alt="Girl body"
-                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-auto object-contain"
+                alt="点冰童装卡通人物身体"
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-full object-contain"
               />
               
               <motion.div
@@ -350,13 +339,13 @@ export default function DashboardPage() {
                   repeat: Infinity, 
                   ease: "easeInOut" 
                 }}
-                style={{ transformOrigin: "bottom bottom" }}
-                className="w-full"
+                style={{ transformOrigin: "bottom center" }}
+                className="absolute top-0 left-0 w-full h-1/2"
               >
                 <img
                   src="/images/girl%202.png"
-                  alt="Girl head"
-                  className="w-full h-auto object-contain"
+                  alt="点冰童装卡通人物头像"
+                  className="w-full h-full object-contain object-bottom"
                 />
               </motion.div>
               
@@ -368,11 +357,11 @@ export default function DashboardPage() {
                   ease: "easeInOut" 
                 }}
                 style={{ transformOrigin: "bottom center" }}
-                className="absolute bottom-[1px] right-[20px] sm:right-[30px] lg:right-[40px] w-[120px] sm:w-[170px] lg:w-[200px]"
+                className="absolute bottom-[5%] right-[5%] sm:right-[10%] w-[35%] sm:w-[30%]"
               >
                 <img
                   src="/images/girl%203.png"
-                  alt="Girl hand"
+                  alt="点冰童装卡通人物手势"
                   className="w-full h-auto object-contain"
                 />
               </motion.div>
