@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt, Camera } from "lucide-react";
+import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt, Camera, Video } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
@@ -400,7 +400,8 @@ export default function PhotoGenPage() {
             }`}
           >
             <Zap className="h-4 w-4" />
-            一键生成
+            <span className="hidden sm:inline">一键生成</span>
+            <span className="sm:hidden">一键</span>
           </button>
           <button
             onClick={() => setActiveTab("dressup")}
@@ -411,8 +412,17 @@ export default function PhotoGenPage() {
             }`}
           >
             <Shirt className="h-4 w-4" />
-            AI穿衣
+            <span className="hidden sm:inline">AI穿衣</span>
+            <span className="sm:hidden">穿衣</span>
           </button>
+          <Link
+            href="/operations/video-gen"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border-[3px] font-extrabold text-sm transition-all border-gray-300 bg-white text-gray-500 hover:border-[#FF6B7A] hover:text-[#FF6B7A]"
+          >
+            <Video className="h-4 w-4" />
+            <span className="sm:hidden">视频</span>
+            <span className="hidden sm:inline">视频生成</span>
+          </Link>
         </div>
       </div>
 
