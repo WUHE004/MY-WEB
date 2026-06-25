@@ -386,7 +386,7 @@ export default function PhotoGenPage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 truncate">
-            📸 <span className="highlight-purple">照片生成</span>
+            <span className="highlight-purple">照片生成</span>
           </h1>
         </div>
         {/* Tab 切换按钮 */}
