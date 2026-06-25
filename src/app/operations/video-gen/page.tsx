@@ -377,13 +377,25 @@ export default function VideoGenPage() {
 
       {status === "error" && (
         <div className="mt-3 p-3 rounded-xl border-[3px] border-red-500 bg-red-50">
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-2 mb-3">
             <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
             <div>
               <p className="text-xs font-bold text-red-700">生成失败</p>
               <p className="text-[10px] text-red-600 mt-1">{errorMsg || "未知错误"}</p>
             </div>
           </div>
+          <button
+            onClick={handleGenerate}
+            disabled={!photo || generating}
+            className={`w-full py-2 rounded-xl border-[3px] text-xs font-extrabold transition-all flex items-center justify-center gap-2 ${
+              !photo || generating
+                ? "border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed"
+                : "border-red-500 bg-red-500 text-white hover:bg-red-600"
+            }`}
+          >
+            <Sparkles className="h-3 w-3" />
+            重新生成
+          </button>
         </div>
       )}
 
