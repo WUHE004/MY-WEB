@@ -181,7 +181,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="neo-btn neo-btn-primary w-full flex items-center justify-center gap-2 py-3 text-base"
+                  className="neo-btn neo-btn-pink w-full flex items-center justify-center gap-2 py-3 text-base"
                 >
                   {mode === "login" ? (
                     <LogIn className="h-5 w-5" />
