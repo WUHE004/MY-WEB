@@ -204,7 +204,7 @@ export default function VideoGenPage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-xl font-extrabold text-gray-900 truncate">
-            🎬 <span className="text-[#FF6B7A]">视频生成</span>
+            <span className="text-[#FF6B7A]">视频生成</span>
           </h1>
         </div>
       </div>
@@ -375,7 +375,7 @@ export default function VideoGenPage() {
           </div>
           <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-[#FF8FAB] to-[#FF7096] transition-all duration-500"
+              className="h-full bg-[#4A90E2] transition-all duration-500"
               style={{ width: `${progress}%` }}
             />
           </div>
