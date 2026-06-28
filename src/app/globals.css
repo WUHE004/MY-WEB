@@ -43,46 +43,46 @@ body {
 }
 
 .neo-shadow {
-  box-shadow: 6px 6px 0px 0px #171717;
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,0.15);
 }
 
 .neo-shadow-sm {
-  box-shadow: 4px 4px 0px 0px #171717;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.15);
 }
 
 .neo-shadow-hover:hover {
-  box-shadow: 8px 8px 0px 0px #171717;
+  box-shadow: 8px 8px 0px 0px rgba(0,0,0,0.15);
   transform: translate(-2px, -2px);
 }
 
 .neo-card {
   border: 3px solid #171717;
   border-radius: 16px;
-  box-shadow: 6px 6px 0px 0px #171717;
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,0.15);
   transition: all 0.2s ease;
 }
 
 .neo-card:hover {
-  box-shadow: 8px 8px 0px 0px #171717;
+  box-shadow: 8px 8px 0px 0px rgba(0,0,0,0.15);
   transform: translate(-2px, -2px);
 }
 
 .neo-btn {
   border: 3px solid #171717;
   border-radius: 12px;
-  box-shadow: 4px 4px 0px 0px #171717;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.15);
   font-weight: 700;
   transition: all 0.15s ease;
   cursor: pointer;
 }
 
 .neo-btn:hover {
-  box-shadow: 6px 6px 0px 0px #171717;
+  box-shadow: 6px 6px 0px 0px rgba(0,0,0,0.15);
   transform: translate(-2px, -2px);
 }
 
 .neo-btn:active {
-  box-shadow: 2px 2px 0px 0px #171717;
+  box-shadow: 2px 2px 0px 0px rgba(0,0,0,0.15);
   transform: translate(2px, 2px);
 }
 
@@ -121,7 +121,7 @@ body {
 }
 
 .neo-input:focus {
-  box-shadow: 4px 4px 0px 0px #171717;
+  box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.15);
 }
 
 .highlight-pink {

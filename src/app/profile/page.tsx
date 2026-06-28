@@ -104,7 +104,7 @@ export default function ProfilePage() {
         const { latitude, longitude } = position.coords;
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=zh`,
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&accept-language=zh`,
             {
               headers: {
                 "User-Agent": "InventoryHub/1.0 (inventory management app)",
@@ -113,12 +113,13 @@ export default function ProfilePage() {
             }
           );
           const data = await res.json();
-          // 优先使用 address 对象中的中文地址
-          const addr = data.address
-            ? [data.address.state, data.address.city, data.address.district, data.address.road, data.address.house_number]
-                .filter(Boolean)
-                .join("")
-            : data.display_name;
+          // 优先使用 display_name（完整的地址字符串），fallback 到 address 对象
+          let addr = data.display_name || "";
+          if (!addr && data.address) {
+            addr = [data.address.country, data.address.state, data.address.city, data.address.district, data.address.road, data.address.house_number]
+              .filter(Boolean)
+              .join("");
+          }
           setAddress(addr || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         } catch {
           setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
@@ -129,8 +130,39 @@ export default function ProfilePage() {
         setError("定位失败，请检查定位权限");
         setLocating(false);
       },
-      { timeout: 10000 }
+      { timeout: 10000, enableHighAccuracy: true }
     );
+  };
+
+  // 智能识别地址（支持抖音格式）
+  const handleSmartAddress = () => {
+    const text = address.trim();
+    if (!text) {
+      setError("请先粘贴地址文本");
+      return;
+    }
+    setError("");
+
+    // 抖音格式: 收货人: 徐, 手机号码: 18870831774, 所在地区: 江西省南昌市青山湖区, 详细地址: 城南大道柏墅幸福小区2区5栋1805
+    const nameMatch = text.match(/收货人[：:]\s*(.+?)(?:[,，\s]|$)/);
+    const phoneMatch = text.match(/手机号码[：:]\s*(\d+)/);
+    const areaMatch = text.match(/所在地区[：:]\s*(.+?)(?:[,，]\s*详细地址|$)/);
+    const detailMatch = text.match(/详细地址[：:]\s*(.+?)$/);
+
+    if (nameMatch || phoneMatch || areaMatch || detailMatch) {
+      if (nameMatch) setName(nameMatch[1].trim());
+      if (phoneMatch) setPhone(phoneMatch[1].trim());
+      if (areaMatch && detailMatch) {
+        setAddress(areaMatch[1].trim() + detailMatch[1].trim());
+      } else if (areaMatch) {
+        setAddress(areaMatch[1].trim());
+      } else if (detailMatch) {
+        setAddress(detailMatch[1].trim());
+      }
+      setSuccess("地址已智能识别，请核对后保存");
+    } else {
+      setError("未能识别地址格式，请手动填写");
+    }
   };
 
   const handleSave = async () => {
@@ -372,6 +404,15 @@ export default function ProfilePage() {
                   className="flex-1 rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
                   placeholder="请输入收货地址"
                 />
+                <button
+                  type="button"
+                  onClick={handleSmartAddress}
+                  className="flex items-center justify-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] px-3 py-3 text-white font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all shrink-0"
+                  title="智能识别地址"
+                >
+                  <span className="text-sm">智能</span>
+                  <span className="hidden sm:inline text-sm">识别</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleLocate}

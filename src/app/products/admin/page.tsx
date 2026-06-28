@@ -699,7 +699,12 @@ export default function AdminProductsPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={deselectAll} className="text-xs font-bold text-[#FF6B7A] hover:underline px-2">全部取消展示</button>
+                <button
+                  onClick={deselectAll}
+                  className="flex items-center gap-1 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#FF6B7A] text-white font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all"
+                >
+                  全取消
+                </button>
               </div>
             </div>
 
@@ -719,10 +724,10 @@ export default function AdminProductsPage() {
                 <div className="relative">
                   <button
                     onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border-[2px] border-gray-900 font-bold text-xs transition-all ${
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all ${
                       showFilterDropdown || displaySoldFilter !== "all" || displayStockFilter !== "all" || displayValueFilter !== "all" || displayErrorFilter !== "all"
-                        ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                        : "bg-white text-gray-700 hover:bg-gray-100"
+                        ? "bg-gray-900 text-white"
+                        : "bg-white text-gray-700"
                     }`}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -863,35 +868,52 @@ export default function AdminProductsPage() {
                 const hasSellPrice = (product.sell_price || 0) > 0;
 
                 return (
-                  <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] p-2.5 border-gray-300 md:border-gray-300 md:shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] border-0 shadow-none">
-                    <div className="flex gap-2">
+                  <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] p-2.5 border-gray-300 md:border-gray-300 md:shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] border-0 shadow-none">
+                    <div className="flex gap-2 md:gap-2">
                       {/* 图片区域 */}
-                      <div className="w-20 h-20 md:w-52 md:h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="w-24 h-24 md:w-52 md:h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {product.photo ? (
                           <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <Package className="h-10 w-10 md:h-20 md:w-20 text-gray-300" />
+                            <Package className="h-12 w-12 md:h-20 md:w-20 text-gray-300" />
                           </div>
                         )}
                       </div>
-                      {/* 右侧内容区 */}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{product.sale_id}</div>
-                        {product.name && <div className="text-xs text-gray-500 truncate">{product.name}</div>}
-                        {product.shelf_no && (
-                          <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>
-                        )}
-                        {/* 售价显示 */}
-                        <div className="mt-1">
-                          {hasSellPrice ? (
-                            <span className="text-xs font-extrabold text-[#FF6B7A]">售价: ¥{product.sell_price}</span>
-                          ) : (
-                            <span className="text-[10px] text-orange-500 font-bold">未设置售价</span>
+                      {/* 右侧内容区 - 移动端纵向排列 */}
+                      <div className="flex-1 min-w-0 flex flex-col md:flex-row md:gap-0">
+                        {/* 信息列 */}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-extrabold text-gray-900 truncate">{product.sale_id}</div>
+                          {product.name && <div className="text-[11px] text-gray-500 truncate">{product.name}</div>}
+                          {product.shelf_no && (
+                            <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>
                           )}
+                          {/* 售价/进价 */}
+                          <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
+                            <span className="text-[11px] font-extrabold text-[#FF6B7A]">
+                              售价: {hasSellPrice ? `¥${product.sell_price}` : "未设置"}
+                            </span>
+                            <span className="text-[11px] font-bold text-gray-600">
+                              进价: ¥{product.cost_price || 0}
+                            </span>
+                          </div>
+                          {/* 售出/利润率/退货 - 移动端隐藏，桌面端显示 */}
+                          <div className="hidden md:flex gap-3 mt-1">
+                            <div className="shrink-0">
+                              <span className="text-xs font-extrabold text-green-600">售出 {product.sold_total}</span>
+                              <span className={`text-xs font-bold ml-2 ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率 {pct(profitRate)}</span>
+                            </div>
+                          </div>
+                          <div className="hidden md:flex gap-3 mt-0.5">
+                            <div className="shrink-0">
+                              <span className="text-xs font-extrabold text-yellow-600">退货 {product.return_total}</span>
+                              <span className="text-xs font-bold ml-2 text-yellow-600">退货率 {pct(returnRate)}</span>
+                            </div>
+                          </div>
                         </div>
-                        {/* 所有尺码 - 移动端也显示 */}
-                        <div className="grid grid-cols-5 md:grid-cols-4 gap-x-0.5 gap-y-0.5 mt-1">
+                        {/* 尺码列 - 移动端在右侧 */}
+                        <div className="grid grid-cols-5 md:grid-cols-4 gap-x-0.5 gap-y-0.5 mt-1 md:mt-0 md:ml-1 md:shrink-0">
                           {ALL_SIZES.map((s) => {
                             const val = Number(product[`size_${s}`]) || 0;
                             return (
@@ -902,20 +924,6 @@ export default function AdminProductsPage() {
                               }`}>{s}:{val}</span>
                             );
                           })}
-                        </div>
-                        {/* 售出/利润率 */}
-                        <div className="flex gap-3 mt-1">
-                          <div className="shrink-0">
-                            <span className="text-xs font-extrabold text-green-600">售出 {product.sold_total}</span>
-                            <span className={`text-xs font-bold ml-2 ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率 {pct(profitRate)}</span>
-                          </div>
-                        </div>
-                        {/* 退货/退货率 */}
-                        <div className="flex gap-3 mt-0.5">
-                          <div className="shrink-0">
-                            <span className="text-xs font-extrabold text-yellow-600">退货 {product.return_total}</span>
-                            <span className="text-xs font-bold ml-2 text-yellow-600">退货率 {pct(returnRate)}</span>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -963,6 +971,15 @@ export default function AdminProductsPage() {
                 );
               })}
             </div>
+
+            {/* 空状态：没有展示商品时 */}
+            {displayList.length === 0 && (
+              <div className="text-center py-16">
+                <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-lg font-extrabold text-gray-400">还没有商品在售哦</p>
+                <p className="text-sm text-gray-300 mt-1">敬请期待吧</p>
+              </div>
+            )}
           </div>
         )}
 
