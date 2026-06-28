@@ -698,17 +698,9 @@ export default function AdminProductsPage() {
                   选择要在商品栏中展示的商品。已选 {displayList.length} / {products.length}
                 </p>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={deselectAll}
-                  className="flex items-center gap-1 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#FF6B7A] text-white font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all"
-                >
-                  全取消
-                </button>
-              </div>
             </div>
 
-            {/* 筛选栏 - 搜索框 + 筛选下拉按钮 */}
+            {/* 筛选栏 - 搜索框 + 筛选按钮 + 全取消 */}
             <div className="mb-4">
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -718,7 +710,7 @@ export default function AdminProductsPage() {
                     value={displaySearch}
                     onChange={(e) => setDisplaySearch(e.target.value)}
                     placeholder="搜索商品名称或编号..."
-                    className="neo-input w-full text-sm pl-10 py-2 border-[2px]"
+                    className="neo-input w-full text-sm pl-10 py-2"
                   />
                 </div>
                 <div className="relative">
@@ -856,11 +848,17 @@ export default function AdminProductsPage() {
                     </>
                   )}
                 </div>
+                <button
+                  onClick={deselectAll}
+                  className="flex items-center gap-1 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#FF6B7A] text-white font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all shrink-0"
+                >
+                  全取消
+                </button>
               </div>
             </div>
 
             {/* 商品卡片列表 - 复用管理栏总表布局 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 max-h-[600px] overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto">
               {filteredDisplayProducts.map((product) => {
                 const isDisplayed = displayList.length === 0 || displayList.includes(product.sale_id);
                 const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
@@ -871,12 +869,12 @@ export default function AdminProductsPage() {
                   <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] p-2.5 border-gray-300 md:border-gray-300 md:shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] border-0 shadow-none">
                     <div className="flex gap-2 md:gap-2">
                       {/* 图片区域 */}
-                      <div className="w-24 h-24 md:w-52 md:h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="w-24 h-24 md:w-40 md:h-40 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {product.photo ? (
                           <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <Package className="h-12 w-12 md:h-20 md:w-20 text-gray-300" />
+                            <Package className="h-12 w-12 md:h-16 md:w-16 text-gray-300" />
                           </div>
                         )}
                       </div>
