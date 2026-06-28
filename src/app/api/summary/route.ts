@@ -194,6 +194,25 @@ export async function GET() {
     }
 
     // 计算最终汇总
+    // 从 product_display 表读取展示售价（优先于售卖记录中的售价）
+    const { data: displayData } = await supabase
+      .from("product_display")
+      .select("sale_id, sell_price");
+
+    if (displayData) {
+      for (const row of displayData) {
+        const saleId = (row.sale_id || "").toUpperCase();
+        const displayPrice = Number(row.sell_price) || 0;
+        if (displayPrice > 0 && summaryMap.has(saleId)) {
+          const entry = summaryMap.get(saleId)!;
+          // 如果售卖记录中没有售价，或展示售价更新，使用展示售价
+          if (entry.sell_price === 0 || displayPrice !== entry.sell_price) {
+            entry.sell_price = displayPrice;
+          }
+        }
+      }
+    }
+
     const result = Array.from(summaryMap.values()).map((entry) => {
       const remaining = entry.inbound_total - entry.sold_total + entry.return_total;
       const profit = entry.sell_price - entry.cost_price;

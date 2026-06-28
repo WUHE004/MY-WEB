@@ -102,6 +102,10 @@ export default function AdminProductsPage() {
   const [editingPrice, setEditingPrice] = useState<string | null>(null);
   const [editingPriceValue, setEditingPriceValue] = useState("");
   const [savingPrice, setSavingPrice] = useState(false);
+  // 售价弹窗
+  const [showPriceModal, setShowPriceModal] = useState(false);
+  const [priceModalProduct, setPriceModalProduct] = useState<SummaryProduct | null>(null);
+  const [priceModalValue, setPriceModalValue] = useState("");
 
   // 售卖详情
   const [orders, setOrders] = useState<WebOrder[]>([]);
@@ -344,6 +348,8 @@ export default function AdminProductsPage() {
   const toggleProductDisplay = (saleId: string) => {
     setDisplayList((prev) => {
       if (prev.includes(saleId)) {
+        // 取消展示时，同步删除 product_display 记录
+        fetch(`/api/product-display?sale_id=${saleId}`, { method: "DELETE" }).catch(() => {});
         return prev.filter((id) => id !== saleId);
       }
       return [...prev, saleId];
@@ -384,19 +390,27 @@ export default function AdminProductsPage() {
     }
   };
 
-  // 保存售价
-  const savePrice = async (saleId: string) => {
-    const price = parseFloat(editingPriceValue);
+  // 打开售价弹窗
+  const openPriceModal = (product: SummaryProduct) => {
+    setPriceModalProduct(product);
+    setPriceModalValue(product.sell_price > 0 ? String(product.sell_price) : "");
+    setShowPriceModal(true);
+  };
+
+  // 保存售价（使用 product_display 表）
+  const savePrice = async () => {
+    if (!priceModalProduct) return;
+    const price = parseFloat(priceModalValue);
     if (isNaN(price) || price <= 0) {
       alert("请输入有效的售价");
       return;
     }
     setSavingPrice(true);
     try {
-      const res = await fetch("/api/inbound-records", {
-        method: "PUT",
+      const res = await fetch("/api/product-display", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sale_id: saleId, sell_price: price }),
+        body: JSON.stringify({ sale_id: priceModalProduct.sale_id, sell_price: price }),
       });
       const data = await res.json();
       if (data.error) {
@@ -404,13 +418,14 @@ export default function AdminProductsPage() {
       } else {
         // 自动加入展示列表
         setDisplayList((prev) => {
-          if (!prev.includes(saleId)) {
-            return [...prev, saleId];
+          if (!prev.includes(priceModalProduct.sale_id)) {
+            return [...prev, priceModalProduct.sale_id];
           }
           return prev;
         });
-        setEditingPrice(null);
-        setEditingPriceValue("");
+        setShowPriceModal(false);
+        setPriceModalProduct(null);
+        setPriceModalValue("");
         fetchData();
       }
     } catch (err) {
@@ -841,7 +856,7 @@ export default function AdminProductsPage() {
                         {product.shelf_no && (
                           <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>
                         )}
-                        {/* 售价显示/编辑 */}
+                        {/* 售价显示 */}
                         <div className="mt-1">
                           {hasSellPrice ? (
                             <span className="text-xs font-extrabold text-[#FF6B7A]">售价: ¥{product.sell_price}</span>
@@ -849,12 +864,12 @@ export default function AdminProductsPage() {
                             <span className="text-[10px] text-orange-500 font-bold">未设置售价</span>
                           )}
                         </div>
-                        {/* 所有尺码 - 桌面端显示 */}
-                        <div className="hidden md:grid mt-1 grid-cols-4 gap-x-0.5 gap-y-0.5">
+                        {/* 所有尺码 - 移动端也显示 */}
+                        <div className="grid grid-cols-5 md:grid-cols-4 gap-x-0.5 gap-y-0.5 mt-1">
                           {ALL_SIZES.map((s) => {
                             const val = Number(product[`size_${s}`]) || 0;
                             return (
-                              <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
+                              <span key={s} className={`text-[7px] md:text-[8px] px-0.5 md:px-1 py-0.5 md:py-1 rounded border font-bold text-center truncate ${
                                 val < 0 ? "bg-red-50 border-red-300 text-red-600" :
                                 val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
                                 "bg-white border-gray-200 text-gray-300"
@@ -893,42 +908,11 @@ export default function AdminProductsPage() {
                         <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
                       </div>
                     </div>
-                    {/* 售价编辑区域 */}
-                    {editingPrice === product.sale_id && (
-                      <div className="mt-2 p-2 bg-yellow-50 rounded-lg border-2 border-yellow-300">
-                        <p className="text-[10px] font-bold text-gray-600 mb-1">设置售价后才能在商品页展示</p>
-                        <div className="flex gap-2">
-                          <input
-                            type="number"
-                            value={editingPriceValue}
-                            onChange={(e) => setEditingPriceValue(e.target.value)}
-                            placeholder="输入售价"
-                            className="neo-input flex-1 text-xs py-1.5"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => savePrice(product.sale_id)}
-                            disabled={savingPrice}
-                            className="px-3 py-1.5 rounded-lg border-[2px] border-gray-900 bg-[#4CD964] text-white text-xs font-bold"
-                          >
-                            {savingPrice ? "..." : "确定"}
-                          </button>
-                          <button
-                            onClick={() => { setEditingPrice(null); setEditingPriceValue(""); }}
-                            className="px-3 py-1.5 rounded-lg border-[2px] border-gray-300 text-gray-500 text-xs font-bold"
-                          >
-                            取消
-                          </button>
-                        </div>
-                      </div>
-                    )}
                     {/* 展示/取消展示按钮 */}
                     <button
                       onClick={() => {
-                        if (!isDisplayed && !hasSellPrice) {
-                          // 没有售价，先弹出价格输入
-                          setEditingPrice(product.sale_id);
-                          setEditingPriceValue("");
+                        if (!isDisplayed) {
+                          openPriceModal(product);
                         } else {
                           toggleProductDisplay(product.sale_id);
                         }
@@ -942,10 +926,6 @@ export default function AdminProductsPage() {
                       {isDisplayed ? (
                         <span className="flex items-center justify-center gap-1">
                           <X className="h-3 w-3" />取消展示
-                        </span>
-                      ) : !hasSellPrice ? (
-                        <span className="flex items-center justify-center gap-1">
-                          <Check className="h-3 w-3" />设置售价并展示
                         </span>
                       ) : (
                         <span className="flex items-center justify-center gap-1">
@@ -1425,6 +1405,93 @@ export default function AdminProductsPage() {
 
       {/* 收款码管理按钮（在售卖详情标签页中） */}
       {/* 这个按钮已经添加在 orders 标签页的头部 */}
+
+      {/* 售价设置弹窗 */}
+      {showPriceModal && priceModalProduct && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => { setShowPriceModal(false); setPriceModalProduct(null); }}>
+          <div
+            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-md w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
+              <h3 className="text-lg font-extrabold text-gray-900">设置售价</h3>
+              <button
+                onClick={() => { setShowPriceModal(false); setPriceModalProduct(null); }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* 商品信息 */}
+              <div className="flex gap-3">
+                <div className="w-16 h-16 rounded-lg border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
+                  {priceModalProduct.photo ? (
+                    <img src={priceModalProduct.photo} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Package className="h-8 w-8 text-gray-300" />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <p className="font-extrabold text-gray-900">{priceModalProduct.sale_id}</p>
+                  {priceModalProduct.name && <p className="text-xs text-gray-500">{priceModalProduct.name}</p>}
+                  <p className="text-sm font-bold text-gray-700 mt-1">
+                    进价: <span className="text-gray-900">¥{priceModalProduct.cost_price || 0}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* 售价输入 */}
+              <div>
+                <label className="text-xs font-bold text-gray-600 mb-1 block">售价 (¥)</label>
+                <input
+                  type="number"
+                  value={priceModalValue}
+                  onChange={(e) => setPriceModalValue(e.target.value)}
+                  placeholder="输入售价"
+                  className="neo-input w-full text-sm py-2"
+                  autoFocus
+                />
+              </div>
+
+              {/* 实时利润显示 */}
+              {priceModalValue && !isNaN(parseFloat(priceModalValue)) && parseFloat(priceModalValue) > 0 && (
+                <div className="bg-green-50 rounded-lg p-3 border-2 border-green-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-gray-600">预计利润:</span>
+                    <span className="text-lg font-extrabold text-[#4CD964]">
+                      ¥{(parseFloat(priceModalValue) - (priceModalProduct.cost_price || 0)).toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-xs font-bold text-gray-600">利润率:</span>
+                    <span className="text-sm font-extrabold text-[#4CD964]">
+                      {((parseFloat(priceModalValue) - (priceModalProduct.cost_price || 0)) / parseFloat(priceModalValue) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t-2 border-gray-200 flex gap-2">
+              <button
+                onClick={() => { setShowPriceModal(false); setPriceModalProduct(null); }}
+                className="flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-white text-gray-700 font-extrabold text-sm"
+              >
+                取消
+              </button>
+              <button
+                onClick={savePrice}
+                disabled={savingPrice || !priceModalValue || parseFloat(priceModalValue) <= 0}
+                className="flex-1 py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-sm disabled:opacity-50"
+              >
+                {savingPrice ? "保存中..." : "确认展示"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </motion.div>
     </PageWrapper>
   );

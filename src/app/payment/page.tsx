@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PageWrapper } from "@/components/page-wrapper";
-import { Package, CreditCard, CheckCircle2, AlertCircle, QrCode, Download } from "lucide-react";
+import { Package, CreditCard, CheckCircle2, AlertCircle, QrCode, Download, Upload, Camera } from "lucide-react";
 import Link from "next/link";
 
 interface OrderInfo {
@@ -34,6 +34,10 @@ export default function PaymentPage() {
   const [error, setError] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"wechat" | "alipay">("wechat");
   const [confirming, setConfirming] = useState(false);
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string>("");
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // 从URL获取订单ID
@@ -108,10 +112,36 @@ export default function PaymentPage() {
   const handlePaid = async () => {
     if (!order) return;
 
+    if (!screenshot) {
+      setError("请先上传支付截图");
+      return;
+    }
+
     setConfirming(true);
     setError("");
 
     try {
+      // 1. 上传支付截图到企业微信
+      setUploadingScreenshot(true);
+      const formData = new FormData();
+      formData.append("file", screenshot);
+      formData.append("order_id", String(order.id));
+      formData.append("payment_method", paymentMethod);
+
+      const uploadRes = await fetch("/api/payment/upload-screenshot", {
+        method: "POST",
+        body: formData,
+      });
+      const uploadData = await uploadRes.json();
+      setUploadingScreenshot(false);
+
+      if (uploadData.error) {
+        setError(uploadData.error);
+        setConfirming(false);
+        return;
+      }
+
+      // 2. 确认支付
       const res = await fetch("/api/web-orders", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -134,6 +164,16 @@ export default function PaymentPage() {
       setError("确认支付失败，请稍后重试");
     } finally {
       setConfirming(false);
+      setUploadingScreenshot(false);
+    }
+  };
+
+  const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setScreenshot(file);
+      setScreenshotPreview(URL.createObjectURL(file));
+      setError("");
     }
   };
 
@@ -332,8 +372,60 @@ export default function PaymentPage() {
           )}
 
           <p className="text-xs text-gray-500 mt-4 text-center">
-            请保存收款码图片，用微信/支付宝扫码支付后，点击下方按钮确认支付
+            请保存收款码图片，用微信/支付宝扫码支付后，上传支付截图并确认
           </p>
+        </div>
+
+        {/* 支付截图上传 */}
+        <div className="neo-card p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Camera className="h-5 w-5 text-gray-700" />
+            <h2 className="text-lg font-bold text-gray-900">上传支付截图</h2>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            请上传微信/支付宝的支付成功截图，截图将发送到企业微信群供核对
+          </p>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleScreenshotChange}
+            className="hidden"
+          />
+
+          {screenshotPreview ? (
+            <div className="space-y-3">
+              <div className="relative rounded-xl border-2 border-gray-200 overflow-hidden">
+                <img
+                  src={screenshotPreview}
+                  alt="支付截图"
+                  className="w-full max-h-48 object-contain bg-gray-50"
+                />
+                <button
+                  onClick={() => { setScreenshot(null); setScreenshotPreview(""); }}
+                  className="absolute top-2 right-2 w-7 h-7 bg-white rounded-full border-2 border-gray-900 flex items-center justify-center hover:bg-gray-100"
+                >
+                  <span className="text-xs font-bold">×</span>
+                </button>
+              </div>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="neo-btn w-full py-2 text-xs font-bold bg-gray-100 text-gray-700"
+              >
+                重新选择
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-8 rounded-xl border-[3px] border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 transition-colors flex flex-col items-center gap-2"
+            >
+              <Upload className="h-8 w-8 text-gray-400" />
+              <span className="text-sm font-bold text-gray-500">点击上传支付截图</span>
+              <span className="text-xs text-gray-400">支持 JPG、PNG 格式</span>
+            </button>
+          )}
         </div>
 
         {/* 确认支付按钮 */}
@@ -343,7 +435,7 @@ export default function PaymentPage() {
           className="neo-btn neo-btn-primary w-full flex items-center justify-center gap-2 py-4 text-lg"
         >
           <CheckCircle2 className="h-6 w-6" />
-          {confirming ? "确认中..." : "我已支付，确认订单"}
+          {uploadingScreenshot ? "上传截图中..." : confirming ? "确认中..." : "我已支付，确认订单"}
         </button>
 
         {error && (
