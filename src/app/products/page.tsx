@@ -271,10 +271,12 @@ export default function ProductsPage() {
 
     setSubmitting(true);
     try {
+      let lastOrderId = 0;
+
       // 为每个尺码创建下单记录
       for (const [sizeStr, qty] of Object.entries(selectedSizes)) {
         const size = Number(sizeStr);
-        await fetch("/api/web-orders", {
+        const res = await fetch("/api/web-orders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -290,6 +292,10 @@ export default function ProductsPage() {
             member_name: memberName || "",
           }),
         });
+        const data = await res.json();
+        if (data.id) {
+          lastOrderId = data.id;
+        }
       }
 
       // 将收货信息写入 members 表
@@ -306,10 +312,15 @@ export default function ProductsPage() {
         });
       }
 
-      alert("下单成功！");
-      setShowOrderForm(false);
-      closeDetail();
-      fetchData();
+      // 跳转到支付页面
+      if (lastOrderId > 0) {
+        window.location.href = `/payment?order_id=${lastOrderId}`;
+      } else {
+        alert("下单成功！");
+        setShowOrderForm(false);
+        closeDetail();
+        fetchData();
+      }
     } catch (err) {
       console.error("Submit order error:", err);
       alert("下单失败，请重试");
