@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   Pause,
@@ -20,9 +20,13 @@ import {
   X,
   SlidersHorizontal,
   Filter,
+  Camera,
+  Image as ImageIcon,
+  CreditCard,
 } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 import Link from "next/link";
+import { Html5Qrcode } from "html5-qrcode";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
 
@@ -100,6 +104,13 @@ export default function AdminProductsPage() {
   const [selectedOrder, setSelectedOrder] = useState<WebOrder | null>(null);
   const [shippingInfo, setShippingInfo] = useState<any>(null);
   const [updatingOrder, setUpdatingOrder] = useState(false);
+
+  // 订单详情扫码
+  const [showOrderScanner, setShowOrderScanner] = useState(false);
+  const [orderScanning, setOrderScanning] = useState(false);
+  const [orderScanError, setOrderScanError] = useState("");
+  const orderScannerRef = useRef<Html5Qrcode | null>(null);
+  const orderFileInputRef = useRef<HTMLInputElement>(null);
 
   // 抖音直播
   const [douyinLinks, setDouyinLinks] = useState<DouyinLink[]>([]);
@@ -207,6 +218,61 @@ export default function AdminProductsPage() {
     }
   };
 
+  // 订单详情扫码 - 启动相机
+  const startOrderScanner = async () => {
+    setShowOrderScanner(true);
+    setOrderScanning(true);
+    setOrderScanError("");
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      const scanner = new Html5Qrcode("order-scanner-reader");
+      orderScannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          setSelectedOrder(prev => prev ? { ...prev, tracking_number: decodedText } : prev);
+          stopOrderScanner();
+        },
+        () => {}
+      );
+    } catch (err) {
+      console.error("Scanner error:", err);
+      setOrderScanError("无法启动相机，请确保已授权相机权限");
+      setOrderScanning(false);
+    }
+  };
+
+  // 订单详情扫码 - 停止相机
+  const stopOrderScanner = () => {
+    if (orderScannerRef.current) {
+      orderScannerRef.current.stop().catch(() => {});
+      orderScannerRef.current = null;
+    }
+    setShowOrderScanner(false);
+    setOrderScanning(false);
+  };
+
+  // 订单详情扫码 - 从图片识别
+  const handleOrderScanFromPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOrderScanning(true);
+    setOrderScanError("");
+    try {
+      const scanner = new Html5Qrcode("order-scanner-hidden");
+      const decodedText = await scanner.scanFile(file, true);
+      setSelectedOrder(prev => prev ? { ...prev, tracking_number: decodedText } : prev);
+    } catch {
+      setOrderScanError("未识别到条形码，请重试");
+    }
+    setOrderScanning(false);
+    if (orderFileInputRef.current) {
+      orderFileInputRef.current.value = "";
+    }
+  };
+
   // 删除订单（恢复库存）
   const handleDeleteOrder = async () => {
     if (!selectedOrder) return;
@@ -217,10 +283,8 @@ export default function AdminProductsPage() {
 
     setUpdatingOrder(true);
     try {
-      const res = await fetch("/api/web-orders", {
+      const res = await fetch(`/api/web-orders?id=${selectedOrder.id}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: selectedOrder.id }),
       });
       const data = await res.json();
 
@@ -791,12 +855,21 @@ export default function AdminProductsPage() {
           <div className="rounded-xl border-[3px] border-gray-900 bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-extrabold text-gray-900">网页订单管理</h2>
-              <button
-                onClick={fetchOrders}
-                className="neo-btn px-4 py-2 text-xs font-bold bg-[#4A90E2] text-white"
-              >
-                刷新
-              </button>
+              <div className="flex gap-2">
+                <Link
+                  href="/payment-qr"
+                  className="neo-btn px-4 py-2 text-xs font-bold bg-[#4CD964] text-white flex items-center gap-1"
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  收款码管理
+                </Link>
+                <button
+                  onClick={fetchOrders}
+                  className="neo-btn px-4 py-2 text-xs font-bold bg-[#4A90E2] text-white"
+                >
+                  刷新
+                </button>
+              </div>
             </div>
 
             {ordersLoading ? (
@@ -1086,13 +1159,41 @@ export default function AdminProductsPage() {
                 {/* 物流单号输入 */}
                 <div className="mb-3">
                   <label className="text-xs font-bold text-gray-600 mb-1 block">物流单号</label>
-                  <input
-                    type="text"
-                    value={selectedOrder.tracking_number || ""}
-                    onChange={(e) => setSelectedOrder({ ...selectedOrder, tracking_number: e.target.value })}
-                    placeholder="输入物流单号"
-                    className="neo-input w-full text-xs py-2"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={selectedOrder.tracking_number || ""}
+                      onChange={(e) => setSelectedOrder({ ...selectedOrder, tracking_number: e.target.value })}
+                      placeholder="输入或扫描快递面单号..."
+                      className="neo-input flex-1 text-xs py-2"
+                    />
+                    <button
+                      onClick={startOrderScanner}
+                      disabled={orderScanning}
+                      className="neo-btn px-3 h-[38px] bg-[#4A90E2] text-white shrink-0"
+                      title="扫码识别"
+                    >
+                      <Camera className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => orderFileInputRef.current?.click()}
+                      disabled={orderScanning}
+                      className="neo-btn px-3 h-[38px] bg-[#FFC93C] text-gray-900 shrink-0"
+                      title="从图片识别"
+                    >
+                      <ImageIcon className="h-4 w-4" />
+                    </button>
+                    <input
+                      ref={orderFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleOrderScanFromPhoto}
+                    />
+                  </div>
+                  {orderScanError && (
+                    <p className="text-xs text-red-500 mt-1">{orderScanError}</p>
+                  )}
                 </div>
 
                 {/* 更新物流单号按钮 */}
@@ -1183,6 +1284,37 @@ export default function AdminProductsPage() {
           </div>
         </div>
       )}
+
+      {/* 订单详情扫码弹窗 */}
+      {showOrderScanner && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-md w-full overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
+              <h3 className="text-lg font-extrabold">扫描快递面单号</h3>
+              <button
+                onClick={stopOrderScanner}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-4">
+              <div id="order-scanner-reader" className="w-full rounded-xl overflow-hidden border-2 border-gray-900" />
+              {orderScanError && (
+                <p className="mt-3 text-sm text-red-500 font-bold text-center">{orderScanError}</p>
+              )}
+              <p className="mt-3 text-xs text-gray-500 text-center">
+                将快递面单条形码对准扫描框即可自动识别
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 隐藏的扫码容器（用于从图片识别） */}
+      <div id="order-scanner-hidden" className="hidden" />
+
+      {/* 收款码管理按钮（在售卖详情标签页中） */}
+      {/* 这个按钮已经添加在 orders 标签页的头部 */}
       </motion.div>
     </PageWrapper>
   );

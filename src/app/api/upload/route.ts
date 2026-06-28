@@ -50,7 +50,10 @@ export async function POST(request: NextRequest) {
         console.log(`[上传] 图片压缩: ${(originalSize / 1024).toFixed(1)}KB → ${(buffer.length / 1024).toFixed(1)}KB (quality: ${quality})`);
       } catch (err) {
         console.warn("[上传] sharp 压缩不可用，使用原图:", err instanceof Error ? err.message : String(err));
-        // sharp 不可用时使用原图
+        // sharp 不可用时使用原图，但限制大小
+        if (buffer.length > MAX_SIZE_BYTES) {
+          return NextResponse.json({ error: `图片太大 (${(buffer.length / 1024).toFixed(0)}KB)，请压缩后重新上传（最大500KB）` }, { status: 400 });
+        }
       }
     }
 
@@ -61,7 +64,7 @@ export async function POST(request: NextRequest) {
     const fileName = `${folder}/${timestamp}_${random}.${ext}`;
 
     // 上传到 Supabase Storage
-    const { error: uploadError } = await supabase.storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from("product-photos")
       .upload(fileName, buffer, {
         contentType: isImage ? "image/jpeg" : file.type,
@@ -70,7 +73,18 @@ export async function POST(request: NextRequest) {
 
     if (uploadError) {
       console.error("[上传] Supabase upload error:", uploadError);
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      
+      // 提供更详细的错误信息
+      let errorMsg = uploadError.message;
+      if (uploadError.message.includes("policy") || uploadError.message.includes("Permission")) {
+        errorMsg = "Storage权限不足，请在Supabase中设置product-photos存储桶的写入权限";
+      } else if (uploadError.message.includes("bucket") && uploadError.message.includes("not found")) {
+        errorMsg = "product-photos存储桶不存在，请先在Supabase中创建";
+      } else if (uploadError.message.includes("size")) {
+        errorMsg = `文件大小超出限制（当前${(buffer.length / 1024).toFixed(0)}KB，最大5MB）`;
+      }
+      
+      return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
     // 获取公开 URL
