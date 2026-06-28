@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
     const record = {
       inbound_date: body.inbound_date || new Date().toISOString(),
       sale_id: body.sale_id || "",
-      photo: (body.photo && body.photo !== "0" && String(body.photo).trim() !== "0") ? body.photo : "",
+      photo: (body.photo && body.photo !== "0" && String(body.photo).trim() !== "0") 
+        ? String(body.photo).replace(/^`+|`+$/g, "").trim() 
+        : "",
       name: (body.name && body.name !== "0" && String(body.name).trim() !== "0") ? body.name : "",
       manufacturer: body.manufacturer || "",
       size_80: Number(body.size_80) || 0,
@@ -102,7 +104,7 @@ export async function PUT(request: NextRequest) {
     // 计算 total_stock
     const updateData: Record<string, unknown> = {};
 
-    if (fields.photo !== undefined) updateData.photo = fields.photo;
+    if (fields.photo !== undefined) updateData.photo = String(fields.photo).replace(/^`+|`+$/g, "").trim();
     if (fields.name !== undefined) updateData.name = fields.name;
     if (fields.manufacturer !== undefined) updateData.manufacturer = fields.manufacturer;
     if (fields.cost_price !== undefined) updateData.cost_price = Number(fields.cost_price) || 0;

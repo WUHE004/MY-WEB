@@ -305,9 +305,14 @@ export default function InboundPage() {
       }
 
       const { url } = await res.json();
-      setPhoto(url); // 替换为远程 URL
+      console.log("[上传成功] URL:", url);
+      
+      // 清理 URL 中的反引号等特殊字符
+      const cleanUrl = String(url).replace(/^`+|`+$/g, "").trim();
+      setPhoto(cleanUrl); // 替换为远程 URL
     } catch (err) {
       const msg = err instanceof Error ? err.message : "上传失败";
+      console.error("[上传失败]", msg);
       alert("图片上传失败: " + msg);
       setPhoto(null);
     } finally {

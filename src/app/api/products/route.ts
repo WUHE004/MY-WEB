@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     const product = {
       sale_id: body.sale_id || "",
       manufacturer: body.manufacturer || "",
-      photo: body.photo || "",
+      photo: body.photo ? String(body.photo).replace(/^`+|`+$/g, "").trim() : "",
       name: body.name || "",
       total_stock: Number(body.total_stock) || 0,
       shelf_no: body.shelf_no || "",
