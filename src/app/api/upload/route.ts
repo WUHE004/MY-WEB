@@ -19,55 +19,129 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "文件大小不能超过 10MB" }, { status: 400 });
     }
 
+    // 读取文件
     const arrayBuffer = await file.arrayBuffer();
-    let buffer: Buffer = Buffer.from(arrayBuffer);
+    const rawBuffer = Buffer.from(arrayBuffer);
+    
+    // 校验原文件头，确保读取成功
+    if (rawBuffer.length < 50) {
+      return NextResponse.json({ error: "文件数据异常，太小" }, { status: 400 });
+    }
+
+    // 确定文件格式和扩展名
+    const originalExt = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    let useSharp = false;
+    let compressed = rawBuffer;
+    let finalExt = originalExt;
+    let finalContentType = file.type || "application/octet-stream";
 
     // 如果是图片，尝试使用 sharp 压缩
     const isImage = file.type?.startsWith("image/");
     if (isImage) {
-      try {
-        // 动态导入 sharp（Vercel 上可能不可用）
-        const sharp = (await import("sharp")).default;
-        
-        const originalSize = buffer.length;
-        let quality = 80;
-        
-        let compressed = await sharp(buffer)
-          .resize(MAX_WIDTH, MAX_WIDTH, { fit: "inside", withoutEnlargement: true })
-          .jpeg({ quality, mozjpeg: true })
-          .toBuffer();
+      // 小于 200KB 的图片直接上传，不压缩
+      if (rawBuffer.length < 200 * 1024) {
+        console.log(`[上传] 图片较小 (${(rawBuffer.length / 1024).toFixed(1)}KB)，跳过压缩`);
+      } else {
+        try {
+          const sharp = (await import("sharp")).default;
+          
+          const originalSize = rawBuffer.length;
+          let quality = 80;
+          
+          // 根据原图格式选择输出格式
+          let sharpPipeline = sharp(rawBuffer)
+            .resize(MAX_WIDTH, MAX_WIDTH, { fit: "inside", withoutEnlargement: true });
+          
+          // 保留原图格式（png/webp/tiff等）
+          if (originalExt === "png") {
+            sharpPipeline = sharpPipeline.png({ quality: Math.min(quality, 90) });
+            finalExt = "png";
+            finalContentType = "image/png";
+          } else if (originalExt === "webp") {
+            sharpPipeline = sharpPipeline.webp({ quality });
+            finalExt = "webp";
+            finalContentType = "image/webp";
+          } else {
+            // 默认输出 JPEG
+            sharpPipeline = sharpPipeline.jpeg({ quality, mozjpeg: true });
+            finalExt = "jpg";
+            finalContentType = "image/jpeg";
+          }
+          
+          const sharpResult = await sharpPipeline.toBuffer();
+          
+          // 校验 JPEG 头：有效 JPEG 必须以 FF D8 FF 开头
+          if (finalExt === "jpg") {
+            if (sharpResult.length < 100 || sharpResult[0] !== 0xFF || sharpResult[1] !== 0xD8 || sharpResult[2] !== 0xFF) {
+              console.warn(`[上传] sharp 输出 JPEG 无效 (len=${sharpResult.length}, 头=${sharpResult[0]?.toString(16)}${sharpResult[1]?.toString(16)}${sharpResult[2]?.toString(16)})，改上传原图`);
+            } else {
+              compressed = sharpResult;
+              useSharp = true;
+            }
+          } else {
+            compressed = sharpResult;
+            useSharp = true;
+          }
+          
+          // 如果压缩后还是太大，继续降低质量
+          while (useSharp && compressed.length > MAX_SIZE_BYTES && quality > 30) {
+            quality -= 15;
+            let retryPipeline = sharp(rawBuffer)
+              .resize(MAX_WIDTH, MAX_WIDTH, { fit: "inside", withoutEnlargement: true });
+            
+            if (finalExt === "png") {
+              retryPipeline = retryPipeline.png({ quality: Math.min(quality, 90) });
+            } else if (finalExt === "webp") {
+              retryPipeline = retryPipeline.webp({ quality });
+            } else {
+              retryPipeline = retryPipeline.jpeg({ quality, mozjpeg: true });
+            }
+            
+            const retryResult = await retryPipeline.toBuffer();
+            
+            // 再次校验
+            if (finalExt === "jpg") {
+              if (retryResult[0] === 0xFF && retryResult[1] === 0xD8 && retryResult[2] === 0xFF) {
+                compressed = retryResult;
+              }
+            } else {
+              compressed = retryResult;
+            }
+          }
 
-        // 如果还是太大，继续降低质量
-        while (compressed.length > MAX_SIZE_BYTES && quality > 30) {
-          quality -= 15;
-          compressed = await sharp(buffer)
-            .resize(MAX_WIDTH, MAX_WIDTH, { fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality, mozjpeg: true })
-            .toBuffer();
-        }
-
-        buffer = compressed;
-        console.log(`[上传] 图片压缩: ${(originalSize / 1024).toFixed(1)}KB → ${(buffer.length / 1024).toFixed(1)}KB (quality: ${quality})`);
-      } catch (err) {
-        console.warn("[上传] sharp 压缩不可用，使用原图:", err instanceof Error ? err.message : String(err));
-        // sharp 不可用时使用原图，但限制大小
-        if (buffer.length > MAX_SIZE_BYTES) {
-          return NextResponse.json({ error: `图片太大 (${(buffer.length / 1024).toFixed(0)}KB)，请压缩后重新上传（最大500KB）` }, { status: 400 });
+          console.log(`[上传] 图片压缩: ${(originalSize / 1024).toFixed(1)}KB → ${(compressed.length / 1024).toFixed(1)}KB (quality: ${quality}, sharp: ${useSharp})`);
+        } catch (sharpError) {
+          console.warn("[上传] sharp 压缩失败:", sharpError instanceof Error ? sharpError.message : String(sharpError));
+          // sharp 失败时使用原图
+          useSharp = false;
         }
       }
     }
 
-    // 生成唯一文件名（统一用 jpg 扩展名）
-    const ext = isImage ? "jpg" : (file.name.split(".").pop() || "jpg");
+    // 如果没用 sharp 或 sharp 失败，保留原图格式
+    if (!useSharp) {
+      if (originalExt === "png") {
+        finalExt = "png";
+        finalContentType = "image/png";
+      } else if (originalExt === "webp") {
+        finalExt = "webp";
+        finalContentType = "image/webp";
+      } else {
+        finalExt = "jpg";
+        finalContentType = "image/jpeg";
+      }
+    }
+
+    // 生成唯一文件名
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8);
-    const fileName = `${folder}/${timestamp}_${random}.${ext}`;
+    const fileName = `${folder}/${timestamp}_${random}.${finalExt}`;
 
     // 上传到 Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from("product-photos")
-      .upload(fileName, buffer, {
-        contentType: isImage ? "image/jpeg" : file.type,
+      .upload(fileName, compressed, {
+        contentType: finalContentType,
         upsert: false,
       });
 
@@ -81,7 +155,7 @@ export async function POST(request: NextRequest) {
       } else if (uploadError.message.includes("bucket") && uploadError.message.includes("not found")) {
         errorMsg = "product-photos存储桶不存在，请先在Supabase中创建";
       } else if (uploadError.message.includes("size")) {
-        errorMsg = `文件大小超出限制（当前${(buffer.length / 1024).toFixed(0)}KB，最大5MB）`;
+        errorMsg = `文件大小超出限制（当前${(compressed.length / 1024).toFixed(0)}KB，最大5MB）`;
       }
       
       return NextResponse.json({ error: errorMsg }, { status: 500 });
@@ -92,7 +166,7 @@ export async function POST(request: NextRequest) {
       .from("product-photos")
       .getPublicUrl(fileName);
 
-    console.log(`[上传] 成功: ${fileName}`);
+    console.log(`[上传] 成功: ${fileName}, 大小: ${(compressed.length / 1024).toFixed(1)}KB`);
     return NextResponse.json({ url: urlData.publicUrl, path: fileName }, { status: 201 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
