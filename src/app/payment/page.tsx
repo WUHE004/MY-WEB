@@ -247,27 +247,31 @@ export default function PaymentPage() {
             </button>
           </div>
 
-          {/* 二维码图片 */}
+          {/* 二维码图片 - 只显示当前选中的支付方式 */}
           {paymentQR ? (
-            <div className="flex gap-4 justify-center">
-              {paymentQR.wechat_qr && (
+            <div className="flex justify-center">
+              {paymentMethod === "wechat" && paymentQR.wechat_qr ? (
                 <div className="flex flex-col items-center">
                   <img
                     src={paymentQR.wechat_qr}
                     alt="微信收款码"
                     className="neo-border rounded-xl w-48 h-48 object-cover"
                   />
-                  <p className="text-xs font-bold text-gray-500 mt-2">微信收款码</p>
+                  <p className="text-xs font-bold text-[#4CD964] mt-2">微信收款码</p>
                 </div>
-              )}
-              {paymentQR.alipay_qr && (
+              ) : paymentMethod === "alipay" && paymentQR.alipay_qr ? (
                 <div className="flex flex-col items-center">
                   <img
                     src={paymentQR.alipay_qr}
                     alt="支付宝收款码"
                     className="neo-border rounded-xl w-48 h-48 object-cover"
                   />
-                  <p className="text-xs font-bold text-gray-500 mt-2">支付宝收款码</p>
+                  <p className="text-xs font-bold text-[#4A90E2] mt-2">支付宝收款码</p>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-gray-500">
+                  <p className="text-sm">暂无{paymentMethod === "wechat" ? "微信" : "支付宝"}收款码</p>
+                  <p className="text-xs mt-1">请联系客服获取收款方式</p>
                 </div>
               )}
             </div>

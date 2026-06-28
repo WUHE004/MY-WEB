@@ -249,48 +249,12 @@ export default function InboundPage() {
     }
   };
 
-  // 客户端图片压缩（Canvas → WebP，目标 ~200KB）
-  const compressImage = useCallback(
-    (file: File): Promise<{ blob: Blob; preview: string }> => {
-      return new Promise((resolve, reject) => {
-        const img = new window.Image();
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const maxWidth = 800; // 缩略图足够用
-          const scale = Math.min(1, maxWidth / img.width);
-          canvas.width = img.width * scale;
-          canvas.height = img.height * scale;
-          const ctx = canvas.getContext("2d")!;
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(
-            (blob) => {
-              if (!blob) return reject(new Error("压缩失败"));
-              const preview = canvas.toDataURL("image/jpeg", 0.7);
-              resolve({ blob, preview });
-            },
-            "image/jpeg",
-            0.7
-          );
-        };
-        img.onerror = () => reject(new Error("图片加载失败"));
-        img.src = URL.createObjectURL(file);
-      });
-    },
-    []
-  );
-
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setPhotoUploading(true);
     try {
-      // 直接上传原文件到后端，由 sharp 进行压缩处理
-      // 这样可以避免前端 canvas 压缩导致的图片损坏问题
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("folder", "products");
-
       // 先显示本地预览
       const reader = new FileReader();
       const preview = await new Promise<string>((resolve) => {
@@ -298,6 +262,14 @@ export default function InboundPage() {
         reader.readAsDataURL(file);
       });
       setPhoto(preview);
+
+      // 前端 canvas 压缩图片
+      const compressedBlob = await compressImage(file);
+
+      // 上传到后端
+      const formData = new FormData();
+      formData.append("file", compressedBlob, file.name);
+      formData.append("folder", "products");
 
       const res = await fetch("/api/upload", {
         method: "POST",
@@ -311,10 +283,7 @@ export default function InboundPage() {
 
       const { url } = await res.json();
       console.log("[上传成功] URL:", url);
-      
-      // 清理 URL 中的反引号等特殊字符
-      const cleanUrl = String(url).replace(/^`+|`+$/g, "").trim();
-      setPhoto(cleanUrl); // 替换为远程 URL
+      setPhoto(url); // 替换为远程 URL
     } catch (err) {
       const msg = err instanceof Error ? err.message : "上传失败";
       console.error("[上传失败]", msg);
@@ -325,6 +294,67 @@ export default function InboundPage() {
       // 重置 input 以便可以重新选择同一文件
       if (e.target) e.target.value = "";
     }
+  };
+
+  // 前端 canvas 压缩图片
+  const compressImage = (file: File): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      // 小于 200KB 的图片不压缩
+      if (file.size < 200 * 1024) {
+        resolve(file);
+        return;
+      }
+
+      const img = new window.Image();
+      const url = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+
+        const MAX_WIDTH = 1280;
+        let { width, height } = img;
+
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          // canvas 不可用，直接上传原文件
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob && blob.size > 0) {
+              console.log(`[压缩] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB`);
+              resolve(blob);
+            } else {
+              // 压缩失败，使用原文件
+              resolve(file);
+            }
+          },
+          "image/jpeg",
+          0.85
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        // 图片加载失败，使用原文件
+        resolve(file);
+      };
+
+      img.src = url;
+    });
   };
 
   // 判断当前款式是否为无尺码分类

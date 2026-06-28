@@ -92,7 +92,7 @@ export default function PaymentQRPage() {
   const uploadToStorage = async (file: File, type: "wechat" | "alipay"): Promise<string> => {
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("path", `payment-qr/${type}_${Date.now()}.png`);
+    formData.append("folder", "payment-qr");
 
     const res = await fetch("/api/upload", {
       method: "POST",
