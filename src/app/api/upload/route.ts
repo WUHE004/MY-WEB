@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
     // 读取文件
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer: Buffer = Buffer.from(arrayBuffer);
     
     // 校验原文件
     if (buffer.length < 50) {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     // 如果是图片且原图大于 200KB，尝试压缩
     const isImage = file.type?.startsWith("image/");
-    let compressedBuffer = buffer;
+    let compressedBuffer: Buffer = buffer;
     let isCompressed = false;
 
     if (isImage && buffer.length > 200 * 1024) {
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         if (originalExt === "png") {
           // PNG 保持 PNG，但限制大小
           let quality = 90;
-          let result = await sharpInstance.png({ compressionLevel: 9, quality }).toBuffer();
+          let result: Buffer = await sharpInstance.png({ compressionLevel: 9, quality }).toBuffer();
           
           // 如果还是太大，逐步降低质量
           while (result.length > MAX_SIZE_BYTES * 2 && quality > 50) {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
         } else if (originalExt === "webp") {
           // WebP 保持 WebP
           let quality = 80;
-          let result = await sharpInstance.webp({ quality }).toBuffer();
+          let result: Buffer = await sharpInstance.webp({ quality }).toBuffer();
           
           while (result.length > MAX_SIZE_BYTES && quality > 30) {
             quality -= 10;
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
         } else {
           // JPEG 保持 JPEG
           let quality = 80;
-          let result = await sharpInstance.jpeg({ quality, mozjpeg: true }).toBuffer();
+          let result: Buffer = await sharpInstance.jpeg({ quality, mozjpeg: true }).toBuffer();
           
           while (result.length > MAX_SIZE_BYTES && quality > 30) {
             quality -= 10;
