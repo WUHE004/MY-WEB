@@ -71,8 +71,13 @@ export default function PaymentPage() {
       const qrRes = await fetch("/api/payment-qr");
       const qrData = await qrRes.json();
 
-      if (!qrData.error) {
-        setPaymentQR(qrData);
+      if (!qrData.error && Array.isArray(qrData)) {
+        const wechat = qrData.find((item: { type: string; image_url: string }) => item.type === "wechat");
+        const alipay = qrData.find((item: { type: string; image_url: string }) => item.type === "alipay");
+        setPaymentQR({
+          wechat_qr: wechat?.image_url || "",
+          alipay_qr: alipay?.image_url || "",
+        });
       }
     } catch {
       setError("加载订单信息失败");

@@ -1,7 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-export async function GET() {
+// GET /api/members 或 /api/members?phone=xxx 或 /api/members?id=xxx
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const phone = searchParams.get("phone");
+  const id = searchParams.get("id");
+
+  // 按手机号查询单个会员
+  if (phone) {
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .eq("phone", phone)
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    return NextResponse.json(data);
+  }
+
+  // 按ID查询单个会员
+  if (id) {
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+
+    return NextResponse.json(data);
+  }
+
+  // 返回全部会员
   const { data, error } = await supabase
     .from("members")
     .select("*")

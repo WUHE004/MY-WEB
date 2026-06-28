@@ -209,6 +209,28 @@ export default function LoginPage() {
     setSuccess("");
 
     try {
+      // 注册时先验证验证码
+      if (mode === "register") {
+        if (!verificationCode) {
+          setError("请输入验证码");
+          setLoading(false);
+          return;
+        }
+
+        const verifyRes = await fetch("/api/sms/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone, code: verificationCode, type: "register" }),
+        });
+        const verifyData = await verifyRes.json();
+
+        if (verifyData.error) {
+          setError(verifyData.error);
+          setLoading(false);
+          return;
+        }
+      }
+
       const res = await fetch("/api/members/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -229,6 +251,7 @@ export default function LoginPage() {
           setSuccess("注册成功！请登录");
           setMode("login");
           setPassword("");
+          setVerificationCode("");
         } else {
           localStorage.setItem("member_token", data.token);
           localStorage.setItem("member_name", data.name);
