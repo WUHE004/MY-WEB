@@ -109,6 +109,7 @@ export async function PUT(request: NextRequest) {
     if (fields.manufacturer !== undefined) updateData.manufacturer = fields.manufacturer;
     if (fields.cost_price !== undefined) updateData.cost_price = Number(fields.cost_price) || 0;
     if (fields.shelf_no !== undefined) updateData.shelf_no = fields.shelf_no;
+    if (fields.sell_price !== undefined) updateData.sell_price = Number(fields.sell_price) || 0;
     if (fields.season !== undefined) updateData.season = fields.season;
     if (fields.style_category !== undefined) updateData.style_category = fields.style_category;
     if (fields.notes !== undefined) updateData.notes = fields.notes;

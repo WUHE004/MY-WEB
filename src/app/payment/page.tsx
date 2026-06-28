@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { PageWrapper } from "@/components/page-wrapper";
-import { Package, CreditCard, CheckCircle2, AlertCircle, QrCode } from "lucide-react";
+import { Package, CreditCard, CheckCircle2, AlertCircle, QrCode, Download } from "lucide-react";
 import Link from "next/link";
 
 interface OrderInfo {
@@ -83,6 +83,25 @@ export default function PaymentPage() {
       setError("加载订单信息失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 下载收款码图片（处理跨域问题）
+  const handleDownloadQR = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      // 降级方案：直接打开图片
+      window.open(url, "_blank");
     }
   };
 
@@ -249,25 +268,55 @@ export default function PaymentPage() {
 
           {/* 二维码图片 - 只显示当前选中的支付方式 */}
           {paymentQR ? (
-            <div className="flex justify-center">
+            <div className="flex flex-col items-center">
               {paymentMethod === "wechat" && paymentQR.wechat_qr ? (
-                <div className="flex flex-col items-center">
-                  <img
-                    src={paymentQR.wechat_qr}
-                    alt="微信收款码"
-                    className="neo-border rounded-xl w-48 h-48 object-cover"
-                  />
+                <>
+                  <div className="relative">
+                    <img
+                      src={paymentQR.wechat_qr}
+                      alt="微信收款码"
+                      className="neo-border rounded-xl w-56 h-56 sm:w-48 sm:h-48 object-cover"
+                    />
+                  </div>
                   <p className="text-xs font-bold text-[#4CD964] mt-2">微信收款码</p>
-                </div>
+                  <div className="flex flex-col items-center gap-2 mt-3">
+                    <button
+                      onClick={() => handleDownloadQR(paymentQR.wechat_qr, "微信收款码.jpg")}
+                      className="neo-btn flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-[#4CD964] text-white border-gray-900"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      保存收款码图片
+                    </button>
+                    <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                      手机端可长按图片保存到相册<br />
+                      打开微信 → 扫一扫 → 相册 → 选择保存的图片
+                    </p>
+                  </div>
+                </>
               ) : paymentMethod === "alipay" && paymentQR.alipay_qr ? (
-                <div className="flex flex-col items-center">
-                  <img
-                    src={paymentQR.alipay_qr}
-                    alt="支付宝收款码"
-                    className="neo-border rounded-xl w-48 h-48 object-cover"
-                  />
+                <>
+                  <div className="relative">
+                    <img
+                      src={paymentQR.alipay_qr}
+                      alt="支付宝收款码"
+                      className="neo-border rounded-xl w-56 h-56 sm:w-48 sm:h-48 object-cover"
+                    />
+                  </div>
                   <p className="text-xs font-bold text-[#4A90E2] mt-2">支付宝收款码</p>
-                </div>
+                  <div className="flex flex-col items-center gap-2 mt-3">
+                    <button
+                      onClick={() => handleDownloadQR(paymentQR.alipay_qr, "支付宝收款码.jpg")}
+                      className="neo-btn flex items-center gap-1.5 px-4 py-2 text-xs font-bold bg-[#4A90E2] text-white border-gray-900"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      保存收款码图片
+                    </button>
+                    <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                      手机端可长按图片保存到相册<br />
+                      打开支付宝 → 扫一扫 → 相册 → 选择保存的图片
+                    </p>
+                  </div>
+                </>
               ) : (
                 <div className="text-center py-4 text-gray-500">
                   <p className="text-sm">暂无{paymentMethod === "wechat" ? "微信" : "支付宝"}收款码</p>
@@ -283,7 +332,7 @@ export default function PaymentPage() {
           )}
 
           <p className="text-xs text-gray-500 mt-4 text-center">
-            扫码支付后，请点击下方按钮确认支付
+            请保存收款码图片，用微信/支付宝扫码支付后，点击下方按钮确认支付
           </p>
         </div>
 

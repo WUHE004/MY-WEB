@@ -98,6 +98,11 @@ export default function AdminProductsPage() {
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
 
+  // 售价编辑
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState("");
+  const [savingPrice, setSavingPrice] = useState(false);
+
   // 售卖详情
   const [orders, setOrders] = useState<WebOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -139,8 +144,8 @@ export default function AdminProductsPage() {
       const settingsData = await settingsRes.json();
       const douyinData = await douyinRes.json();
 
-      const filtered = (Array.isArray(summaryData) ? summaryData : [])
-        .filter((p: SummaryProduct) => (p.sell_price || 0) > 0)
+      // 显示所有入库商品（不按 sell_price 过滤），用于展示管理
+      const allProducts = (Array.isArray(summaryData) ? summaryData : [])
         .map((p: SummaryProduct) => ({
           ...p,
           remaining: Number(p.remaining) || 0,
@@ -152,7 +157,7 @@ export default function AdminProductsPage() {
           inventory_value: (Number(p.remaining) || 0) * (Number(p.cost_price) || 0),
         }));
 
-      setProducts(filtered);
+      setProducts(allProducts);
       setIsPaused(settingsData?.pause_selling === true);
       setPauseText(settingsData?.pause_text || "");
       setDisplayList(Array.isArray(settingsData?.product_display_list) ? settingsData.product_display_list : []);
@@ -379,6 +384,43 @@ export default function AdminProductsPage() {
     }
   };
 
+  // 保存售价
+  const savePrice = async (saleId: string) => {
+    const price = parseFloat(editingPriceValue);
+    if (isNaN(price) || price <= 0) {
+      alert("请输入有效的售价");
+      return;
+    }
+    setSavingPrice(true);
+    try {
+      const res = await fetch("/api/inbound-records", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: saleId, sell_price: price }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert("保存失败: " + data.error);
+      } else {
+        // 自动加入展示列表
+        setDisplayList((prev) => {
+          if (!prev.includes(saleId)) {
+            return [...prev, saleId];
+          }
+          return prev;
+        });
+        setEditingPrice(null);
+        setEditingPriceValue("");
+        fetchData();
+      }
+    } catch (err) {
+      console.error("Save price error:", err);
+      alert("保存失败，请重试");
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
   // 抖音链接管理
   const addDouyinLink = async () => {
     if (!newLink.name || !newLink.live_url) return;
@@ -454,8 +496,27 @@ export default function AdminProductsPage() {
   if (loading) {
     return (
       <PageWrapper>
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        {/* Header skeleton */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="h-8 w-16 rounded-xl bg-gray-200 animate-pulse" />
+          <div className="h-8 w-32 rounded-xl bg-gray-200 animate-pulse" />
+        </div>
+
+        {/* Tabs skeleton */}
+        <div className="flex gap-1.5 mb-6">
+          {tabs.map((tab) => (
+            <div
+              key={tab.key}
+              className="flex items-center gap-1 px-2.5 py-2 sm:px-4 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-200 bg-gray-100 animate-pulse flex-1 sm:flex-none justify-center h-9 sm:h-10"
+            />
+          ))}
+        </div>
+
+        {/* Content skeleton */}
+        <div className="rounded-xl border-[3px] border-gray-200 bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.1)] animate-pulse">
+          <div className="h-6 w-40 bg-gray-200 rounded mb-4" />
+          <div className="h-4 w-64 bg-gray-100 rounded mb-4" />
+          <div className="h-10 w-32 bg-gray-200 rounded-xl" />
         </div>
       </PageWrapper>
     );
@@ -589,8 +650,7 @@ export default function AdminProductsPage() {
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={selectAll} className="text-xs font-bold text-[#4A90E2] hover:underline px-2">全展示</button>
-                <button onClick={deselectAll} className="text-xs font-bold text-[#FF6B7A] hover:underline px-2">取消全展示</button>
+                <button onClick={deselectAll} className="text-xs font-bold text-[#FF6B7A] hover:underline px-2">全部取消展示</button>
                 <button
                   onClick={saveDisplay}
                   disabled={savingDisplay}
@@ -759,17 +819,18 @@ export default function AdminProductsPage() {
                 const isDisplayed = displayList.length === 0 || displayList.includes(product.sale_id);
                 const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
                 const profitRate = product.sell_price > 0 ? (product.sell_price - product.cost_price) / product.sell_price : 0;
+                const hasSellPrice = (product.sell_price || 0) > 0;
 
                 return (
-                  <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] p-2.5 border-gray-300">
+                  <div key={product.sale_id} className="bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] p-2.5 border-gray-300 md:border-gray-300 md:shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] border-0 shadow-none">
                     <div className="flex gap-2">
                       {/* 图片区域 */}
-                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="w-20 h-20 md:w-52 md:h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {product.photo ? (
                           <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
-                            <Package className="h-20 w-20 text-gray-300" />
+                            <Package className="h-10 w-10 md:h-20 md:w-20 text-gray-300" />
                           </div>
                         )}
                       </div>
@@ -780,8 +841,16 @@ export default function AdminProductsPage() {
                         {product.shelf_no && (
                           <div className="text-[10px] text-gray-400 mt-0.5">货架: {product.shelf_no}</div>
                         )}
-                        {/* 所有尺码 */}
-                        <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                        {/* 售价显示/编辑 */}
+                        <div className="mt-1">
+                          {hasSellPrice ? (
+                            <span className="text-xs font-extrabold text-[#FF6B7A]">售价: ¥{product.sell_price}</span>
+                          ) : (
+                            <span className="text-[10px] text-orange-500 font-bold">未设置售价</span>
+                          )}
+                        </div>
+                        {/* 所有尺码 - 桌面端显示 */}
+                        <div className="hidden md:grid mt-1 grid-cols-4 gap-x-0.5 gap-y-0.5">
                           {ALL_SIZES.map((s) => {
                             const val = Number(product[`size_${s}`]) || 0;
                             return (
@@ -824,9 +893,46 @@ export default function AdminProductsPage() {
                         <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
                       </div>
                     </div>
+                    {/* 售价编辑区域 */}
+                    {editingPrice === product.sale_id && (
+                      <div className="mt-2 p-2 bg-yellow-50 rounded-lg border-2 border-yellow-300">
+                        <p className="text-[10px] font-bold text-gray-600 mb-1">设置售价后才能在商品页展示</p>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            value={editingPriceValue}
+                            onChange={(e) => setEditingPriceValue(e.target.value)}
+                            placeholder="输入售价"
+                            className="neo-input flex-1 text-xs py-1.5"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => savePrice(product.sale_id)}
+                            disabled={savingPrice}
+                            className="px-3 py-1.5 rounded-lg border-[2px] border-gray-900 bg-[#4CD964] text-white text-xs font-bold"
+                          >
+                            {savingPrice ? "..." : "确定"}
+                          </button>
+                          <button
+                            onClick={() => { setEditingPrice(null); setEditingPriceValue(""); }}
+                            className="px-3 py-1.5 rounded-lg border-[2px] border-gray-300 text-gray-500 text-xs font-bold"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {/* 展示/取消展示按钮 */}
                     <button
-                      onClick={() => toggleProductDisplay(product.sale_id)}
+                      onClick={() => {
+                        if (!isDisplayed && !hasSellPrice) {
+                          // 没有售价，先弹出价格输入
+                          setEditingPrice(product.sale_id);
+                          setEditingPriceValue("");
+                        } else {
+                          toggleProductDisplay(product.sale_id);
+                        }
+                      }}
                       className={`w-full mt-2 py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${
                         isDisplayed
                           ? "bg-gray-300 text-gray-500 border-gray-400"
@@ -836,6 +942,10 @@ export default function AdminProductsPage() {
                       {isDisplayed ? (
                         <span className="flex items-center justify-center gap-1">
                           <X className="h-3 w-3" />取消展示
+                        </span>
+                      ) : !hasSellPrice ? (
+                        <span className="flex items-center justify-center gap-1">
+                          <Check className="h-3 w-3" />设置售价并展示
                         </span>
                       ) : (
                         <span className="flex items-center justify-center gap-1">

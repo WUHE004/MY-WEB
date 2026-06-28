@@ -108,7 +108,7 @@ export async function GET() {
         profits: 0,
         inventory_value: 0,
         cost_price: costPrice,
-        sell_price: 0,
+        sell_price: Number(row.sell_price) || 0,
         name: row.name || "",
         manufacturer: row.manufacturer || "",
         photo: row.photo || "",

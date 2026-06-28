@@ -124,6 +124,40 @@ export async function POST(request: NextRequest) {
     const sellPrice = Number(body.sell_price) || 0;
     const memberId = body.member_id || "";
 
+    // 0. 检查库存：计算当前尺码的剩余库存
+    const sizeKey = `size_${size}`;
+    
+    // 入库总量
+    const { data: inboundData } = await supabase
+      .from("inbound_records")
+      .select(sizeKey)
+      .eq("sale_id", saleId);
+    const inboundTotal = (inboundData || []).reduce((sum, r) => sum + (Number((r as any)[sizeKey]) || 0), 0);
+    
+    // 已售数量
+    const { data: salesData } = await supabase
+      .from("sales_records")
+      .select("quantity")
+      .eq("sale_id", saleId)
+      .eq("size", size);
+    const soldTotal = (salesData || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+    
+    // 退货数量
+    const { data: returnData } = await supabase
+      .from("return_records")
+      .select("quantity")
+      .eq("sale_id", saleId)
+      .eq("size", size);
+    const returnTotal = (returnData || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+    
+    const currentStock = inboundTotal - soldTotal + returnTotal;
+    
+    if (currentStock < quantity) {
+      return NextResponse.json({ 
+        error: `库存不足：${size}码当前仅剩 ${currentStock} 件，无法购买 ${quantity} 件` 
+      }, { status: 400 });
+    }
+
     // 1. 插入网页下单记录
     const order = {
       customer: body.customer || "",

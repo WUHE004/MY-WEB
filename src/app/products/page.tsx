@@ -272,6 +272,7 @@ export default function ProductsPage() {
     setSubmitting(true);
     try {
       let lastOrderId = 0;
+      let stockError = "";
 
       // 为每个尺码创建下单记录
       for (const [sizeStr, qty] of Object.entries(selectedSizes)) {
@@ -293,9 +294,21 @@ export default function ProductsPage() {
           }),
         });
         const data = await res.json();
+        if (data.error) {
+          stockError = data.error;
+          break;
+        }
         if (data.id) {
           lastOrderId = data.id;
         }
+      }
+
+      if (stockError) {
+        alert(stockError);
+        // 刷新库存数据
+        fetchData();
+        setSubmitting(false);
+        return;
       }
 
       // 将收货信息写入 members 表
