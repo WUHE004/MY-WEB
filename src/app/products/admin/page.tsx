@@ -350,9 +350,13 @@ export default function AdminProductsPage() {
       if (prev.includes(saleId)) {
         // 取消展示时，同步删除 product_display 记录
         fetch(`/api/product-display?sale_id=${saleId}`, { method: "DELETE" }).catch(() => {});
-        return prev.filter((id) => id !== saleId);
+        const newList = prev.filter((id) => id !== saleId);
+        autoSaveDisplay(newList);
+        return newList;
       }
-      return [...prev, saleId];
+      const newList = [...prev, saleId];
+      autoSaveDisplay(newList);
+      return newList;
     });
   };
 
@@ -367,10 +371,21 @@ export default function AdminProductsPage() {
     if (hasActiveFilters) {
       setDisplayList((prev) => {
         const filteredIds = new Set(filteredDisplayProducts.map((p) => p.sale_id));
-        return prev.filter((id) => !filteredIds.has(id));
+        const newList = prev.filter((id) => !filteredIds.has(id));
+        // 删除对应 product_display 记录
+        prev.filter((id) => filteredIds.has(id)).forEach((saleId) => {
+          fetch(`/api/product-display?sale_id=${saleId}`, { method: "DELETE" }).catch(() => {});
+        });
+        autoSaveDisplay(newList);
+        return newList;
       });
     } else {
+      // 全部取消：清空所有 product_display 记录
+      displayList.forEach((saleId) => {
+        fetch(`/api/product-display?sale_id=${saleId}`, { method: "DELETE" }).catch(() => {});
+      });
       setDisplayList([]);
+      autoSaveDisplay([]);
     }
   };
 
@@ -387,6 +402,19 @@ export default function AdminProductsPage() {
       console.error("Save display error:", err);
     } finally {
       setSavingDisplay(false);
+    }
+  };
+
+  // 静默保存展示列表到 settings（不弹窗提示）
+  const autoSaveDisplay = async (list: string[]) => {
+    try {
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_display_list: list }),
+      });
+    } catch (err) {
+      console.error("Auto save display error:", err);
     }
   };
 
@@ -416,17 +444,23 @@ export default function AdminProductsPage() {
       if (data.error) {
         alert("保存失败: " + data.error);
       } else {
-        // 自动加入展示列表
+        // 更新本地 products 中的售价（避免重新加载全页）
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.sale_id === priceModalProduct.sale_id ? { ...p, sell_price: price } : p
+          )
+        );
+        // 自动加入展示列表并保存
         setDisplayList((prev) => {
-          if (!prev.includes(priceModalProduct.sale_id)) {
-            return [...prev, priceModalProduct.sale_id];
-          }
-          return prev;
+          const newList = prev.includes(priceModalProduct.sale_id)
+            ? prev
+            : [...prev, priceModalProduct.sale_id];
+          autoSaveDisplay(newList);
+          return newList;
         });
         setShowPriceModal(false);
         setPriceModalProduct(null);
         setPriceModalValue("");
-        fetchData();
       }
     } catch (err) {
       console.error("Save price error:", err);
@@ -661,19 +695,11 @@ export default function AdminProductsPage() {
               <div>
                 <h2 className="text-lg font-extrabold text-gray-900">商品展示管理</h2>
                 <p className="text-xs text-gray-500 mt-1">
-                  选择要在商品栏中展示的商品。不选则显示全部。已选 {displayList.length} / {products.length}
+                  选择要在商品栏中展示的商品。已选 {displayList.length} / {products.length}
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <button onClick={deselectAll} className="text-xs font-bold text-[#FF6B7A] hover:underline px-2">全部取消展示</button>
-                <button
-                  onClick={saveDisplay}
-                  disabled={savingDisplay}
-                  className="flex items-center gap-1 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.3)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-                >
-                  <Save className="h-3.5 w-3.5" />
-                  {savingDisplay ? "保存中..." : "保存"}
-                </button>
               </div>
             </div>
 

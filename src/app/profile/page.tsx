@@ -104,11 +104,22 @@ export default function ProfilePage() {
         const { latitude, longitude } = position.coords;
         try {
           const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=zh`
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=zh`,
+            {
+              headers: {
+                "User-Agent": "InventoryHub/1.0 (inventory management app)",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+              },
+            }
           );
           const data = await res.json();
-          const addr = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-          setAddress(addr);
+          // 优先使用 address 对象中的中文地址
+          const addr = data.address
+            ? [data.address.state, data.address.city, data.address.district, data.address.road, data.address.house_number]
+                .filter(Boolean)
+                .join("")
+            : data.display_name;
+          setAddress(addr || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         } catch {
           setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         }

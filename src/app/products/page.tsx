@@ -117,9 +117,8 @@ export default function ProductsPage() {
       const settingsData = await settingsRes.json();
       const douyinData = await douyinRes.json();
 
-      // 过滤：必须有售价（从售卖记录中来）且库存>0
+      // 过滤：根据展示列表过滤，展示列表为空时不显示任何商品
       const filtered = (Array.isArray(summaryData) ? summaryData : [])
-        .filter((p: SummaryProduct) => (p.sell_price || 0) > 0)
         .map((p: SummaryProduct) => ({
           ...p,
           remaining: Number(p.remaining) || 0,
@@ -183,10 +182,9 @@ export default function ProductsPage() {
     }
   };
 
-  // 根据展示列表过滤
+  // 根据展示列表过滤 - 展示列表为空时不显示任何商品
   const visibleProducts = products.filter((p) => {
-    // 如果展示列表为空，显示全部
-    if (displayList.length === 0) return true;
+    if (displayList.length === 0) return false;
     return displayList.includes(p.sale_id);
   });
 
