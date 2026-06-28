@@ -285,14 +285,19 @@ export default function InboundPage() {
 
     setPhotoUploading(true);
     try {
-      // 第一步：前端压缩
-      const { blob, preview } = await compressImage(file);
-      setPhoto(preview); // 先显示本地预览
-
-      // 第二步：上传到 Supabase Storage
+      // 直接上传原文件到后端，由 sharp 进行压缩处理
+      // 这样可以避免前端 canvas 压缩导致的图片损坏问题
       const formData = new FormData();
-      formData.append("file", blob, file.name.replace(/\.[^.]+$/, ".jpg"));
+      formData.append("file", file);
       formData.append("folder", "products");
+
+      // 先显示本地预览
+      const reader = new FileReader();
+      const preview = await new Promise<string>((resolve) => {
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      setPhoto(preview);
 
       const res = await fetch("/api/upload", {
         method: "POST",
