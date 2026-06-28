@@ -860,7 +860,7 @@ export default function AdminProductsPage() {
             {/* 商品卡片列表 - 复用管理栏总表布局 */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto">
               {filteredDisplayProducts.map((product) => {
-                const isDisplayed = displayList.length === 0 || displayList.includes(product.sale_id);
+                const isDisplayed = displayList.includes(product.sale_id);
                 const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
                 const profitRate = product.sell_price > 0 ? (product.sell_price - product.cost_price) / product.sell_price : 0;
                 const hasSellPrice = (product.sell_price || 0) > 0;

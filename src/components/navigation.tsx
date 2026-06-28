@@ -92,7 +92,7 @@ export function Navigation() {
                 title={item.label}
                 className={`flex flex-col items-center justify-center gap-1 rounded-xl border-[3px] px-1 py-2.5 transition-all ${
                   isActive
-                    ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+                    ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
                     : "border-transparent text-gray-400 hover:border-gray-200 hover:text-gray-700"
                 }`}
               >

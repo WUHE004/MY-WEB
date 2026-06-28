@@ -431,8 +431,12 @@ export default function PaymentPage() {
         {/* 确认支付按钮 */}
         <button
           onClick={handlePaid}
-          disabled={confirming}
-          className="neo-btn neo-btn-primary w-full flex items-center justify-center gap-2 py-4 text-lg"
+          disabled={confirming || !screenshot}
+          className={`neo-btn w-full flex items-center justify-center gap-2 py-4 text-lg ${
+            !screenshot
+              ? "neo-btn-secondary !bg-gray-200 !text-gray-400 !border-gray-300 !shadow-none cursor-not-allowed"
+              : "neo-btn-primary"
+          }`}
         >
           <CheckCircle2 className="h-6 w-6" />
           {uploadingScreenshot ? "上传截图中..." : confirming ? "确认中..." : "我已支付，确认订单"}

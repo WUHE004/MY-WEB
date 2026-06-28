@@ -223,7 +223,44 @@ export async function POST(request: NextRequest) {
       console.error("Create sales record error:", salesError);
     }
 
-    // 4. 返回包含 photo 的订单数据
+    // 4. 发送企业微信群消息通知
+    const webhookUrl = process.env.WECHAT_WEBHOOK_URL;
+    if (webhookUrl) {
+      try {
+        const sizeText = `尺码: ${size}码 × ${quantity}件`;
+        const profitText = `利润: ¥${totalProfit} (进价 ¥${costPrice}, 利润 ¥${profit}/件)`;
+        const msg = [
+          `📦 新订单通知`,
+          `━━━━━━━━━━━━━━`,
+          `订单号: #${orderData.id}`,
+          `收件人: ${order.recipient}`,
+          `电话: ${order.recipient_phone}`,
+          `地址: ${order.address}`,
+          `━━━━━━━━━━━━━━`,
+          `商品编号: ${saleId}`,
+          `商品名称: ${productName || "无"}`,
+          `${sizeText}`,
+          `支付金额: ¥${quantity * sellPrice}`,
+          `售价: ¥${sellPrice}/件`,
+          `${profitText}`,
+          `━━━━━━━━━━━━━━`,
+          `状态: 待支付`,
+        ].join("\n");
+
+        await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            msgtype: "text",
+            text: { content: msg },
+          }),
+        });
+      } catch (err) {
+        console.error("WeChat webhook send error:", err);
+      }
+    }
+
+    // 5. 返回包含 photo 的订单数据
     return NextResponse.json({ ...orderData, photo, product_name: productName }, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
