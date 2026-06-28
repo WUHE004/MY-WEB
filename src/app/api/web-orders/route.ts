@@ -56,6 +56,7 @@ export async function POST(request: NextRequest) {
       sell_price: sellPrice,
       total_price: quantity * sellPrice,
       member_id: memberId,
+      member_name: body.member_name || "",
       payment_status: "pending",
     };
 
@@ -108,7 +109,8 @@ export async function POST(request: NextRequest) {
       console.error("Create sales record error:", salesError);
     }
 
-    return NextResponse.json(orderData, { status: 201 });
+    // 4. 返回包含 photo 的订单数据
+    return NextResponse.json({ ...orderData, photo, product_name: productName }, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 400 });

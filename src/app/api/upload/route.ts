@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import sharp from "sharp";
 
 const MAX_SIZE_BYTES = 500 * 1024; // 500KB
 const MAX_WIDTH = 1280;
@@ -23,10 +22,13 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     let buffer: Buffer = Buffer.from(arrayBuffer);
 
-    // 如果是图片，进行压缩
+    // 如果是图片，尝试使用 sharp 压缩
     const isImage = file.type?.startsWith("image/");
     if (isImage) {
       try {
+        // 动态导入 sharp（Vercel 上可能不可用）
+        const sharp = (await import("sharp")).default;
+        
         const originalSize = buffer.length;
         let quality = 80;
         
@@ -47,12 +49,13 @@ export async function POST(request: NextRequest) {
         buffer = compressed;
         console.log(`[上传] 图片压缩: ${(originalSize / 1024).toFixed(1)}KB → ${(buffer.length / 1024).toFixed(1)}KB (quality: ${quality})`);
       } catch (err) {
-        console.warn("[上传] 图片压缩失败，使用原图:", err);
+        console.warn("[上传] sharp 压缩不可用，使用原图:", err instanceof Error ? err.message : String(err));
+        // sharp 不可用时使用原图
       }
     }
 
-    // 生成唯一文件名
-    const ext = isImage ? "jpg" : (file.name.split(".").pop() || "webp");
+    // 生成唯一文件名（统一用 jpg 扩展名）
+    const ext = isImage ? "jpg" : (file.name.split(".").pop() || "jpg");
     const timestamp = Date.now();
     const random = Math.random().toString(36).substring(2, 8);
     const fileName = `${folder}/${timestamp}_${random}.${ext}`;
@@ -61,11 +64,12 @@ export async function POST(request: NextRequest) {
     const { error: uploadError } = await supabase.storage
       .from("product-photos")
       .upload(fileName, buffer, {
-        contentType: isImage ? "image/jpeg" : (file.type || "image/webp"),
+        contentType: isImage ? "image/jpeg" : file.type,
         upsert: false,
       });
 
     if (uploadError) {
+      console.error("[上传] Supabase upload error:", uploadError);
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
 
@@ -74,9 +78,11 @@ export async function POST(request: NextRequest) {
       .from("product-photos")
       .getPublicUrl(fileName);
 
+    console.log(`[上传] 成功: ${fileName}`);
     return NextResponse.json({ url: urlData.publicUrl, path: fileName }, { status: 201 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    console.error("[上传] 错误:", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

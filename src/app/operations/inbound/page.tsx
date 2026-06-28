@@ -268,7 +268,7 @@ export default function InboundPage() {
               const preview = canvas.toDataURL("image/jpeg", 0.7);
               resolve({ blob, preview });
             },
-            "image/webp",
+            "image/jpeg",
             0.7
           );
         };
@@ -291,7 +291,7 @@ export default function InboundPage() {
 
       // 第二步：上传到 Supabase Storage
       const formData = new FormData();
-      formData.append("file", blob, file.name.replace(/\.[^.]+$/, ".webp"));
+      formData.append("file", blob, file.name.replace(/\.[^.]+$/, ".jpg"));
       formData.append("folder", "products");
 
       const res = await fetch("/api/upload", {

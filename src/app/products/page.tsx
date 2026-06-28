@@ -286,6 +286,8 @@ export default function ProductsPage() {
             size,
             quantity: qty,
             sell_price: selectedProduct.sell_price,
+            member_id: memberId || "",
+            member_name: memberName || "",
           }),
         });
       }
@@ -384,7 +386,7 @@ export default function ProductsPage() {
           {isLoggedIn && (
             <Link
               href="/my-orders"
-              className="neo-btn px-4 py-2 flex items-center gap-1.5 bg-[#FF6B7A] text-white text-xs"
+              className="neo-btn px-4 py-2 flex items-center gap-1.5 bg-[#FF6B7A] text-white text-xs self-stretch"
             >
               <Package className="h-3.5 w-3.5" />
               我的订单

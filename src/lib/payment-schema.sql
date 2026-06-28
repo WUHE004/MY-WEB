@@ -5,6 +5,7 @@
 ALTER TABLE web_orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending';
 ALTER TABLE web_orders ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT '';
 ALTER TABLE web_orders ADD COLUMN IF NOT EXISTS member_id TEXT DEFAULT '';
+ALTER TABLE web_orders ADD COLUMN IF NOT EXISTS member_name TEXT DEFAULT '';
 
 -- 收款码配置表
 CREATE TABLE IF NOT EXISTS payment_qr_codes (
