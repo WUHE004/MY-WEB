@@ -53,6 +53,11 @@ interface WebOrder {
   quantity: number;
   sell_price: number;
   total_price: number;
+  payment_status: string;
+  payment_method?: string;
+  shipping_status: string;
+  tracking_number?: string;
+  photo?: string;
   created_at: string;
 }
 
@@ -92,6 +97,9 @@ export default function AdminProductsPage() {
   // 售卖详情
   const [orders, setOrders] = useState<WebOrder[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<WebOrder | null>(null);
+  const [shippingInfo, setShippingInfo] = useState<any>(null);
+  const [updatingOrder, setUpdatingOrder] = useState(false);
 
   // 抖音直播
   const [douyinLinks, setDouyinLinks] = useState<DouyinLink[]>([]);
@@ -155,6 +163,78 @@ export default function AdminProductsPage() {
       console.error("Fetch orders error:", err);
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  // 查询物流信息
+  const handleQueryShipping = async (trackingNumber: string) => {
+    try {
+      const res = await fetch(`/api/shipping/query?tracking_number=${trackingNumber}`);
+      const data = await res.json();
+      setShippingInfo(data);
+    } catch {
+      setShippingInfo({ error: "查询物流信息失败" });
+    }
+  };
+
+  // 更新订单状态
+  const handleUpdateOrder = async (updateData: Partial<WebOrder>) => {
+    if (!selectedOrder) return;
+
+    setUpdatingOrder(true);
+    try {
+      const res = await fetch("/api/web-orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedOrder.id,
+          ...updateData,
+        }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        alert("更新失败: " + data.error);
+      } else {
+        alert("更新成功");
+        setSelectedOrder(null);
+        fetchOrders();
+      }
+    } catch {
+      alert("更新失败，请重试");
+    } finally {
+      setUpdatingOrder(false);
+    }
+  };
+
+  // 删除订单（恢复库存）
+  const handleDeleteOrder = async () => {
+    if (!selectedOrder) return;
+
+    if (!confirm("确定要删除此订单吗？这将会恢复库存。")) {
+      return;
+    }
+
+    setUpdatingOrder(true);
+    try {
+      const res = await fetch("/api/web-orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedOrder.id }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        alert("删除失败: " + data.error);
+      } else {
+        alert("删除成功，库存已恢复");
+        setSelectedOrder(null);
+        fetchOrders();
+      }
+    } catch {
+      alert("删除失败，请重试");
+    } finally {
+      setUpdatingOrder(false);
     }
   };
 
@@ -710,10 +790,10 @@ export default function AdminProductsPage() {
         {activeTab === "orders" && (
           <div className="rounded-xl border-[3px] border-gray-900 bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-extrabold text-gray-900">网页下单记录</h2>
+              <h2 className="text-lg font-extrabold text-gray-900">网页订单管理</h2>
               <button
                 onClick={fetchOrders}
-                className="text-xs font-bold text-[#4A90E2] hover:underline"
+                className="neo-btn px-4 py-2 text-xs font-bold bg-[#4A90E2] text-white"
               >
                 刷新
               </button>
@@ -724,41 +804,82 @@ export default function AdminProductsPage() {
                 <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
               </div>
             ) : orders.length === 0 ? (
-              <div className="text-center py-10 text-gray-400 text-sm">暂无下单记录</div>
+              <div className="text-center py-10 text-gray-400 text-sm">暂无订单记录</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b-2 border-gray-200">
-                      <th className="text-left py-2 px-2 font-extrabold">时间</th>
-                      <th className="text-left py-2 px-2 font-extrabold">顾客</th>
-                      <th className="text-left py-2 px-2 font-extrabold">商品编号</th>
-                      <th className="text-center py-2 px-2 font-extrabold">尺码</th>
-                      <th className="text-center py-2 px-2 font-extrabold">数量</th>
-                      <th className="text-right py-2 px-2 font-extrabold">售价</th>
-                      <th className="text-right py-2 px-2 font-extrabold">金额</th>
-                      <th className="text-left py-2 px-2 font-extrabold">收件人</th>
-                      <th className="text-left py-2 px-2 font-extrabold">电话</th>
-                      <th className="text-left py-2 px-2 font-extrabold">地址</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id} className="border-b border-gray-100 hover:bg-gray-50">
-                        <td className="py-2 px-2 text-gray-500">{formatDate(order.created_at)}</td>
-                        <td className="py-2 px-2 font-bold">{order.customer}</td>
-                        <td className="py-2 px-2 font-mono text-gray-500">{order.sale_id}</td>
-                        <td className="py-2 px-2 text-center font-bold">{order.size}码</td>
-                        <td className="py-2 px-2 text-center font-bold">{order.quantity}</td>
-                        <td className="py-2 px-2 text-right text-[#FF6B7A] font-bold">{formatMoney(order.sell_price)}</td>
-                        <td className="py-2 px-2 text-right text-[#FF6B7A] font-bold">{formatMoney(order.total_price)}</td>
-                        <td className="py-2 px-2">{order.recipient}</td>
-                        <td className="py-2 px-2">{order.recipient_phone}</td>
-                        <td className="py-2 px-2 text-gray-500 max-w-[150px] truncate">{order.address}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-3">
+                {orders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="neo-card p-3 cursor-pointer hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all"
+                    onClick={() => setSelectedOrder(order)}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex gap-3">
+                        {/* 商品图片 */}
+                        <div className="w-12 h-12 rounded-lg border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
+                          {order.photo ? (
+                            <img src={order.photo} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Package className="h-6 w-6 text-gray-300" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 基本信息 */}
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-gray-900 text-sm">#{order.id}</span>
+                            <span className="text-xs font-mono text-gray-500">{order.sale_id}</span>
+                            <span className="text-xs text-gray-600">{order.size}码 × {order.quantity}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-gray-500">{order.customer}</span>
+                            <span className="text-xs text-gray-500">{formatDate(order.created_at)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* 支付状态 */}
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          order.payment_status === "paid"
+                            ? "bg-[#4CD964]/10 text-[#4CD964]"
+                            : "bg-[#FF6B7A]/10 text-[#FF6B7A]"
+                        }`}>
+                          {order.payment_status === "paid" ? "已付" : "待付"}
+                        </span>
+
+                        {/* 发货状态 */}
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          order.shipping_status === "delivered"
+                            ? "bg-[#4CD964]/10 text-[#4CD964]"
+                            : order.shipping_status === "shipped"
+                            ? "bg-[#4A90E2]/10 text-[#4A90E2]"
+                            : order.shipping_status === "cancelled"
+                            ? "bg-gray-100 text-gray-400"
+                            : "bg-[#FF6B7A]/10 text-[#FF6B7A]"
+                        }`}>
+                          {order.shipping_status === "delivered" ? "送达" :
+                           order.shipping_status === "shipped" ? "已发货" :
+                           order.shipping_status === "cancelled" ? "已取消" : "待发货"}
+                        </span>
+
+                        {/* 金额 */}
+                        <span className="text-sm font-extrabold text-[#FF6B7A]">
+                          {formatMoney(order.total_price)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 物流单号 */}
+                    {order.tracking_number && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        物流单号: <span className="font-bold">{order.tracking_number}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -864,6 +985,204 @@ export default function AdminProductsPage() {
           {imgPreview && <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />}
         </div>
       </div>
+
+      {/* 订单详情弹窗 */}
+      {selectedOrder && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => {
+            setSelectedOrder(null);
+            setShippingInfo(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-2xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
+              <h3 className="text-lg font-extrabold text-gray-900">
+                订单详情 #{selectedOrder.id}
+              </h3>
+              <button
+                onClick={() => {
+                  setSelectedOrder(null);
+                  setShippingInfo(null);
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* 弹窗内容 */}
+            <div className="overflow-y-auto max-h-[70vh] p-4 space-y-4">
+              {/* 商品信息 */}
+              <div className="flex gap-4">
+                <div className="w-20 h-20 rounded-xl border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
+                  {selectedOrder.photo ? (
+                    <img src={selectedOrder.photo} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Package className="h-10 w-10 text-gray-300" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold text-gray-900">{selectedOrder.sale_id}</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {selectedOrder.size}码 × {selectedOrder.quantity}件
+                  </p>
+                  <p className="text-lg font-extrabold text-[#FF6B7A] mt-2">
+                    {formatMoney(selectedOrder.total_price)}
+                  </p>
+                </div>
+              </div>
+
+              {/* 状态信息 */}
+              <div className="neo-card p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700">支付状态</span>
+                  <span className={`text-xs font-bold ${selectedOrder.payment_status === "paid" ? "text-[#4CD964]" : "text-[#FF6B7A]"}`}>
+                    {selectedOrder.payment_status === "paid" ? "已支付" : "待支付"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700">支付方式</span>
+                  <span className="text-xs font-bold text-gray-900">
+                    {selectedOrder.payment_method === "wechat" ? "微信支付" :
+                     selectedOrder.payment_method === "alipay" ? "支付宝" : "未支付"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700">发货状态</span>
+                  <span className={`text-xs font-bold ${
+                    selectedOrder.shipping_status === "delivered" ? "text-[#4CD964]" :
+                    selectedOrder.shipping_status === "shipped" ? "text-[#4A90E2]" :
+                    selectedOrder.shipping_status === "cancelled" ? "text-gray-400" : "text-[#FF6B7A]"
+                  }`}>
+                    {selectedOrder.shipping_status === "delivered" ? "已送达" :
+                     selectedOrder.shipping_status === "shipped" ? "已发货" :
+                     selectedOrder.shipping_status === "cancelled" ? "已取消" : "待发货"}
+                  </span>
+                </div>
+              </div>
+
+              {/* 收货信息 */}
+              <div className="neo-card p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">收货信息</h4>
+                <div className="space-y-1 text-xs">
+                  <p><span className="text-gray-600">客户:</span> <span className="font-bold">{selectedOrder.customer}</span></p>
+                  <p><span className="text-gray-600">收件人:</span> <span className="font-bold">{selectedOrder.recipient}</span></p>
+                  <p><span className="text-gray-600">电话:</span> <span className="font-bold">{selectedOrder.recipient_phone}</span></p>
+                  <p><span className="text-gray-600">地址:</span> <span className="font-bold">{selectedOrder.address}</span></p>
+                </div>
+              </div>
+
+              {/* 物流管理 */}
+              <div className="neo-card p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-3">物流管理</h4>
+
+                {/* 物流单号输入 */}
+                <div className="mb-3">
+                  <label className="text-xs font-bold text-gray-600 mb-1 block">物流单号</label>
+                  <input
+                    type="text"
+                    value={selectedOrder.tracking_number || ""}
+                    onChange={(e) => setSelectedOrder({ ...selectedOrder, tracking_number: e.target.value })}
+                    placeholder="输入物流单号"
+                    className="neo-input w-full text-xs py-2"
+                  />
+                </div>
+
+                {/* 更新物流单号按钮 */}
+                <button
+                  onClick={() => handleUpdateOrder({ tracking_number: selectedOrder.tracking_number })}
+                  disabled={updatingOrder}
+                  className="neo-btn w-full py-2 text-xs font-bold bg-[#4A90E2] text-white mb-3"
+                >
+                  {updatingOrder ? "更新中..." : "更新物流单号"}
+                </button>
+
+                {/* 查询物流 */}
+                {selectedOrder.tracking_number && (
+                  <>
+                    <button
+                      onClick={() => handleQueryShipping(selectedOrder.tracking_number!)}
+                      className="neo-btn w-full py-2 text-xs font-bold bg-gray-900 text-white mb-3"
+                    >
+                      查询物流状态
+                    </button>
+
+                    {shippingInfo && (
+                      <div className="mt-2 p-2 bg-gray-50 rounded-lg border-2 border-gray-200">
+                        {shippingInfo.error ? (
+                          <p className="text-xs text-[#FF6B7A]">{shippingInfo.error}</p>
+                        ) : (
+                          <div className="space-y-1">
+                            {shippingInfo.data?.map((item: any, index: number) => (
+                              <div key={index} className="text-xs">
+                                <span className="text-gray-500">{item.time}</span>
+                                <span className="ml-2 text-gray-900">{item.context}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* 更新发货状态 */}
+                <div className="mt-3 pt-3 border-t-2 border-gray-200">
+                  <label className="text-xs font-bold text-gray-600 mb-2 block">更新发货状态</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleUpdateOrder({ shipping_status: "shipped" })}
+                      disabled={updatingOrder}
+                      className="neo-btn flex-1 py-2 text-xs font-bold bg-[#4A90E2] text-white"
+                    >
+                      已发货
+                    </button>
+                    <button
+                      onClick={() => handleUpdateOrder({ shipping_status: "delivered" })}
+                      disabled={updatingOrder}
+                      className="neo-btn flex-1 py-2 text-xs font-bold bg-[#4CD964] text-white"
+                    >
+                      已送达
+                    </button>
+                    <button
+                      onClick={() => handleUpdateOrder({ shipping_status: "cancelled" })}
+                      disabled={updatingOrder}
+                      className="neo-btn flex-1 py-2 text-xs font-bold bg-gray-300 text-gray-700"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+
+                {/* 删除订单 */}
+                <div className="mt-3 pt-3 border-t-2 border-gray-200">
+                  <button
+                    onClick={handleDeleteOrder}
+                    disabled={updatingOrder}
+                    className="neo-btn w-full py-2 text-xs font-bold bg-[#FF6B7A] text-white"
+                  >
+                    <Trash2 className="h-3 w-3 inline mr-1" />
+                    删除订单（恢复库存）
+                  </button>
+                </div>
+              </div>
+
+              {/* 订单时间 */}
+              <div className="neo-card p-3">
+                <h4 className="text-xs font-bold text-gray-700 mb-2">订单时间</h4>
+                <p className="text-xs text-gray-900">{formatDate(selectedOrder.created_at)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </motion.div>
     </PageWrapper>
   );

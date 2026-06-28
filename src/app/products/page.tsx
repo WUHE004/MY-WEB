@@ -381,6 +381,15 @@ export default function ProductsPage() {
               className="neo-input w-full text-sm pl-10 py-2"
             />
           </div>
+          {isLoggedIn && (
+            <Link
+              href="/my-orders"
+              className="neo-btn px-4 py-2 flex items-center gap-1.5 bg-[#FF6B7A] text-white text-xs"
+            >
+              <Package className="h-3.5 w-3.5" />
+              我的订单
+            </Link>
+          )}
           {isAdmin && (
             <Link
               href="/products/admin"
