@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { LogIn, UserPlus, Phone, Lock, User, ArrowLeft, MapPin, Eye, EyeOff, KeyRound } from "lucide-react";
+import { LogIn, UserPlus, Phone, Lock, User, MapPin, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<"login" | "register" | "reset_password">("login");
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -24,8 +24,6 @@ export default function LoginPage() {
         return "登录";
       case "register":
         return "注册";
-      case "reset_password":
-        return "重置密码";
       default:
         return "登录";
     }
@@ -33,48 +31,6 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // 重置密码逻辑
-    if (mode === "reset_password") {
-      if (!phone || phone.length !== 11) {
-        setError("请输入正确的11位手机号");
-        return;
-      }
-      if (!password || password.length < 6) {
-        setError("请输入新密码（至少6位）");
-        return;
-      }
-
-      setLoading(true);
-      setError("");
-      setSuccess("");
-
-      try {
-        const resetRes = await fetch("/api/members/auth", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "reset_password",
-            phone,
-            password,
-          }),
-        });
-        const resetData = await resetRes.json();
-
-        if (resetData.error) {
-          setError(resetData.error);
-        } else {
-          setSuccess("密码重置成功！请登录");
-          setMode("login");
-          setPassword("");
-        }
-      } catch {
-        setError("网络错误，请稍后重试");
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
 
     setLoading(true);
     setError("");
@@ -242,9 +198,7 @@ export default function LoginPage() {
                   disabled={loading}
                   className="neo-btn neo-btn-primary w-full flex items-center justify-center gap-2 py-3 text-base"
                 >
-                  {mode === "reset_password" ? (
-                    <KeyRound className="h-5 w-5" />
-                  ) : mode === "login" ? (
+                  {mode === "login" ? (
                     <LogIn className="h-5 w-5" />
                   ) : (
                     <UserPlus className="h-5 w-5" />
@@ -257,31 +211,17 @@ export default function LoginPage() {
                 {/* 模式切换按钮 */}
                 <div className="space-y-2">
                   {mode === "login" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMode("register");
-                          setError("");
-                          setSuccess("");
-                        }}
-                        className="w-full text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"
-                      >
-                        没有账号？去注册
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMode("reset_password");
-                          setError("");
-                          setSuccess("");
-                          setPassword("");
-                        }}
-                        className="w-full text-xs font-bold text-gray-400 hover:text-gray-600 transition-colors"
-                      >
-                       忘记密码？
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode("register");
+                        setError("");
+                        setSuccess("");
+                      }}
+                      className="w-full text-sm font-bold text-gray-500 hover:text-gray-900 transition-colors"
+                    >
+                      没有账号？去注册
+                    </button>
                   )}
 
                   {mode === "register" && (
@@ -295,22 +235,6 @@ export default function LoginPage() {
                       className="w-full neo-btn bg-gray-900 text-white py-2 text-sm font-bold"
                     >
                       已有账号？登录
-                    </button>
-                  )}
-
-                  {mode === "reset_password" && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMode("login");
-                        setError("");
-                        setSuccess("");
-                        setPassword("");
-                      }}
-                      className="w-full neo-btn bg-gray-900 text-white py-2 text-sm font-bold"
-                    >
-                      <ArrowLeft className="h-4 w-4 inline mr-1.5" />
-                      返回登录
                     </button>
                   )}
                 </div>
