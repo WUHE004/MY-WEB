@@ -114,10 +114,25 @@ export default function MyOrdersPage() {
     setShippingInfo(null);
     try {
       const res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
+      if (!res.ok) {
+        const text = await res.text();
+        // 如果返回的是 HTML（404页面），说明 API 路由未部署
+        if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+          setShippingInfo({ error: "物流查询服务暂不可用，请联系管理员" });
+        } else {
+          try {
+            const errData = JSON.parse(text);
+            setShippingInfo({ error: errData.error || "物流查询失败" });
+          } catch {
+            setShippingInfo({ error: "物流查询失败" });
+          }
+        }
+        return;
+      }
       const data = await res.json();
       setShippingInfo(data);
     } catch {
-      setShippingInfo({ error: "查询物流信息失败" });
+      setShippingInfo({ error: "查询物流信息失败，请稍后重试" });
     } finally {
       setShippingLoading(false);
     }

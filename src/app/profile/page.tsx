@@ -16,7 +16,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  MessageSquare,
   KeyRound,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,9 +39,6 @@ export default function ProfilePage() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordCode, setPasswordCode] = useState("");
-  const [passwordCountdown, setPasswordCountdown] = useState(0);
-  const [sendingPasswordCode, setSendingPasswordCode] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -66,14 +62,6 @@ export default function ProfilePage() {
 
     fetchProfile();
   }, [router]);
-
-  // 倒计时效果
-  useEffect(() => {
-    if (passwordCountdown > 0) {
-      const timer = setTimeout(() => setPasswordCountdown(passwordCountdown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [passwordCountdown]);
 
   const fetchProfile = async () => {
     try {
@@ -196,46 +184,8 @@ export default function ProfilePage() {
     }
   };
 
-  // 发送修改密码验证码
-  const handleSendPasswordCode = async () => {
-    if (!phone || phone.length !== 11) {
-      setError("请输入正确的11位手机号");
-      return;
-    }
-
-    setSendingPasswordCode(true);
-    setError("");
-
-    try {
-      const res = await fetch("/api/sms/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone,
-          type: "reset_password",
-        }),
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setSuccess("验证码已发送");
-        setPasswordCountdown(60);
-      }
-    } catch {
-      setError("发送验证码失败，请稍后重试");
-    } finally {
-      setSendingPasswordCode(false);
-    }
-  };
-
   // 修改密码
   const handleChangePassword = async () => {
-    if (!passwordCode) {
-      setError("请输入验证码");
-      return;
-    }
     if (!newPassword || newPassword.length < 6) {
       setError("请输入新密码（至少6位）");
       return;
@@ -250,20 +200,6 @@ export default function ProfilePage() {
     setSuccess("");
 
     try {
-      // 1. 验证验证码
-      const verifyRes = await fetch("/api/sms/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code: passwordCode, type: "reset_password" }),
-      });
-      const verifyData = await verifyRes.json();
-
-      if (verifyData.error) {
-        setError(verifyData.error);
-        return;
-      }
-
-      // 2. 修改密码
       const resetRes = await fetch("/api/members/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -282,7 +218,6 @@ export default function ProfilePage() {
         setShowChangePassword(false);
         setNewPassword("");
         setConfirmPassword("");
-        setPasswordCode("");
       }
     } catch {
       setError("网络错误，请稍后重试");
@@ -511,40 +446,6 @@ export default function ProfilePage() {
           </CardHeader>
           {showChangePassword && (
             <CardContent className="space-y-4">
-              {/* 验证码 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  <MessageSquare className="h-4 w-4 inline mr-1.5" />
-                  短信验证码
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={passwordCode}
-                    onChange={(e) => setPasswordCode(e.target.value)}
-                    maxLength={6}
-                    className="flex-1 rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
-                    placeholder="请输入6位验证码"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSendPasswordCode}
-                    disabled={passwordCountdown > 0 || sendingPasswordCode}
-                    className={`neo-btn px-4 py-2 text-sm font-bold whitespace-nowrap ${
-                      passwordCountdown > 0 || sendingPasswordCode
-                        ? "bg-gray-200 text-gray-400 border-gray-300"
-                        : "bg-[#4A90E2] text-white border-gray-900"
-                    }`}
-                  >
-                    {sendingPasswordCode
-                      ? "发送中..."
-                      : passwordCountdown > 0
-                      ? `${passwordCountdown}秒后重发`
-                      : "发送验证码"}
-                  </button>
-                </div>
-              </div>
-
               {/* 新密码 */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">

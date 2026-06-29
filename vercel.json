@@ -8,6 +8,9 @@
     },
     "src/app/api/return-records/cleanup/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/shipping/query/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
