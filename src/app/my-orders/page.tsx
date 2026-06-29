@@ -113,12 +113,7 @@ export default function MyOrdersPage() {
     setShippingLoading(true);
     setShippingInfo(null);
     try {
-      // 尝试 Vercel 原生 Serverless Function
-      let res = await fetch(`/api/shipping-query?tracking_number=${encodeURIComponent(trackingNumber)}`);
-      // 如果404，尝试 Next.js API Route
-      if (res.status === 404) {
-        res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
-      }
+      const res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
       if (!res.ok) {
         const text = await res.text();
         if (text.includes("<!DOCTYPE") || text.includes("<html")) {
