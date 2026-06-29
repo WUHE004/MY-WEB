@@ -186,13 +186,15 @@ export async function POST() {
 
     // ---------- 5. 分批 upsert 到 sales_summary ----------
     let salesSynced = 0;
+    let upsertErrors: string[] = [];
     for (let i = 0; i < upsertRows.length; i += 50) {
       const batch = upsertRows.slice(i, i + 50);
       const { error } = await supabase
         .from("sales_summary")
         .upsert(batch, { onConflict: "sale_id" });
       if (error) {
-        console.error("sync-summary: upsert batch error:", error.message);
+        console.error("sync-summary: upsert batch error:", error.message, error.code);
+        upsertErrors.push(`批次${Math.floor(i/50)+1}: ${error.code} - ${error.message}`);
       } else {
         salesSynced += batch.length;
       }
@@ -204,7 +206,13 @@ export async function POST() {
       sales_synced: salesSynced,
       returns_synced: 0,
       message: `售出汇总完成: ${salesSynced} 款`,
-      diagnostics: [...diagnostics, `分组: ${groupMap.size} 个唯一ID`, `upsert行数: ${upsertRows.length}`, `写入: ${salesSynced}`],
+      diagnostics: [
+        ...diagnostics,
+        `分组: ${groupMap.size} 个唯一ID`,
+        `upsert行数: ${upsertRows.length}`,
+        `写入: ${salesSynced}`,
+        ...upsertErrors.slice(0, 5),
+      ],
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
