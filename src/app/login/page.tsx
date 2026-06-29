@@ -148,22 +148,22 @@ export default function LoginPage() {
                   </div>
                 )}
 
-                {/* 登录和重置密码模式 - 密码输入 */}
-                {(mode === "login" || mode === "reset_password") && (
+                {/* 密码输入 */}
+                {mode === "login" && (
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">
                       <Lock className="h-4 w-4 inline mr-1.5" />
-                      {mode === "reset_password" ? "新密码" : "密码"}
+                      密码
                     </label>
                     <div className="relative">
                       <input
                         type={showPassword ? "text" : "password"}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        required={mode === "login"}
+                        required
                         minLength={6}
                         className="neo-input w-full pr-12"
-                        placeholder={mode === "reset_password" ? "请输入新密码（至少6位）" : "请输入密码（至少6位）"}
+                        placeholder="请输入密码（至少6位）"
                       />
                       <button
                         type="button"
