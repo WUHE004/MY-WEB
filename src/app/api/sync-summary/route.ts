@@ -171,7 +171,9 @@ export async function POST() {
     let validQtyCount = 0;
     let sumQty = 0;
     let qtyTypeSamples: string[] = [];
-    let zeroQtySamples: { q: unknown; t: string; sid: string }[] = [];
+    let zeroQtyFullSamples: Record<string, unknown>[] = [];
+    let zeroWithSaleId = 0;
+    let zeroWithoutSaleId = 0;
     for (const r of allSalesRecords) {
       const rawQ = r.quantity;
       const q = Number(rawQ);
@@ -180,14 +182,21 @@ export async function POST() {
       if (rawQ === null || rawQ === undefined) nullQtyCount++;
       else if (isNaN(q) || q === 0) {
         zeroQtyCount++;
-        if (zeroQtySamples.length < 3) {
-          zeroQtySamples.push({ q: rawQ, t: typeOfQ, sid: String(r.sale_id || "") });
+        const sid = String(r.sale_id || "").trim();
+        if (sid) zeroWithSaleId++;
+        else zeroWithoutSaleId++;
+        if (zeroQtyFullSamples.length < 2) {
+          zeroQtyFullSamples.push({ ...r });
         }
       } else { validQtyCount++; sumQty += q; }
     }
-    diagnostics.push(`有效数量记录: ${validQtyCount}条, 数量总和: ${sumQty}; 零数量: ${zeroQtyCount}条; 空值: ${nullQtyCount}条`);
+    diagnostics.push(`有效数量记录: ${validQtyCount}条, 数量总和: ${sumQty}; 零数量: ${zeroQtyCount}条(有sale_id:${zeroWithSaleId}, 无sale_id:${zeroWithoutSaleId}); 空值: ${nullQtyCount}条`);
     diagnostics.push(`quantity类型样本: ${qtyTypeSamples.join("; ")}`);
-    diagnostics.push(`零数量样本: ${zeroQtySamples.map((s) => `${s.sid}:${s.t}(${s.q})`).join("; ")}`);
+    if (zeroQtyFullSamples.length > 0) {
+      const sample0 = zeroQtyFullSamples[0];
+      diagnostics.push(`零数量样本字段: ${Object.keys(sample0).join(",")}`);
+      diagnostics.push(`零数量样本值: sale_id=${sample0.sale_id}, size=${sample0.size}, quantity=${sample0.quantity}, sell_price=${sample0.sell_price}, product_name=${sample0.product_name}`);
+    }
 
     // ---------- 2. 一次性读取所有入库记录 ----------
     let allInboundRecords: Record<string, unknown>[] = [];
