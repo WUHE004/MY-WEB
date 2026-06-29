@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { LogIn, UserPlus, Phone, Lock, User, MapPin, Eye, EyeOff } from "lucide-react";
+import { LogIn, UserPlus, Phone, Lock, User, MapPin, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
 
