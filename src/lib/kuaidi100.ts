@@ -73,9 +73,14 @@ export async function queryTracking(trackingNumber: string): Promise<TrackingRes
 
   try {
     const param = JSON.stringify({
-      com: "auto",
+      com: "",
       num: trackingNumber,
-      resultv2: "4",
+      phone: "",
+      from: "",
+      to: "",
+      resultv2: "0",
+      show: "0",
+      order: "desc",
     });
 
     // 签名 = MD5(param + key + customer)，32位大写
