@@ -113,10 +113,14 @@ export default function MyOrdersPage() {
     setShippingLoading(true);
     setShippingInfo(null);
     try {
-      const res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
+      // 尝试 Vercel 原生 Serverless Function
+      let res = await fetch(`/api/shipping-query?tracking_number=${encodeURIComponent(trackingNumber)}`);
+      // 如果404，尝试 Next.js API Route
+      if (res.status === 404) {
+        res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
+      }
       if (!res.ok) {
         const text = await res.text();
-        // 如果返回的是 HTML（404页面），说明 API 路由未部署
         if (text.includes("<!DOCTYPE") || text.includes("<html")) {
           setShippingInfo({ error: "物流查询服务暂不可用，请联系管理员" });
         } else {

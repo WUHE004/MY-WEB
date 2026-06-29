@@ -1,5 +1,8 @@
 {
   "functions": {
+    "api/shipping-query.js": {
+      "maxDuration": 30
+    },
     "src/app/api/import/supplement-photos/route.ts": {
       "maxDuration": 60
     },
