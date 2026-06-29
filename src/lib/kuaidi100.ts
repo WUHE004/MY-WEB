@@ -37,7 +37,7 @@ const STATUS_MAP: Record<number, string> = {
 };
 
 function md5(str: string): string {
-  return createHash("md5").update(str).digest("hex").toLowerCase();
+  return createHash("md5").update(str).digest("hex").toUpperCase();
 }
 
 /**
@@ -65,7 +65,7 @@ export async function queryTracking(trackingNumber: string): Promise<TrackingRes
       num: trackingNumber,
     });
 
-    // 签名 = MD5(param + key + customer)，32位小写
+    // 签名 = MD5(param + key + customer)，32位大写
     const sign = md5(param + key + customer);
 
     const response = await fetch("https://poll.kuaidi100.com/poll/query.do", {
