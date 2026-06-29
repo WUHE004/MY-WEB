@@ -3,9 +3,102 @@ import { supabase } from "@/lib/supabase";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
+async function getSalesSummaryColumns(): Promise<string[]> {
+  // 方案1: 先试一次插入 1 条测试数据，从错误信息获取不存在的列
+  const testSaleId = "__column_probe__";
+  const testRow: Record<string, unknown> = {
+    sale_id: testSaleId,
+    photo: "",
+    name: "",
+    shelf_no: "",
+    manufacturer: "",
+    cost_price: 0,
+    sell_price: 0,
+    total_sold: 0,
+    total_revenue: 0,
+    sell_price_info: {},
+    sales_count: 0,
+    updated_at: new Date().toISOString(),
+  };
+  for (const s of ALL_SIZES) testRow[`size_${s}`] = 0;
+
+  try {
+    const { error } = await supabase
+      .from("sales_summary")
+      .upsert(testRow, { onConflict: "sale_id" });
+
+    if (!error) {
+      // 成功，说明所有列都存在，先删掉测试数据
+      await supabase.from("sales_summary").delete().eq("sale_id", testSaleId);
+      return Object.keys(testRow);
+    }
+
+    // 从错误信息中提取不存在的列名
+    // 错误格式: "Could not find the 'xxx' column of 'sales_summary' in the schema cache"
+    const errMsg = error.message || "";
+    const match = errMsg.match(/Could not find the '([^']+)' column/);
+    if (match) {
+      // 有一列不存在，剔除它，递归重试
+      const missingCol = match[1];
+      delete testRow[missingCol];
+      // 重新尝试，用剩余的列
+      return await probeColumns(Object.keys(testRow));
+    }
+
+    // 其他错误，返回空
+    console.error("probe columns unexpected error:", errMsg);
+    return [];
+  } catch (e) {
+    console.error("probe columns catch:", e);
+    return [];
+  }
+}
+
+async function probeColumns(cols: string[]): Promise<string[]> {
+  const testSaleId = "__column_probe__";
+  const testRow: Record<string, unknown> = { sale_id: testSaleId };
+  for (const c of cols) {
+    if (c === "sale_id") continue;
+    if (c.startsWith("size_")) testRow[c] = 0;
+    else if (c === "sell_price_info") testRow[c] = {};
+    else if (c === "updated_at") testRow[c] = new Date().toISOString();
+    else if (["total_sold", "sales_count", "cost_price", "sell_price", "total_revenue"].includes(c)) testRow[c] = 0;
+    else testRow[c] = "";
+  }
+
+  try {
+    const { error } = await supabase
+      .from("sales_summary")
+      .upsert(testRow, { onConflict: "sale_id" });
+
+    if (!error) {
+      await supabase.from("sales_summary").delete().eq("sale_id", testSaleId);
+      return cols;
+    }
+
+    const errMsg = error.message || "";
+    const match = errMsg.match(/Could not find the '([^']+)' column/);
+    if (match) {
+      const missingCol = match[1];
+      const remaining = cols.filter((c) => c !== missingCol);
+      return await probeColumns(remaining);
+    }
+
+    console.error("probeColumns unexpected error:", errMsg);
+    return cols;
+  } catch (e) {
+    console.error("probeColumns catch:", e);
+    return cols;
+  }
+}
+
 export async function POST() {
   try {
     const diagnostics: string[] = [];
+
+    // ---------- 0. 先检查表实际有哪些列 ----------
+    const existingCols = await getSalesSummaryColumns();
+    diagnostics.push(`sales_summary 表有 ${existingCols.length} 列: ${existingCols.slice(0, 10).join(",")}${existingCols.length > 10 ? "..." : ""}`);
 
     // ---------- 0. 先验证表是否有数据 ----------
     const { count: salesCount, error: countError } = await supabase
@@ -167,7 +260,7 @@ export async function POST() {
         sellPriceInfo[String(price)] = time;
       }
 
-      upsertRows.push({
+      const fullRow: Record<string, unknown> = {
         sale_id: sid,
         photo: inbound?.photo || "",
         name: inbound?.name || fallbackName,
@@ -181,7 +274,16 @@ export async function POST() {
         sell_price_info: sellPriceInfo,
         sales_count: group.trackingNumbers.size,
         updated_at: new Date().toISOString(),
-      });
+      };
+
+      // 只保留表中实际存在的列
+      const filteredRow: Record<string, unknown> = {};
+      for (const col of existingCols) {
+        if (col in fullRow) {
+          filteredRow[col] = fullRow[col];
+        }
+      }
+      upsertRows.push(filteredRow);
     }
 
     // ---------- 5. 分批 upsert 到 sales_summary ----------
