@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { upsertSalesSummary } from "../sales-summary/route";
 
 // GET /api/web-orders - 获取网页下单记录
 export async function GET(request: NextRequest) {
@@ -221,6 +222,9 @@ export async function POST(request: NextRequest) {
 
     if (salesError) {
       console.error("Create sales record error:", salesError);
+    } else {
+      // 同步更新 sales_summary
+      upsertSalesSummary(saleId).catch((e) => console.error("upsertSalesSummary error:", e));
     }
 
     // 4. 发送企业微信群消息通知

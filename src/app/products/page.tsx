@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode, Upload } from "lucide-react";
+import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode } from "lucide-react";
 import { PageWrapper } from "@/components/page-wrapper";
 import Link from "next/link";
 
@@ -101,6 +101,31 @@ export default function ProductsPage() {
       setOrderForm(prev => ({ ...prev, customer: name }));
       fetchMemberInfo(name);
     }
+
+    // 每15秒轮询刷新库存数据（仅页面可见时）
+    const interval = setInterval(() => {
+      if (document.hidden) return;
+      fetch("/api/summary")
+        .then((res) => res.json())
+        .then((summaryData) => {
+          if (Array.isArray(summaryData)) {
+            const filtered = summaryData.map((p: SummaryProduct) => ({
+              ...p,
+              remaining: Number(p.remaining) || 0,
+              sell_price: Number(p.sell_price) || 0,
+              cost_price: Number(p.cost_price) || 0,
+              inbound_total: Number(p.inbound_total) || 0,
+              sold_total: Number(p.sold_total) || 0,
+              return_total: Number(p.return_total) || 0,
+            }));
+            setProducts(filtered);
+            setCache("products_cache", filtered);
+          }
+        })
+        .catch(() => {});
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchData = async () => {
@@ -438,15 +463,6 @@ export default function ProductsPage() {
             <p className="font-bold text-gray-600 text-base lg:text-lg mb-1">还没有商品哦</p>
             <p className="text-sm text-gray-400">敬请期待吧</p>
           </div>
-          {isAdmin && (
-            <Link
-              href="/data-import"
-              className="neo-btn neo-btn-blue flex items-center gap-2 px-6 py-2.5 text-sm"
-            >
-              <Upload className="h-4 w-4" />
-              去导入数据
-            </Link>
-          )}
         </div>
       ) : (
         /* 淘宝风格商品网格 */

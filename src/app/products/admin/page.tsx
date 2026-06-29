@@ -716,7 +716,7 @@ export default function AdminProductsPage() {
                 <div className="relative">
                   <button
                     onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all ${
+                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all self-stretch ${
                       showFilterDropdown || displaySoldFilter !== "all" || displayStockFilter !== "all" || displayValueFilter !== "all" || displayErrorFilter !== "all"
                         ? "bg-gray-900 text-white"
                         : "bg-gray-700 text-white"
@@ -969,15 +969,6 @@ export default function AdminProductsPage() {
                 );
               })}
             </div>
-
-            {/* 空状态：没有展示商品时 */}
-            {displayList.length === 0 && (
-              <div className="text-center py-16">
-                <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-lg font-extrabold text-gray-400">还没有商品在售哦</p>
-                <p className="text-sm text-gray-300 mt-1">敬请期待吧</p>
-              </div>
-            )}
           </div>
         )}
 
