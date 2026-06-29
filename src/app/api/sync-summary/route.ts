@@ -170,13 +170,24 @@ export async function POST() {
     let nullQtyCount = 0;
     let validQtyCount = 0;
     let sumQty = 0;
+    let qtyTypeSamples: string[] = [];
+    let zeroQtySamples: { q: unknown; t: string; sid: string }[] = [];
     for (const r of allSalesRecords) {
-      const q = Number(r.quantity);
-      if (r.quantity === null || r.quantity === undefined) nullQtyCount++;
-      else if (isNaN(q) || q === 0) zeroQtyCount++;
-      else { validQtyCount++; sumQty += q; }
+      const rawQ = r.quantity;
+      const q = Number(rawQ);
+      const typeOfQ = typeof rawQ;
+      if (qtyTypeSamples.length < 5) qtyTypeSamples.push(`${typeOfQ}=${rawQ}`);
+      if (rawQ === null || rawQ === undefined) nullQtyCount++;
+      else if (isNaN(q) || q === 0) {
+        zeroQtyCount++;
+        if (zeroQtySamples.length < 3) {
+          zeroQtySamples.push({ q: rawQ, t: typeOfQ, sid: String(r.sale_id || "") });
+        }
+      } else { validQtyCount++; sumQty += q; }
     }
     diagnostics.push(`有效数量记录: ${validQtyCount}条, 数量总和: ${sumQty}; 零数量: ${zeroQtyCount}条; 空值: ${nullQtyCount}条`);
+    diagnostics.push(`quantity类型样本: ${qtyTypeSamples.join("; ")}`);
+    diagnostics.push(`零数量样本: ${zeroQtySamples.map((s) => `${s.sid}:${s.t}(${s.q})`).join("; ")}`);
 
     // ---------- 2. 一次性读取所有入库记录 ----------
     let allInboundRecords: Record<string, unknown>[] = [];
