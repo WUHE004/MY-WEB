@@ -893,7 +893,7 @@ export default function FinancePage() {
             </button>
             <button onClick={syncSummary} disabled={syncing}
               className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
-              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />同步数据
+              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
           </div>
         )}
