@@ -230,7 +230,8 @@ export default function FinancePage() {
       if (result.error) {
         setEditSaveMsg("同步失败: " + result.error);
       } else {
-        setEditSaveMsg(`同步完成: 售出${result.sales_synced}款, 退货${result.returns_synced}款`);
+        const diag = result.diagnostics ? ` (${result.diagnostics.join("; ")})` : "";
+        setEditSaveMsg(`同步完成: 售出${result.sales_synced}款, 退货${result.returns_synced}款${diag}`);
         fetchSummary();
         fetchSalesAgg();
         fetchReturnAgg();

@@ -5,6 +5,24 @@ const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180]
 
 export async function POST() {
   try {
+    const diagnostics: string[] = [];
+
+    // ---------- 0. 先验证表是否有数据 ----------
+    const { count: salesCount, error: countError } = await supabase
+      .from("sales_records")
+      .select("*", { count: "exact", head: true });
+    diagnostics.push(`sales_records 表共 ${salesCount ?? 0} 条记录`);
+    if (countError) diagnostics.push(`count error: ${countError.message}`);
+
+    if (!salesCount || salesCount === 0) {
+      return NextResponse.json({
+        sales_synced: 0,
+        returns_synced: 0,
+        message: "sales_records 表无数据",
+        diagnostics,
+      });
+    }
+
     // ---------- 1. 一次性读取所有售出记录 ----------
     let allSalesRecords: Record<string, unknown>[] = [];
     let page = 0;
@@ -14,8 +32,9 @@ export async function POST() {
         .from("sales_records")
         .select("*")
         .range(page * pageSize, (page + 1) * pageSize - 1)
-        .order("registration_date", { ascending: false });
+        .order("id", { ascending: true });
       if (error) {
+        diagnostics.push(`sales_records 第${page}页查询错误: ${error.message}`);
         console.error("sync-summary: sales_records query error:", error.message);
         break;
       }
@@ -24,10 +43,16 @@ export async function POST() {
       if (chunk.length < pageSize) break;
       page++;
     }
+    diagnostics.push(`读取 ${allSalesRecords.length} 条售出记录`);
     console.log(`sync-summary: 读取 ${allSalesRecords.length} 条售出记录`);
 
     if (allSalesRecords.length === 0) {
-      return NextResponse.json({ sales_synced: 0, returns_synced: 0, message: "无售出记录" });
+      return NextResponse.json({
+        sales_synced: 0,
+        returns_synced: 0,
+        message: "读取售出记录为空",
+        diagnostics,
+      });
     }
 
     // ---------- 2. 一次性读取所有入库记录 ----------
@@ -178,7 +203,8 @@ export async function POST() {
     return NextResponse.json({
       sales_synced: salesSynced,
       returns_synced: 0,
-      message: `售出汇总完成: ${salesSynced} 款商品`,
+      message: `售出汇总完成: ${salesSynced} 款`,
+      diagnostics: [...diagnostics, `分组: ${groupMap.size} 个唯一ID`, `upsert行数: ${upsertRows.length}`, `写入: ${salesSynced}`],
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
