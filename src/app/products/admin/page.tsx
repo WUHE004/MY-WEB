@@ -719,7 +719,7 @@ export default function AdminProductsPage() {
                     className={`flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 font-bold text-xs shadow-[3px_3px_0px_0px_rgba(0,0,0,0.15)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,0.15)] transition-all ${
                       showFilterDropdown || displaySoldFilter !== "all" || displayStockFilter !== "all" || displayValueFilter !== "all" || displayErrorFilter !== "all"
                         ? "bg-gray-900 text-white"
-                        : "bg-white text-gray-700"
+                        : "bg-gray-700 text-white"
                     }`}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />

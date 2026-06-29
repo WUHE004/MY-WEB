@@ -101,7 +101,7 @@ export default function LinksPage() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 lg:gap-6 mb-6 lg:mb-8">
         <Link href="/operations/inbound">
-          <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+          <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
             <CardContent className="p-3 lg:p-6 flex items-center justify-between">
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">入库登记</p>
@@ -117,7 +117,7 @@ export default function LinksPage() {
           </Card>
         </Link>
         <Link href="/operations/sales">
-          <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+          <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
             <CardContent className="p-3 lg:p-6 flex items-center justify-between">
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">售卖登记</p>
@@ -133,7 +133,7 @@ export default function LinksPage() {
           </Card>
         </Link>
         <Link href="/operations/returns">
-        <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+        <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
           <CardContent className="p-3 lg:p-6 flex items-center justify-between">
             <div>
               <p className="text-[10px] lg:text-sm font-bold text-gray-500">退货登记</p>
@@ -179,7 +179,7 @@ export default function LinksPage() {
         </p>
         <div className="grid grid-cols-3 gap-3 lg:gap-6">
           <Link href="/finance/shipping">
-            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
               <CardContent className="p-3 lg:p-6 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">快递费用</p>
@@ -197,7 +197,7 @@ export default function LinksPage() {
             </Card>
           </Link>
           <Link href="/finance/platform-fee">
-            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
               <CardContent className="p-3 lg:p-6 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">平台抽点</p>
@@ -215,7 +215,7 @@ export default function LinksPage() {
             </Card>
           </Link>
           <Link href="/live/select">
-            <Card className="cursor-pointer hover:-translate-y-1 transition-all">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
               <CardContent className="p-3 lg:p-6 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">直播选品</p>

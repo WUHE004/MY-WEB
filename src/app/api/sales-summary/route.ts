@@ -5,7 +5,7 @@ const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180]
 
 // 汇总单个 sale_id 的售出数据并 upsert 到 sales_summary 表
 export async function upsertSalesSummary(saleId: string) {
-  if (!saleId) return;
+  if (!saleId) return false;
 
   const sid = saleId.toUpperCase();
 
@@ -106,7 +106,9 @@ export async function upsertSalesSummary(saleId: string) {
 
   if (error) {
     console.error("upsertSalesSummary error:", error.message);
+    return false;
   }
+  return true;
 }
 
 // GET: 获取售卖总表数据

@@ -260,10 +260,16 @@ export async function POST(request: NextRequest) {
         batch.push(record);
 
         if (type === "sales") {
-          affectedSaleIds.add(String(record.sale_id || "").toUpperCase());
+          // 强制转为大写保证一致性
+          const saleId = String(record.sale_id || "").trim().toUpperCase();
+          record.sale_id = saleId;
+          affectedSaleIds.add(saleId);
         }
         if (type === "returns") {
-          affectedReturnIds.add(String(record.sale_id || "").toUpperCase());
+          // 强制转为大写保证一致性
+          const saleId = String(record.sale_id || "").trim().toUpperCase();
+          record.sale_id = saleId;
+          affectedReturnIds.add(saleId);
         }
 
         if (batch.length >= 50) {
@@ -295,13 +301,20 @@ export async function POST(request: NextRequest) {
     // 售出导入后同步更新售卖总表
     if (type === "sales" && successCount > 0) {
       const saleIds = [...affectedSaleIds].filter(Boolean);
+      console.log(`[import] 开始同步 ${saleIds.length} 个 sale_id 到 sales_summary:`, saleIds.slice(0, 5));
       // 分批处理，每批 10 个，避免并发过高
+      let syncedCount = 0;
       for (let i = 0; i < saleIds.length; i += 10) {
         const batch = saleIds.slice(i, i + 10);
-        await Promise.all(
-          batch.map((sid) => upsertSalesSummary(sid).catch((e) => console.error("upsertSalesSummary error:", e)))
+        const results = await Promise.all(
+          batch.map((sid) => upsertSalesSummary(sid).catch((e) => {
+            console.error("upsertSalesSummary error:", e);
+            return null;
+          }))
         );
+        syncedCount += results.filter((r) => r === true).length;
       }
+      console.log(`[import] 同步完成: ${syncedCount}/${saleIds.length} 个 sale_id`);
     }
 
     // 退货导入后同步更新退货总表
