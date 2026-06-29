@@ -5,9 +5,13 @@ const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180]
 
 // 汇总单个 sale_id 的售出数据并 upsert 到 sales_summary 表
 export async function upsertSalesSummary(saleId: string) {
-  if (!saleId) return false;
+  if (!saleId) {
+    console.log("upsertSalesSummary: empty sale_id");
+    return false;
+  }
 
   const sid = saleId.toUpperCase();
+  console.log(`upsertSalesSummary: processing sale_id=${sid}`);
 
   // 1. 查询该 sale_id 的所有售出记录
   let allRecords: Record<string, unknown>[] = [];
@@ -21,21 +25,50 @@ export async function upsertSalesSummary(saleId: string) {
       .range(page * pageSize, (page + 1) * pageSize - 1)
       .order("registration_date", { ascending: false });
 
-    if (error) break;
+    if (error) {
+      console.error(`upsertSalesSummary: query sales_records error for ${sid}:`, error.message);
+      break;
+    }
     if (!chunk || chunk.length === 0) break;
     allRecords = allRecords.concat(chunk);
     if (chunk.length < pageSize) break;
     page++;
   }
 
+  console.log(`upsertSalesSummary: ${sid} found ${allRecords.length} records`);
+
+  if (allRecords.length === 0) {
+    console.log(`upsertSalesSummary: no records found for ${sid}, skipping`);
+    return false;
+  }
+
   // 2. 从入库表获取照片/货架号/厂家
-  const { data: inboundData } = await supabase
+  const { data: inboundData, error: inboundError } = await supabase
     .from("inbound_records")
     .select("photo, shelf_no, manufacturer, name, cost_price, sell_price")
     .ilike("sale_id", sid)
     .limit(1);
 
+  if (inboundError) {
+    console.error(`upsertSalesSummary: query inbound_records error for ${sid}:`, inboundError.message);
+  }
+
   const inbound = inboundData && inboundData.length > 0 ? inboundData[0] : null;
+  console.log(`upsertSalesSummary: ${sid} inbound found=${!!inbound}`);
+
+  // 如果入库表找不到，尝试从第一条售出记录获取基础信息
+  let fallbackCostPrice = 0;
+  let fallbackName = "";
+  let fallbackManufacturer = "";
+  let fallbackShelfNo = "";
+  if (!inbound && allRecords.length > 0) {
+    const first = allRecords[0];
+    fallbackCostPrice = Number(first.cost_price) || 0;
+    fallbackName = String(first.product_name || "");
+    fallbackManufacturer = String(first.manufacturer || "");
+    fallbackShelfNo = String(first.shelf_no || "");
+    console.log(`upsertSalesSummary: ${sid} using fallback from sales_records`);
+  }
 
   // 3. 汇总各尺码数量和总售出
   const sizeTotals: Record<string, number> = {};
@@ -87,10 +120,10 @@ export async function upsertSalesSummary(saleId: string) {
   const row: Record<string, unknown> = {
     sale_id: sid,
     photo: inbound?.photo || "",
-    name: inbound?.name || "",
-    shelf_no: inbound?.shelf_no || "",
-    manufacturer: inbound?.manufacturer || "",
-    cost_price: inbound?.cost_price || 0,
+    name: inbound?.name || fallbackName,
+    shelf_no: inbound?.shelf_no || fallbackShelfNo,
+    manufacturer: inbound?.manufacturer || fallbackManufacturer,
+    cost_price: inbound?.cost_price || fallbackCostPrice,
     sell_price: highestSellPrice,
     ...sizeTotals,
     total_sold: totalSold,
@@ -100,14 +133,17 @@ export async function upsertSalesSummary(saleId: string) {
     updated_at: new Date().toISOString(),
   };
 
+  console.log(`upsertSalesSummary: ${sid} total_sold=${totalSold} total_revenue=${totalRevenue}`);
+
   const { error } = await supabase
     .from("sales_summary")
     .upsert(row, { onConflict: "sale_id" });
 
   if (error) {
-    console.error("upsertSalesSummary error:", error.message);
+    console.error("upsertSalesSummary: upsert error:", error.message);
     return false;
   }
+  console.log(`upsertSalesSummary: ${sid} completed successfully`);
   return true;
 }
 
