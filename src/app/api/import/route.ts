@@ -292,17 +292,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 售出导入后异步更新售卖总表
+    // 售出导入后同步更新售卖总表
     if (type === "sales" && successCount > 0) {
-      for (const sid of affectedSaleIds) {
-        if (sid) upsertSalesSummary(sid).catch((e) => console.error("upsert sales summary error:", e));
+      const saleIds = [...affectedSaleIds].filter(Boolean);
+      // 分批处理，每批 10 个，避免并发过高
+      for (let i = 0; i < saleIds.length; i += 10) {
+        const batch = saleIds.slice(i, i + 10);
+        await Promise.all(
+          batch.map((sid) => upsertSalesSummary(sid).catch((e) => console.error("upsertSalesSummary error:", e)))
+        );
       }
     }
 
-    // 退货导入后异步更新退货总表
+    // 退货导入后同步更新退货总表
     if (type === "returns" && successCount > 0) {
-      for (const sid of affectedReturnIds) {
-        if (sid) upsertReturnsSummary(sid).catch((e) => console.error("upsert returns summary error:", e));
+      const returnIds = [...affectedReturnIds].filter(Boolean);
+      for (let i = 0; i < returnIds.length; i += 10) {
+        const batch = returnIds.slice(i, i + 10);
+        await Promise.all(
+          batch.map((sid) => upsertReturnsSummary(sid).catch((e) => console.error("upsertReturnsSummary error:", e)))
+        );
       }
     }
 
