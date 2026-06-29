@@ -107,13 +107,19 @@ export default function MyOrdersPage() {
     }
   };
 
+  const [shippingLoading, setShippingLoading] = useState(false);
+
   const handleQueryShipping = async (trackingNumber: string) => {
+    setShippingLoading(true);
+    setShippingInfo(null);
     try {
-      const res = await fetch(`/api/shipping/query?tracking_number=${trackingNumber}`);
+      const res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
       const data = await res.json();
       setShippingInfo(data);
     } catch {
       setShippingInfo({ error: "查询物流信息失败" });
+    } finally {
+      setShippingLoading(false);
     }
   };
 
@@ -356,10 +362,15 @@ export default function MyOrdersPage() {
                       <h4 className="text-sm font-bold text-gray-700">物流追踪</h4>
                       <button
                         onClick={() => handleQueryShipping(selectedOrder.tracking_number!)}
-                        className="neo-btn px-3 py-1 text-xs font-bold bg-[#4A90E2] text-white"
+                        disabled={shippingLoading}
+                        className="neo-btn px-3 py-1 text-xs font-bold bg-[#4A90E2] text-white disabled:opacity-50"
                       >
-                        <ExternalLink className="h-3 w-3 inline mr-1" />
-                        查询物流
+                        {shippingLoading ? (
+                          <span className="inline-block h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                        ) : (
+                          <ExternalLink className="h-3 w-3 inline mr-1" />
+                        )}
+                        {shippingLoading ? "查询中..." : "查询物流"}
                       </button>
                     </div>
 
@@ -369,10 +380,10 @@ export default function MyOrdersPage() {
                           <p className="text-[#FF6B7A]">{shippingInfo.error}</p>
                         ) : (
                           <div className="space-y-2">
-                            {shippingInfo.data?.map((item: any, index: number) => (
+                            {shippingInfo.tracks?.map((item: any, index: number) => (
                               <div key={index} className="flex gap-2">
-                                <span className="text-gray-500 text-xs">{item.time}</span>
-                                <span className="text-gray-900">{item.context}</span>
+                                <span className="text-gray-500 text-xs shrink-0">{item.time}</span>
+                                <span className="text-gray-900">{item.message}</span>
                               </div>
                             ))}
                           </div>
