@@ -42,7 +42,7 @@ async function getSalesSummaryColumns(): Promise<string[]> {
       const missingCol = match[1];
       delete testRow[missingCol];
       // 重新尝试，用剩余的列
-      return await probeColumns(Object.keys(testRow));
+      return await probeColumns(Object.keys(testRow), "sales_summary");
     }
 
     // 其他错误，返回空
@@ -54,25 +54,25 @@ async function getSalesSummaryColumns(): Promise<string[]> {
   }
 }
 
-async function probeColumns(cols: string[]): Promise<string[]> {
+async function probeColumns(cols: string[], table: string): Promise<string[]> {
   const testSaleId = "__column_probe__";
   const testRow: Record<string, unknown> = { sale_id: testSaleId };
   for (const c of cols) {
     if (c === "sale_id") continue;
     if (c.startsWith("size_")) testRow[c] = 0;
-    else if (c === "sell_price_info") testRow[c] = {};
+    else if (c === "sell_price_info" || c === "return_price_info") testRow[c] = {};
     else if (c === "updated_at") testRow[c] = new Date().toISOString();
-    else if (["total_sold", "sales_count", "cost_price", "sell_price", "total_revenue"].includes(c)) testRow[c] = 0;
+    else if (["total_sold", "total_returned", "sales_count", "return_count", "cost_price", "sell_price", "total_revenue", "total_return_amount"].includes(c)) testRow[c] = 0;
     else testRow[c] = "";
   }
 
   try {
     const { error } = await supabase
-      .from("sales_summary")
+      .from(table)
       .upsert(testRow, { onConflict: "sale_id" });
 
     if (!error) {
-      await supabase.from("sales_summary").delete().eq("sale_id", testSaleId);
+      await supabase.from(table).delete().eq("sale_id", testSaleId);
       return cols;
     }
 
@@ -81,13 +81,13 @@ async function probeColumns(cols: string[]): Promise<string[]> {
     if (match) {
       const missingCol = match[1];
       const remaining = cols.filter((c) => c !== missingCol);
-      return await probeColumns(remaining);
+      return await probeColumns(remaining, table);
     }
 
-    console.error("probeColumns unexpected error:", errMsg);
+    console.error(`probeColumns(${table}) unexpected error:`, errMsg);
     return cols;
   } catch (e) {
-    console.error("probeColumns catch:", e);
+    console.error(`probeColumns(${table}) catch:`, e);
     return cols;
   }
 }
@@ -373,15 +373,176 @@ export async function POST() {
 
     console.log(`sync-summary: 售出汇总完成 ${salesSynced} 款`);
 
+    diagnostics.push(`分组: ${groupMap.size} 个唯一ID`);
+    diagnostics.push(`upsert行数: ${upsertRows.length}`);
+    diagnostics.push(`写入: ${salesSynced}`);
+
+    // ========== 退货汇总 ==========
+    let returnsSynced = 0;
+
+    const { count: returnCount } = await supabase
+      .from("return_records")
+      .select("*", { count: "exact", head: true });
+    diagnostics.push(`return_records 表共 ${returnCount ?? 0} 条记录`);
+
+    if (returnCount && returnCount > 0) {
+      // 探测 returns_summary 表列
+      const returnTestRow: Record<string, unknown> = {
+        sale_id: "__column_probe__",
+        photo: "", name: "", shelf_no: "", manufacturer: "",
+        cost_price: 0, total_returned: 0, total_return_amount: 0,
+        return_price_info: {}, return_count: 0,
+        updated_at: new Date().toISOString(),
+      };
+      for (const s of ALL_SIZES) returnTestRow[`size_${s}`] = 0;
+
+      let returnCols: string[] = [];
+      try {
+        const { error: testErr } = await supabase
+          .from("returns_summary")
+          .upsert(returnTestRow, { onConflict: "sale_id" });
+        if (!testErr) {
+          await supabase.from("returns_summary").delete().eq("sale_id", "__column_probe__");
+          returnCols = Object.keys(returnTestRow);
+        } else {
+          const match = testErr.message.match(/Could not find the '([^']+)' column/);
+          if (match) {
+            delete returnTestRow[match[1]];
+            returnCols = await probeColumns(Object.keys(returnTestRow), "returns_summary");
+          }
+        }
+      } catch {
+        returnCols = Object.keys(returnTestRow);
+      }
+      diagnostics.push(`returns_summary 表有 ${returnCols.length} 列`);
+
+      // 读取所有退货记录
+      let allReturnRecords: Record<string, unknown>[] = [];
+      let rPage = 0;
+      while (true) {
+        const { data: chunk, error } = await supabase
+          .from("return_records")
+          .select("*")
+          .range(rPage * pageSize, (rPage + 1) * pageSize - 1)
+          .order("id", { ascending: true });
+        if (error || !chunk || chunk.length === 0) break;
+        allReturnRecords = allReturnRecords.concat(chunk);
+        if (chunk.length < pageSize) break;
+        rPage++;
+      }
+      diagnostics.push(`读取 ${allReturnRecords.length} 条退货记录`);
+
+      // 按 sale_id 分组汇总退货
+      const returnGroupMap = new Map<string, {
+        sizes: Record<string, number>;
+        totalReturned: number;
+        totalReturnAmount: number;
+        priceMap: Map<number, string>;
+        records: Record<string, unknown>[];
+      }>();
+
+      for (const row of allReturnRecords) {
+        const sid = String(row.sale_id || "").toUpperCase();
+        if (!sid) continue;
+
+        let group = returnGroupMap.get(sid);
+        if (!group) {
+          group = {
+            sizes: {},
+            totalReturned: 0,
+            totalReturnAmount: 0,
+            priceMap: new Map(),
+            records: [],
+          };
+          for (const s of ALL_SIZES) group.sizes[`size_${s}`] = 0;
+          returnGroupMap.set(sid, group);
+        }
+
+        const qty = Number(row.quantity) || 0;
+        const sz = Number(row.size) || 0;
+        const rp = Number(row.return_price) || 0;
+
+        group.records.push(row);
+        if (sz >= 80 && sz <= 180) {
+          group.sizes[`size_${sz}`] = (group.sizes[`size_${sz}`] || 0) + qty;
+        }
+        group.totalReturned += qty;
+        group.totalReturnAmount += rp * qty;
+
+        if (rp > 0) {
+          const rt = String(row.return_time || row.created_at || "");
+          const existing = group.priceMap.get(rp);
+          if (!existing || rt > existing) {
+            group.priceMap.set(rp, rt);
+          }
+        }
+      }
+
+      // 构建退货 upsert 数据
+      const returnUpsertRows: Record<string, unknown>[] = [];
+      for (const [sid, group] of returnGroupMap) {
+        const inbound = inboundMap.get(sid);
+        let fallbackName = "";
+        let fallbackManufacturer = "";
+        let fallbackShelfNo = "";
+        if (!inbound && group.records.length > 0) {
+          const first = group.records[0];
+          fallbackName = String(first.product_name || "");
+          fallbackManufacturer = String(first.manufacturer || "");
+          fallbackShelfNo = String(first.shelf_no || "");
+        }
+
+        const returnPriceInfo: Record<string, string> = {};
+        for (const [price, time] of group.priceMap) {
+          returnPriceInfo[String(price)] = time;
+        }
+
+        const fullReturnRow: Record<string, unknown> = {
+          sale_id: sid,
+          photo: inbound?.photo || "",
+          name: inbound?.name || fallbackName,
+          shelf_no: inbound?.shelf_no || fallbackShelfNo,
+          manufacturer: inbound?.manufacturer || fallbackManufacturer,
+          cost_price: inbound?.cost_price || 0,
+          ...group.sizes,
+          total_returned: group.totalReturned,
+          total_return_amount: group.totalReturnAmount,
+          return_price_info: returnPriceInfo,
+          return_count: group.records.length,
+          updated_at: new Date().toISOString(),
+        };
+
+        const filteredReturnRow: Record<string, unknown> = {};
+        for (const col of returnCols) {
+          if (col in fullReturnRow) {
+            filteredReturnRow[col] = fullReturnRow[col];
+          }
+        }
+        returnUpsertRows.push(filteredReturnRow);
+      }
+
+      // 分批 upsert 退货
+      for (let i = 0; i < returnUpsertRows.length; i += 50) {
+        const batch = returnUpsertRows.slice(i, i + 50);
+        const { error } = await supabase
+          .from("returns_summary")
+          .upsert(batch, { onConflict: "sale_id" });
+        if (error) {
+          diagnostics.push(`退货批次${Math.floor(i / 50) + 1}: ${error.code} - ${error.message}`);
+        } else {
+          returnsSynced += batch.length;
+        }
+      }
+
+      diagnostics.push(`退货分组: ${returnGroupMap.size} 个唯一ID, 写入: ${returnsSynced}`);
+    }
+
     return NextResponse.json({
       sales_synced: salesSynced,
-      returns_synced: 0,
-      message: `售出汇总完成: ${salesSynced} 款`,
+      returns_synced: returnsSynced,
+      message: `售出${salesSynced}款, 退货${returnsSynced}款`,
       diagnostics: [
         ...diagnostics,
-        `分组: ${groupMap.size} 个唯一ID`,
-        `upsert行数: ${upsertRows.length}`,
-        `写入: ${salesSynced}`,
         ...upsertErrors.slice(0, 5),
       ],
     });
