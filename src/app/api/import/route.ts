@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
     const affectedSaleIds = new Set<string>();
     const affectedReturnIds = new Set<string>();
 
-    for (let r = 0; r < rows.length && r < 10000; r++) {
+    for (let r = 0; r < rows.length; r++) {
       try {
         const row = rows[r];
         const record: Record<string, unknown> = {};

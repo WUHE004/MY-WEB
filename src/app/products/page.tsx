@@ -435,8 +435,8 @@ export default function ProductsPage() {
         <div className="flex flex-col items-center justify-center py-16 gap-4">
           <Package className="h-16 w-16 text-gray-300" />
           <div className="text-center">
-            <p className="font-bold text-gray-600 text-base lg:text-lg mb-1">暂无商品数据</p>
-            <p className="text-sm text-gray-400">请在数据导入页面从 WPS 导入 CSV 数据</p>
+            <p className="font-bold text-gray-600 text-base lg:text-lg mb-1">还没有商品哦</p>
+            <p className="text-sm text-gray-400">敬请期待吧</p>
           </div>
           {isAdmin && (
             <Link

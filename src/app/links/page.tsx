@@ -159,7 +159,8 @@ export default function LinksPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: index * 0.1 }}
-            className={`neo-card neo-shadow-hover flex flex-col items-center justify-center gap-2 lg:gap-3 p-4 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all ${btn.color}`}
+            className={`neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-4 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all ${btn.color}`}
+            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
           >
             <btn.icon className="h-6 w-6 lg:h-10 lg:w-10 text-white" />
             <span className="text-xs lg:text-base font-extrabold text-white">{btn.label}</span>
