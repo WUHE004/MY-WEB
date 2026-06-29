@@ -298,40 +298,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 售出导入后同步更新售卖总表
+    // 售出导入后同步更新售卖总表（fire-and-forget，避免 Vercel 超时）
+    // 汇总由前端导入完成后单独调用 /api/sync-summary 触发
     if (type === "sales" && successCount > 0) {
       const saleIds = [...affectedSaleIds].filter(Boolean);
-      console.log(`[import] 开始同步 ${saleIds.length} 个 sale_id 到 sales_summary:`, saleIds.slice(0, 5));
-      // 分批处理，每批 10 个，避免并发过高
-      let syncedCount = 0;
-      for (let i = 0; i < saleIds.length; i += 10) {
-        const batch = saleIds.slice(i, i + 10);
-        const results = await Promise.all(
-          batch.map((sid) => upsertSalesSummary(sid).catch((e) => {
-            console.error("upsertSalesSummary error:", e);
-            return null;
-          }))
-        );
-        syncedCount += results.filter((r) => r === true).length;
-      }
-      console.log(`[import] 同步完成: ${syncedCount}/${saleIds.length} 个 sale_id`);
+      console.log(`[import] 售出导入完成，${saleIds.length} 个 sale_id 待汇总，前端将自动触发同步`);
     }
 
-    // 退货导入后同步更新退货总表
+    // 退货导入后同步更新退货总表（fire-and-forget，避免 Vercel 超时）
+    // 汇总由前端导入完成后单独调用 /api/sync-summary 触发
     if (type === "returns" && successCount > 0) {
       const returnIds = [...affectedReturnIds].filter(Boolean);
-      for (let i = 0; i < returnIds.length; i += 10) {
-        const batch = returnIds.slice(i, i + 10);
-        await Promise.all(
-          batch.map((sid) => upsertReturnsSummary(sid).catch((e) => console.error("upsertReturnsSummary error:", e)))
-        );
-      }
+      console.log(`[import] 退货导入完成，${returnIds.length} 个 sale_id 待汇总，前端将自动触发同步`);
     }
 
     return NextResponse.json({
       success: errors.length === 0,
       total: rows.length,
       actualCount: successCount,
+      importType: type,
       errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
     });
   } catch (error) {

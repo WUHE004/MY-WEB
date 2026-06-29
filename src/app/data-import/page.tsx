@@ -275,7 +275,13 @@ export default function DataImportPage() {
       });
       const data = await res.json();
       if (data.error) setError(data.error);
-      else setResult(data);
+      else {
+        setResult(data);
+        // 售出/退货导入成功后，自动触发汇总同步
+        if (data.success && (data.importType === "sales" || data.importType === "returns")) {
+          fetch("/api/sync-summary", { method: "POST" }).catch(() => {});
+        }
+      }
     } catch {
       setError("导入请求失败，请检查网络");
     } finally {
