@@ -17,7 +17,7 @@ export async function upsertSalesSummary(saleId: string) {
     const { data: chunk, error } = await supabase
       .from("sales_records")
       .select("*")
-      .eq("sale_id", sid)
+      .ilike("sale_id", sid)
       .range(page * pageSize, (page + 1) * pageSize - 1)
       .order("registration_date", { ascending: false });
 
@@ -32,7 +32,7 @@ export async function upsertSalesSummary(saleId: string) {
   const { data: inboundData } = await supabase
     .from("inbound_records")
     .select("photo, shelf_no, manufacturer, name, cost_price, sell_price")
-    .eq("sale_id", sid)
+    .ilike("sale_id", sid)
     .limit(1);
 
   const inbound = inboundData && inboundData.length > 0 ? inboundData[0] : null;
