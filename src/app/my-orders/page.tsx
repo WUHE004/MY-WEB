@@ -74,8 +74,6 @@ export default function MyOrdersPage() {
   const [error, setError] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [shippingInfo, setShippingInfo] = useState<any>(null);
-
   useEffect(() => {
     const phone = localStorage.getItem("member_phone");
     const memberId = localStorage.getItem("member_id");
@@ -107,34 +105,8 @@ export default function MyOrdersPage() {
     }
   };
 
-  const [shippingLoading, setShippingLoading] = useState(false);
-
-  const handleQueryShipping = async (trackingNumber: string) => {
-    setShippingLoading(true);
-    setShippingInfo(null);
-    try {
-      const res = await fetch(`/api/shipping/query?tracking_number=${encodeURIComponent(trackingNumber)}`);
-      if (!res.ok) {
-        const text = await res.text();
-        if (text.includes("<!DOCTYPE") || text.includes("<html")) {
-          setShippingInfo({ error: "物流查询服务暂不可用，请联系管理员" });
-        } else {
-          try {
-            const errData = JSON.parse(text);
-            setShippingInfo({ error: errData.error || "物流查询失败" });
-          } catch {
-            setShippingInfo({ error: "物流查询失败" });
-          }
-        }
-        return;
-      }
-      const data = await res.json();
-      setShippingInfo(data);
-    } catch {
-      setShippingInfo({ error: "查询物流信息失败，请稍后重试" });
-    } finally {
-      setShippingLoading(false);
-    }
+  const handleQueryShipping = (trackingNumber: string) => {
+    window.open(`https://m.baidu.com/s?word=${encodeURIComponent(trackingNumber)}`, "_blank");
   };
 
   const formatMoney = (v: number | null | undefined) => {
@@ -277,7 +249,6 @@ export default function MyOrdersPage() {
             className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
             onClick={() => {
               setSelectedOrder(null);
-              setShippingInfo(null);
             }}
           >
             <div
@@ -292,7 +263,6 @@ export default function MyOrdersPage() {
                 <button
                   onClick={() => {
                     setSelectedOrder(null);
-                    setShippingInfo(null);
                   }}
                   className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100"
                 >
@@ -372,38 +342,17 @@ export default function MyOrdersPage() {
                 {/* 物流查询 */}
                 {selectedOrder.tracking_number && (
                   <div className="neo-card p-4">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between">
                       <h4 className="text-sm font-bold text-gray-700">物流追踪</h4>
                       <button
                         onClick={() => handleQueryShipping(selectedOrder.tracking_number!)}
-                        disabled={shippingLoading}
-                        className="neo-btn px-3 py-1 text-xs font-bold bg-[#4A90E2] text-white disabled:opacity-50"
+                        className="neo-btn px-3 py-1 text-xs font-bold bg-[#4A90E2] text-white"
                       >
-                        {shippingLoading ? (
-                          <span className="inline-block h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
-                        ) : (
-                          <ExternalLink className="h-3 w-3 inline mr-1" />
-                        )}
-                        {shippingLoading ? "查询中..." : "查询物流"}
+                        <ExternalLink className="h-3 w-3 inline mr-1" />
+                        查询物流
                       </button>
                     </div>
-
-                    {shippingInfo && (
-                      <div className="mt-3 text-sm">
-                        {shippingInfo.error ? (
-                          <p className="text-[#FF6B7A]">{shippingInfo.error}</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {shippingInfo.tracks?.map((item: any, index: number) => (
-                              <div key={index} className="flex gap-2">
-                                <span className="text-gray-500 text-xs shrink-0">{item.time}</span>
-                                <span className="text-gray-900">{item.message}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <p className="text-xs text-gray-400 mt-2">点击按钮将在新标签页打开百度搜索查询物流信息</p>
                   </div>
                 )}
 
