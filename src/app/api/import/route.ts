@@ -185,6 +185,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 跳过没有 sale_id 的空行（售出/退货/入库都必须有 sale_id）
+        const rawSaleId = String(record.sale_id || "").trim();
+        if (!rawSaleId || rawSaleId === "0") {
+          skipCount++;
+          continue;
+        }
+
         // 入库表：计算 total_stock，自动填入 registrant，匹配照片
         if (type === "inbound") {
           // 确保所有 NOT NULL 字段有默认值

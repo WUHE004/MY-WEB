@@ -191,6 +191,25 @@ export async function POST() {
       } else { validQtyCount++; sumQty += q; }
     }
     diagnostics.push(`有效数量记录: ${validQtyCount}条, 数量总和: ${sumQty}; 零数量: ${zeroQtyCount}条(有sale_id:${zeroWithSaleId}, 无sale_id:${zeroWithoutSaleId}); 空值: ${nullQtyCount}条`);
+
+    // 清理无效记录（sale_id 为空）
+    if (zeroWithoutSaleId > 0) {
+      diagnostics.push(`发现 ${zeroWithoutSaleId} 条无效记录(sale_id为空)，正在清理...`);
+      const { error: cleanError } = await supabase
+        .from("sales_records")
+        .delete()
+        .or("sale_id.is.null,sale_id.eq.");
+      if (cleanError) {
+        diagnostics.push(`清理失败: ${cleanError.message}`);
+      } else {
+        diagnostics.push(`已清理无效记录`);
+        // 重新统计有效数量
+        allSalesRecords = allSalesRecords.filter((r) => String(r.sale_id || "").trim());
+        sumQty = 0;
+        for (const r of allSalesRecords) sumQty += Number(r.quantity) || 0;
+        diagnostics.push(`清理后有效数量总和: ${sumQty}`);
+      }
+    }
     diagnostics.push(`quantity类型样本: ${qtyTypeSamples.join("; ")}`);
     if (zeroQtyFullSamples.length > 0) {
       const sample0 = zeroQtyFullSamples[0];
