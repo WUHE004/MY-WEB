@@ -148,6 +148,36 @@ export async function POST() {
       });
     }
 
+    // 诊断：看看第一条记录的字段和 quantity
+    const firstRecord = allSalesRecords[0];
+    const firstKeys = Object.keys(firstRecord);
+    diagnostics.push(`第一条记录字段: ${firstKeys.slice(0, 15).join(",")}${firstKeys.length > 15 ? "..." : ""}`);
+    // 查找可能的数量字段
+    const qtyCandidates = ["quantity", "qty", "count", "amount", "num", "数量", "sale_quantity", "sold_quantity"];
+    let foundQtyField = "";
+    for (const k of firstKeys) {
+      if (qtyCandidates.includes(k.toLowerCase())) {
+        foundQtyField = k;
+        diagnostics.push(`找到数量字段: ${k} = ${firstRecord[k]}`);
+        break;
+      }
+    }
+    if (!foundQtyField) {
+      diagnostics.push(`未找到明确的数量字段，当前使用 quantity，其值为: ${firstRecord["quantity"] ?? "undefined"}`);
+    }
+    // 统计 quantity 为 0/null/undefined 的记录数
+    let zeroQtyCount = 0;
+    let nullQtyCount = 0;
+    let validQtyCount = 0;
+    let sumQty = 0;
+    for (const r of allSalesRecords) {
+      const q = Number(r.quantity);
+      if (r.quantity === null || r.quantity === undefined) nullQtyCount++;
+      else if (isNaN(q) || q === 0) zeroQtyCount++;
+      else { validQtyCount++; sumQty += q; }
+    }
+    diagnostics.push(`有效数量记录: ${validQtyCount}条, 数量总和: ${sumQty}; 零数量: ${zeroQtyCount}条; 空值: ${nullQtyCount}条`);
+
     // ---------- 2. 一次性读取所有入库记录 ----------
     let allInboundRecords: Record<string, unknown>[] = [];
     page = 0;
