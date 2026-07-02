@@ -1,45 +1,42 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// GET: 返回按日期聚合的售卖数据（用于趋势图）
 export async function GET() {
   try {
-    let allRecords: Record<string, unknown>[] = [];
-    let page = 0;
-    const pageSize = 1000;
+    // 从 sales_daily_stats 读取销售趋势
+    const { data: salesData, error: salesErr } = await supabase
+      .from("sales_daily_stats")
+      .select("date, total_amount, total_quantity, total_profit")
+      .order("date", { ascending: true });
 
-    while (true) {
-      const { data: chunk, error } = await supabase
-        .from("sales_records")
-        .select("order_time, sell_price, quantity")
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-      if (!chunk || chunk.length === 0) break;
-      allRecords = allRecords.concat(chunk);
-      if (chunk.length < pageSize) break;
-      page++;
+    if (salesErr) {
+      console.error("sales_daily_stats 查询失败:", salesErr.message);
+      return NextResponse.json({ error: salesErr.message }, { status: 500 });
     }
 
-    // 按日期聚合
-    const dailyMap: Record<string, { date: string; amount: number; quantity: number }> = {};
-    for (const row of allRecords) {
-      const ot = (row.order_time as string) || "";
-      if (!ot) continue;
-      const date = ot.slice(0, 10);
-      if (!dailyMap[date]) {
-        dailyMap[date] = { date, amount: 0, quantity: 0 };
-      }
-      const price = Number(row.sell_price) || 0;
-      const qty = Number(row.quantity) || 0;
-      dailyMap[date].amount += price * qty;
-      dailyMap[date].quantity += qty;
+    const salesTrend = (salesData || []).map((row: any) => ({
+      date: row.date,
+      total_amount: Number(row.total_amount) || 0,
+      total_quantity: Number(row.total_quantity) || 0,
+      total_profit: Number(row.total_profit) || 0,
+    }));
+
+    // 从 returns_daily_stats 读取退货趋势
+    const { data: returnsData, error: returnsErr } = await supabase
+      .from("returns_daily_stats")
+      .select("date, total_returned")
+      .order("date", { ascending: true });
+
+    if (returnsErr) {
+      console.error("returns_daily_stats 查询失败:", returnsErr.message);
     }
 
-    const result = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    return NextResponse.json(result);
+    const returnsTrend = (returnsData || []).map((row: any) => ({
+      date: row.date,
+      total_returned: Number(row.total_returned) || 0,
+    }));
+
+    return NextResponse.json({ salesTrend, returnsTrend });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });

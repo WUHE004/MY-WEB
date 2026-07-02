@@ -379,6 +379,7 @@ export async function POST() {
 
     // ========== 退货汇总 ==========
     let returnsSynced = 0;
+    let allReturnRecords: Record<string, unknown>[] = [];
 
     const { count: returnCount } = await supabase
       .from("return_records")
@@ -417,7 +418,7 @@ export async function POST() {
       diagnostics.push(`returns_summary 表有 ${returnCols.length} 列`);
 
       // 读取所有退货记录
-      let allReturnRecords: Record<string, unknown>[] = [];
+      allReturnRecords = [];
       let rPage = 0;
       while (true) {
         const { data: chunk, error } = await supabase
@@ -536,6 +537,86 @@ export async function POST() {
 
       diagnostics.push(`退货分组: ${returnGroupMap.size} 个唯一ID, 写入: ${returnsSynced}`);
     }
+
+    // ========== 归档每日统计到 sales_daily_stats ==========
+    let dailyStatsSynced = 0;
+    if (allSalesRecords.length > 0) {
+      const dailyMap = new Map<string, { total_amount: number; total_quantity: number; total_profit: number }>();
+      const inboundCostMap = new Map<string, number>();
+      for (const ib of allInboundRecords) {
+        inboundCostMap.set(String(ib.sale_id || "").toUpperCase(), Number(ib.cost_price) || 0);
+      }
+
+      for (const row of allSalesRecords) {
+        const ot = String(row.order_time || "");
+        if (!ot) continue;
+        const date = ot.slice(0, 10);
+        if (!dailyMap.has(date)) dailyMap.set(date, { total_amount: 0, total_quantity: 0, total_profit: 0 });
+        const entry = dailyMap.get(date)!;
+        const price = Number(row.sell_price) || 0;
+        const qty = Number(row.quantity) || 0;
+        const cost = inboundCostMap.get(String(row.sale_id || "").toUpperCase()) || 0;
+        entry.total_amount += price * qty;
+        entry.total_quantity += qty;
+        entry.total_profit += (price - cost) * qty;
+      }
+
+      for (const [date, stats] of dailyMap) {
+        const { data: existing } = await supabase
+          .from("sales_daily_stats")
+          .select("id, total_amount, total_quantity, total_profit")
+          .eq("date", date)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from("sales_daily_stats")
+            .update({
+              total_amount: Number(existing.total_amount) + stats.total_amount,
+              total_quantity: Number(existing.total_quantity) + stats.total_quantity,
+              total_profit: Number(existing.total_profit) + stats.total_profit,
+            })
+            .eq("id", existing.id);
+        } else {
+          await supabase.from("sales_daily_stats").insert({ date, ...stats });
+        }
+        dailyStatsSynced++;
+      }
+    }
+    diagnostics.push(`销售日统计归档: ${dailyStatsSynced} 天`);
+
+    // ========== 归档每日退货统计到 returns_daily_stats ==========
+    let returnDailySynced = 0;
+    if (allReturnRecords && allReturnRecords.length > 0) {
+      const retDailyMap = new Map<string, number>();
+      for (const row of allReturnRecords) {
+        const ct = String(row.created_at || "");
+        if (!ct) continue;
+        const date = ct.slice(0, 10);
+        retDailyMap.set(date, (retDailyMap.get(date) || 0) + (Number(row.quantity) || 0));
+      }
+
+      for (const [date, totalReturned] of retDailyMap) {
+        const { data: existing } = await supabase
+          .from("returns_daily_stats")
+          .select("id, total_returned")
+          .eq("date", date)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from("returns_daily_stats")
+            .update({
+              total_returned: Number(existing.total_returned) + totalReturned,
+            })
+            .eq("id", existing.id);
+        } else {
+          await supabase.from("returns_daily_stats").insert({ date, total_returned: totalReturned });
+        }
+        returnDailySynced++;
+      }
+    }
+    diagnostics.push(`退货日统计归档: ${returnDailySynced} 天`);
 
     return NextResponse.json({
       sales_synced: salesSynced,

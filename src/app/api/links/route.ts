@@ -1,120 +1,67 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// GET: 获取操作台整合数据
 export async function GET() {
   try {
-    // 1. 获取快递费率
-    const { data: rateData } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "shipping_rates")
-      .single();
+    // 从 sales_daily_stats 获取最新日期数据
+    const { data: latestStats, error: statsErr } = await supabase
+      .from("sales_daily_stats")
+      .select("date, total_amount, total_quantity, total_profit")
+      .order("date", { ascending: false })
+      .limit(1);
 
-    const rates = (rateData?.value as Record<string, number>) || { rate1: 0, rate2: 0, rate3: 0 };
-    const rate1 = Number(rates.rate1) || 0;
-    const rate2 = Number(rates.rate2) || 0;
-    const rate3 = Number(rates.rate3) || 0;
-
-    // 2. 获取平台抽点率
-    const { data: platformData } = await supabase
-      .from("settings")
-      .select("value")
-      .eq("key", "platform_fee_rate")
-      .single();
-
-    const platformRate = Number((platformData?.value as Record<string, number>)?.value || (platformData?.value as number) || 5);
-
-    // 3. 获取最近有数据的日期
-    const { data: salesData } = await supabase
-      .from("sales_records")
-      .select("order_time, tracking_number, quantity, sell_price, sale_id")
-      .order("order_time", { ascending: false })
-      .limit(5000);
-
-    if (!salesData || salesData.length === 0) {
-      return NextResponse.json({
-        latest_shipping_fee: 0,
-        latest_platform_fee: 0,
-        latest_date: "",
-        selected_count: 0,
-        dates: [],
-      });
+    if (statsErr) {
+      console.error("sales_daily_stats 查询失败:", statsErr.message);
     }
 
-    // 提取所有日期
-    const dateSet = new Set<string>();
-    for (const row of salesData) {
-      const ot = (row.order_time as string) || "";
-      const d = ot.slice(0, 10);
-      if (d) dateSet.add(d);
-    }
-    const dates = Array.from(dateSet).sort().reverse();
+    const latest = latestStats && latestStats.length > 0 ? latestStats[0] : null;
 
-    // 最近日期
-    const latestDate = dates[0] || "";
+    // 从 returns_daily_stats 获取最新退货数据
+    const { data: latestReturns, error: retErr } = await supabase
+      .from("returns_daily_stats")
+      .select("date, total_returned")
+      .order("date", { ascending: false })
+      .limit(1);
 
-    // 获取入库记录的价格
-    const { data: inboundData } = await supabase
-      .from("inbound_records")
-      .select("sale_id, cost_price");
-
-    const costPriceMap = new Map<string, number>();
-    for (const row of inboundData || []) {
-      const sid = (row.sale_id as string || "").toUpperCase();
-      const cp = Number(row.cost_price) || 0;
-      if (sid && cp > 0) costPriceMap.set(sid, cp);
+    if (retErr) {
+      console.error("returns_daily_stats 查询失败:", retErr.message);
     }
 
-    // 计算最近日期的快递费
-    const latestRecords = salesData.filter((r) => {
-      const ot = (r.order_time as string) || "";
-      return ot.startsWith(latestDate);
-    });
+    const latestReturn = latestReturns && latestReturns.length > 0 ? latestReturns[0] : null;
 
-    // 按面单号分组
-    const trackingMap = new Map<string, number>();
-    let latestTotalQty = 0;
-    let latestTotalRevenue = 0;
+    // 获取所有销售日期列表
+    const { data: allDates } = await supabase
+      .from("sales_daily_stats")
+      .select("date")
+      .order("date", { ascending: false });
 
-    for (const row of latestRecords) {
-      const tn = (row.tracking_number as string || "").trim();
-      const qty = Number(row.quantity) || 0;
-      const sp = Number(row.sell_price) || 0;
+    const salesDates = (allDates || []).map((row: any) => row.date);
 
-      latestTotalQty += qty;
-      latestTotalRevenue += sp * qty;
+    // 获取所有退货日期列表
+    const { data: allReturnDates } = await supabase
+      .from("returns_daily_stats")
+      .select("date")
+      .order("date", { ascending: false });
 
-      if (tn && tn !== "0") {
-        trackingMap.set(tn, (trackingMap.get(tn) || 0) + qty);
-      }
-    }
+    const returnDates = (allReturnDates || []).map((row: any) => row.date);
 
-    let latestShippingFee = 0;
-    for (const [, qty] of trackingMap) {
-      if (qty <= 4) latestShippingFee += rate1;
-      else if (qty <= 7) latestShippingFee += rate2;
-      else latestShippingFee += rate3;
-    }
-
-    const latestPlatformFee = latestTotalQty >= 100
-      ? latestTotalRevenue * (platformRate / 100)
-      : 0;
-
-    // 4. 获取直播选品数量
-    const { data: selectionsData } = await supabase
+    // 获取 live_selections 表中选中的商品数
+    const { data: liveData } = await supabase
       .from("live_selections")
-      .select("sale_id");
+      .select("id");
 
-    const uniqueSelected = new Set((selectionsData || []).map((r: { sale_id: string }) => r.sale_id));
-    const selectedCount = uniqueSelected.size;
+    const totalLive = (liveData || []).length;
 
     return NextResponse.json({
-      latest_shipping_fee: latestShippingFee,
-      latest_platform_fee: latestPlatformFee,
-      latest_date: latestDate,
-      selected_count: selectedCount,
-      dates,
+      // 快递费/平台费 — 月初清空后归零，当天有销售后恢复（从 sales_daily_stats 读总数）
+      latest_shipping_fee: 0,
+      latest_platform_fee: 0,
+      latest_date: latest ? latest.date : "",
+      selected_count: totalLive,
+      // 日期列表
+      salesDates,
+      returnDates,
+      totalLive,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
