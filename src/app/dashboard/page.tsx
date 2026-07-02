@@ -53,6 +53,7 @@ export default function DashboardPage() {
   const [trendData, setTrendData] = useState<TrendItem[]>([]);
   const [returnData, setReturnData] = useState<ReturnSummary[]>([]);
   const [dailyStats, setDailyStats] = useState<DailyProfit[]>([]);
+  const [mfrMode, setMfrMode] = useState<"sales" | "returns">("sales");
 
   // 下拉选择状态
   const [selectedMonth, setSelectedMonth] = useState<string>("");
@@ -184,15 +185,41 @@ export default function DashboardPage() {
       .slice(0, 10);
   }, [products, salesData, returnData]);
 
-  // 各厂家售卖数量
+  // sale_id -> manufacturer 映射（以入库表为准，回退用汇总表的 manufacturer）
+  const saleIdToMfr = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of products) {
+      if (p.sale_id && p.manufacturer) {
+        map[String(p.sale_id).toUpperCase()] = p.manufacturer;
+      }
+    }
+    return map;
+  }, [products]);
+
+  // 各厂家售卖数量（manufacturer 优先用入库表，回退用 sales_summary 的 manufacturer）
   const mfrSalesBar = useMemo(() => {
     const map: Record<string, number> = {};
     for (const s of salesData) {
-      const mfr = s.manufacturer || "未知";
+      const sid = String(s.sale_id || "").toUpperCase();
+      const mfr = s.manufacturer || saleIdToMfr[sid] || "未知";
       map[mfr] = (map[mfr] || 0) + (s.total_sold || 0);
     }
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 10);
-  }, [salesData]);
+  }, [salesData, saleIdToMfr]);
+
+  // 各厂家退货数量
+  const mfrReturnsBar = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const r of returnData) {
+      const sid = String(r.sale_id || "").toUpperCase();
+      const mfr = r.manufacturer || saleIdToMfr[sid] || "未知";
+      map[mfr] = (map[mfr] || 0) + (r.total_returned || 0);
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a,b) => b.value - a.value).slice(0, 10);
+  }, [returnData, saleIdToMfr]);
+
+  // 当前展示的厂家数据（售出或退货）
+  const currentMfrBar = mfrMode === "sales" ? mfrSalesBar : mfrReturnsBar;
 
   // 厂家列表
   const manufacturers = useMemo(() => {
@@ -518,29 +545,47 @@ export default function DashboardPage() {
           )}
         </ChartCard>
 
-        {/* 各厂家售卖数量 */}
-        <ChartCard title="各厂家售卖数量">
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={mfrSalesBar} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" height={60} />
-              <YAxis tick={{ fontSize: 11 }} width={35} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "white",
-                  border: "3px solid #171717",
-                  borderRadius: "12px",
-                  boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                }}
-                formatter={(value: any) => `${Number(value).toLocaleString()} 件`}
-              />
-              <Bar dataKey="value" name="售出(件)" fill="#50C878" radius={[4, 4, 0, 0]}>
-                <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        {/* 各厂家售卖/退货数量 */}
+        <ChartCard
+          title={mfrMode === "sales" ? "各厂家售卖数量" : "各厂家退货数量"}
+          extra={
+            <div className="flex gap-1">
+              <button
+                onClick={() => setMfrMode("sales")}
+                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${mfrMode === "sales" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+              >售出</button>
+              <button
+                onClick={() => setMfrMode("returns")}
+                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${mfrMode === "returns" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+              >退货</button>
+            </div>
+          }
+        >
+          {currentMfrBar.length === 0 ? (
+            <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">暂无数据</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={currentMfrBar} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" height={60} />
+                <YAxis tick={{ fontSize: 11 }} width={35} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "3px solid #171717",
+                    borderRadius: "12px",
+                    boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                  formatter={(value: any) => `${Number(value).toLocaleString()} 件`}
+                />
+                <Bar dataKey="value" name={mfrMode === "sales" ? "售出(件)" : "退货(件)"} fill={mfrMode === "sales" ? "#50C878" : "#FF6B6B"} radius={[4, 4, 0, 0]}>
+                  <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </ChartCard>
       </div>
     </PageWrapper>

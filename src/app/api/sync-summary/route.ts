@@ -538,10 +538,31 @@ export async function POST() {
       diagnostics.push(`退货分组: ${returnGroupMap.size} 个唯一ID, 写入: ${returnsSynced}`);
     }
 
-    // ========== 归档每日统计到 sales_daily_stats ==========
+    // ========== 归档每日统计到 sales_daily_stats（含快递费和平台抽点）==========
     let dailyStatsSynced = 0;
     if (allSalesRecords.length > 0) {
-      const dailyMap = new Map<string, { total_amount: number; total_quantity: number; total_profit: number }>();
+      // 读取快递费率和平台抽点率
+      const { data: shippingRatesData } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "shipping_rates")
+        .single();
+      const sRates = (shippingRatesData?.value as any) || {};
+      const sRate1 = Number(sRates.rate1) || 0;
+      const sRate2 = Number(sRates.rate2) || 0;
+      const sRate3 = Number(sRates.rate3) || 0;
+
+      const { data: platformRateData } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "platform_fee_rate")
+        .single();
+      const sPlatformRate = Number(platformRateData?.value) || 5;
+
+      const dailyMap = new Map<string, {
+        total_amount: number; total_quantity: number; total_profit: number;
+        trackingMap: Map<string, number>;
+      }>();
       const inboundCostMap = new Map<string, number>();
       for (const ib of allInboundRecords) {
         inboundCostMap.set(String(ib.sale_id || "").toUpperCase(), Number(ib.cost_price) || 0);
@@ -551,7 +572,7 @@ export async function POST() {
         const ot = String(row.order_time || "");
         if (!ot) continue;
         const date = ot.slice(0, 10);
-        if (!dailyMap.has(date)) dailyMap.set(date, { total_amount: 0, total_quantity: 0, total_profit: 0 });
+        if (!dailyMap.has(date)) dailyMap.set(date, { total_amount: 0, total_quantity: 0, total_profit: 0, trackingMap: new Map() });
         const entry = dailyMap.get(date)!;
         const price = Number(row.sell_price) || 0;
         const qty = Number(row.quantity) || 0;
@@ -559,12 +580,28 @@ export async function POST() {
         entry.total_amount += price * qty;
         entry.total_quantity += qty;
         entry.total_profit += (price - cost) * qty;
+
+        // 按面单号累计件数
+        const tn = String(row.tracking_number || "").trim();
+        if (tn && tn !== "0") {
+          entry.trackingMap.set(tn, (entry.trackingMap.get(tn) || 0) + qty);
+        }
       }
 
       for (const [date, stats] of dailyMap) {
+        // 计算快递费
+        let shippingFee = 0;
+        for (const [, qty] of stats.trackingMap) {
+          if (qty <= 4) shippingFee += sRate1;
+          else if (qty <= 7) shippingFee += sRate2;
+          else shippingFee += sRate3;
+        }
+        // 计算平台抽点
+        const platformFee = stats.total_quantity >= 100 ? stats.total_amount * (sPlatformRate / 100) : 0;
+
         const { data: existing } = await supabase
           .from("sales_daily_stats")
-          .select("id, total_amount, total_quantity, total_profit")
+          .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
           .eq("date", date)
           .maybeSingle();
 
@@ -575,10 +612,19 @@ export async function POST() {
               total_amount: Number(existing.total_amount) + stats.total_amount,
               total_quantity: Number(existing.total_quantity) + stats.total_quantity,
               total_profit: Number(existing.total_profit) + stats.total_profit,
+              shipping_fee: Number(existing.shipping_fee || 0) + shippingFee,
+              platform_fee: Number(existing.platform_fee || 0) + platformFee,
             })
             .eq("id", existing.id);
         } else {
-          await supabase.from("sales_daily_stats").insert({ date, ...stats });
+          await supabase.from("sales_daily_stats").insert({
+            date,
+            total_amount: stats.total_amount,
+            total_quantity: stats.total_quantity,
+            total_profit: stats.total_profit,
+            shipping_fee: shippingFee,
+            platform_fee: platformFee,
+          });
         }
         dailyStatsSynced++;
       }
@@ -590,9 +636,10 @@ export async function POST() {
     if (allReturnRecords && allReturnRecords.length > 0) {
       const retDailyMap = new Map<string, number>();
       for (const row of allReturnRecords) {
-        const ct = String(row.created_at || "");
-        if (!ct) continue;
-        const date = ct.slice(0, 10);
+        // 退货日期用 return_time，没有时回退到 created_at
+        const rt = String(row.return_time || row.created_at || "");
+        if (!rt) continue;
+        const date = rt.slice(0, 10);
         retDailyMap.set(date, (retDailyMap.get(date) || 0) + (Number(row.quantity) || 0));
       }
 

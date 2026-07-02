@@ -3,10 +3,10 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    // 从 sales_daily_stats 获取最新日期数据
+    // 从 sales_daily_stats 获取最新日期数据（含快递费和平台抽点）
     const { data: latestStats, error: statsErr } = await supabase
       .from("sales_daily_stats")
-      .select("date, total_amount, total_quantity, total_profit")
+      .select("date, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
       .order("date", { ascending: false })
       .limit(1);
 
@@ -15,6 +15,8 @@ export async function GET() {
     }
 
     const latest = latestStats && latestStats.length > 0 ? latestStats[0] : null;
+    const latestShippingFee = latest ? (Number(latest.shipping_fee) || 0) : 0;
+    const latestPlatformFee = latest ? (Number(latest.platform_fee) || 0) : 0;
 
     // 从 returns_daily_stats 获取最新退货数据
     const { data: latestReturns, error: retErr } = await supabase
@@ -53,9 +55,9 @@ export async function GET() {
     const totalLive = (liveData || []).length;
 
     return NextResponse.json({
-      // 快递费/平台费 — 月初清空后归零，当天有销售后恢复（从 sales_daily_stats 读总数）
-      latest_shipping_fee: 0,
-      latest_platform_fee: 0,
+      // 快递费/平台费 — 从 sales_daily_stats 读取最新日期的数据
+      latest_shipping_fee: latestShippingFee,
+      latest_platform_fee: latestPlatformFee,
       latest_date: latest ? latest.date : "",
       selected_count: totalLive,
       // 日期列表

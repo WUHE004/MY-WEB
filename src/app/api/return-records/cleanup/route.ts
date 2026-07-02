@@ -4,14 +4,14 @@ import { supabase } from "@/lib/supabase";
 // Vercel Cron Job: 每月1号凌晨3点归档并清空 return_records 表
 export async function GET() {
   try {
-    // 1. 读取所有退货记录，按日期汇总
+    // 1. 读取所有退货记录，按日期汇总（退货日期用 return_time）
     let allRecords: Record<string, any>[] = [];
     let page = 0;
     const pageSize = 1000;
     while (true) {
       const { data: chunk, error } = await supabase
         .from("return_records")
-        .select("created_at, quantity")
+        .select("return_time, created_at, quantity")
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (error || !chunk || chunk.length === 0) break;
       allRecords = allRecords.concat(chunk);
@@ -19,12 +19,12 @@ export async function GET() {
       page++;
     }
 
-    // 按日期汇总
+    // 按日期汇总（优先用 return_time，没有时回退到 created_at）
     const dailyMap: Record<string, { date: string; total_returned: number }> = {};
     for (const row of allRecords) {
-      const ct = (row.created_at as string) || "";
-      if (!ct) continue;
-      const date = ct.slice(0, 10);
+      const rt = (row.return_time as string) || (row.created_at as string) || "";
+      if (!rt) continue;
+      const date = rt.slice(0, 10);
       if (!dailyMap[date]) dailyMap[date] = { date, total_returned: 0 };
       dailyMap[date].total_returned += Number(row.quantity) || 0;
     }
