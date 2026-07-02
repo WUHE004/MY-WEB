@@ -23,6 +23,8 @@ const TABLE_COLUMNS: Record<string, string[]> = {
   web_orders: ["id", "customer", "address", "recipient", "recipient_phone", "sale_id", "size", "quantity", "sell_price", "total_price", "created_at"],
   "product-photos": ["id", "sale_id", "photo_url", "created_at"],
   sales_summary: ["id", "sale_id", "name", "created_at"],
+  sales_daily_stats: ["id", "date", "total_amount", "total_quantity", "total_profit", "created_at"],
+  returns_daily_stats: ["id", "date", "total_returned", "created_at"],
 };
 
 // GET: 获取表数据（分页 + 排序 + 筛选）

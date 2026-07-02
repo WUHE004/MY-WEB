@@ -47,7 +47,7 @@ export function DbAdminPanel() {
   const [data, setData] = useState<Record<string, unknown>[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(50);
+  const [pageSize] = useState(100);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState("");
 
@@ -121,6 +121,26 @@ export function DbAdminPanel() {
 
   const handleFilter = (value: string) => { setFilterText(value); setPage(1); };
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const [backfilling, setBackfilling] = useState(false);
+
+  const handleBackfillDailyStats = async () => {
+    if (!confirm("确定要从 sales_records 和 return_records 手动归档日统计数据吗？")) return;
+    setBackfilling(true);
+    try {
+      const res = await fetch("/api/backfill-daily-stats", { method: "POST" });
+      const json = await res.json();
+      if (json.error) {
+        alert("归档失败: " + json.error);
+      } else {
+        alert(json.message || "归档成功");
+      }
+    } catch {
+      alert("归档失败");
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const handleAdd = () => {
     if (!selectedTable) return;
@@ -443,6 +463,10 @@ export function DbAdminPanel() {
                 <button onClick={handleExport} className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl border-[3px] border-gray-900 bg-white hover:bg-gray-100 transition-colors">
                   <Download className="h-3 w-3" />导出
                 </button>
+                <button onClick={handleBackfillDailyStats} disabled={backfilling}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] hover:bg-[#FFD93C] transition-colors disabled:opacity-50">
+                  {backfilling ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}归档日统计
+                </button>
                 <span className="text-[10px] text-gray-400">共 {total} 条 · 第 {page}/{totalPages} 页</span>
               </div>
 
@@ -458,6 +482,9 @@ export function DbAdminPanel() {
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-gray-100 border-b-[3px] border-gray-900">
+                        <th className="text-left py-1.5 px-2 w-20">
+                          <div className="text-[10px] font-extrabold text-gray-500">操作</div>
+                        </th>
                         {getDisplayColumns().map((col) => (
                           <th key={col.name} onClick={() => handleSort(col.name)}
                             className="text-left py-1.5 px-2 cursor-pointer hover:text-gray-900 whitespace-nowrap select-none"
@@ -469,14 +496,21 @@ export function DbAdminPanel() {
                             </div>
                           </th>
                         ))}
-                        <th className="text-right py-1.5 px-2 w-20">
-                          <div className="text-[10px] font-extrabold text-gray-500">操作</div>
-                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.map((row, idx) => (
                         <tr key={row.id as string || idx} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="py-1 px-2">
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-900" title="编辑">
+                                <Edit3 className="h-3 w-3" />
+                              </button>
+                              <button onClick={() => handleDelete(row)} className="p-1 rounded hover:bg-red-100 text-gray-500 hover:text-red-600" title="删除">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </td>
                           {getDisplayColumns().map((col) => {
                             const val = row[col.name];
                             const isPhoto = col.isPhoto || (col.name === "photo" || col.name === "photo_url");
@@ -499,16 +533,6 @@ export function DbAdminPanel() {
                               </td>
                             );
                           })}
-                          <td className="py-1 px-2 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button onClick={() => handleEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-500 hover:text-gray-900" title="编辑">
-                                <Edit3 className="h-3 w-3" />
-                              </button>
-                              <button onClick={() => handleDelete(row)} className="p-1 rounded hover:bg-red-100 text-gray-500 hover:text-red-600" title="删除">
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            </div>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

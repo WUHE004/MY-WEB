@@ -42,6 +42,7 @@ const TABLE_LABEL_MAP: Record<string, string> = {
   accounts: "账户管理", monthly_revenue: "月度营收", transactions: "交易记录",
   category_data: "分类数据", platform_revenue: "平台营收", links: "快捷链接",
   "product-photos": "产品照片", products: "商品（旧）",
+  sales_daily_stats: "销售日统计", returns_daily_stats: "退货日统计",
 };
 
 // 兜底硬编码表定义（当数据库查询失败时使用）
@@ -64,6 +65,8 @@ const FALLBACK_TABLE_SCHEMAS: Record<string, string[]> = {
   payment_qr_codes: ["id", "name", "url", "created_at"],
   shipping_tracks: ["id", "name", "rate", "created_at"],
   sms_codes: ["id", "phone", "code", "expires_at", "created_at"],
+  sales_daily_stats: ["id", "date", "total_amount", "total_quantity", "total_profit", "created_at"],
+  returns_daily_stats: ["id", "date", "total_returned", "created_at"],
 };
 
 export async function GET() {
