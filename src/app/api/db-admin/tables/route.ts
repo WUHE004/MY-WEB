@@ -68,68 +68,8 @@ const FALLBACK_TABLE_SCHEMAS: Record<string, string[]> = {
 
 export async function GET() {
   try {
-    // 尝试通过 RPC 调用数据库函数获取表列表
-    const { data: tableRows, error: tableErr } = await supabase.rpc("get_db_tables" as any);
-
-    let tables: Array<{ name: string; label: string; columns: Array<{ name: string; type: string; nullable: boolean; label: string; isPhoto: boolean }> }> = [];
-
-    if (tableErr || !tableRows) {
-      // RPC 不可用，使用兜底硬编码方案
-      tables = Object.entries(FALLBACK_TABLE_SCHEMAS).map(([name, colNames]) => ({
-        name,
-        label: TABLE_LABEL_MAP[name] || name,
-        columns: colNames.map((col) => ({
-          name: col,
-          type: "text",
-          nullable: col !== "id",
-          label: COLUMN_LABELS[col] || col,
-          isPhoto: PHOTO_FIELDS.includes(col),
-        })),
-      }));
-    } else {
-      // RPC 成功，动态构建表列表
-      const tableNames = tableRows as Array<{ table_name: string }>;
-      for (const t of tableNames) {
-        const tableName = t.table_name;
-        // 尝试获取列信息
-        const { data: colRows } = await supabase.rpc("get_db_columns" as any, { tbl: tableName as any });
-
-        let columns: Array<{ name: string; type: string; nullable: boolean; label: string; isPhoto: boolean }> = [];
-
-        if (colRows && Array.isArray(colRows)) {
-          const cols = colRows as Array<{ column_name: string; data_type: string; is_nullable: string }>;
-          columns = cols.map((c) => ({
-            name: c.column_name,
-            type: c.data_type,
-            nullable: c.is_nullable === "YES",
-            label: COLUMN_LABELS[c.column_name] || c.column_name,
-            isPhoto: PHOTO_FIELDS.includes(c.column_name),
-          }));
-        } else {
-          // 列查询失败，使用兜底列定义
-          const fallbackCols = FALLBACK_TABLE_SCHEMAS[tableName];
-          if (fallbackCols) {
-            columns = fallbackCols.map((col) => ({
-              name: col,
-              type: "text",
-              nullable: col !== "id",
-              label: COLUMN_LABELS[col] || col,
-              isPhoto: PHOTO_FIELDS.includes(col),
-            }));
-          }
-        }
-
-        tables.push({
-          name: tableName,
-          label: TABLE_LABEL_MAP[tableName] || tableName,
-          columns,
-        });
-      }
-    }
-
-    return NextResponse.json({ tables, columnLabels: COLUMN_LABELS });
-  } catch (err) {
-    // 完全失败，兜底
+    // 直接使用硬编码表列表（稳定可靠）
+    // 未来如需自动发现新表，可在 Supabase 创建 get_db_tables() 函数后启用 RPC
     const tables = Object.entries(FALLBACK_TABLE_SCHEMAS).map(([name, colNames]) => ({
       name,
       label: TABLE_LABEL_MAP[name] || name,
@@ -143,5 +83,8 @@ export async function GET() {
     }));
 
     return NextResponse.json({ tables, columnLabels: COLUMN_LABELS });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
