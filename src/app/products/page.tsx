@@ -123,7 +123,7 @@ export default function ProductsPage() {
           }
         })
         .catch(() => {});
-    }, 30000);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, []);
