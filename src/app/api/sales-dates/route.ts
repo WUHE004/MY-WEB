@@ -26,7 +26,8 @@ export async function GET() {
     const salesDates = (salesData || []).map((row: any) => row.date);
     const returnDates = (returnsData || []).map((row: any) => row.date);
 
-    return NextResponse.json({ salesDates, returnDates });
+    // 兼容快递费用页面期望的 dates 字段
+    return NextResponse.json({ salesDates, returnDates, dates: salesDates });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });

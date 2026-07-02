@@ -56,6 +56,7 @@ const FIELD_LABELS: Record<string, string> = {
   returns_quantity: "数量",
   returns_return_price: "退货价",
   returns_remarks: "备注",
+  returns_return_time: "退货日期",
 };
 
 const INBOUND_FIELDS = ["inbound_sale_id","inbound_manufacturer","inbound_photo","inbound_name","inbound_size_80","inbound_size_90","inbound_size_95","inbound_size_100","inbound_size_105","inbound_size_110","inbound_size_120","inbound_size_130","inbound_size_140","inbound_size_150","inbound_size_160","inbound_size_170","inbound_size_180","inbound_cost_price","inbound_shelf_no","inbound_season","inbound_style_category","inbound_notes","inbound_inbound_date"];
@@ -63,7 +64,7 @@ const INBOUND_SIZE_FIELDS = ["inbound_size_80","inbound_size_90","inbound_size_9
 
 const SALES_FIELDS = ["sales_sale_id","sales_size","sales_quantity","sales_sell_price","sales_manufacturer","sales_notes","sales_order_time","sales_tracking_number"];
 
-const RETURNS_FIELDS = ["returns_sale_id","returns_size","returns_quantity","returns_return_price","returns_remarks"];
+const RETURNS_FIELDS = ["returns_sale_id","returns_size","returns_quantity","returns_return_price","returns_remarks","returns_return_time"];
 
 const ALL_FIELDS_BY_TYPE: Record<string, string[]> = {
   inbound: INBOUND_FIELDS,

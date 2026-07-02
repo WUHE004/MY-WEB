@@ -39,6 +39,29 @@ export default function PlatformFeePage() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [ratesLoaded, setRatesLoaded] = useState(false);
+  const [viewMode, setViewMode] = useState<"day" | "month">("day");
+
+  // 按视图模式聚合数据（月度时按 YYYY-MM 汇总）
+  const displayRecords = useMemo(() => {
+    if (viewMode === "day") return records;
+    const monthMap = new Map<string, PlatformRecord>();
+    for (const r of records) {
+      const month = r.date.slice(0, 7);
+      const existing = monthMap.get(month);
+      if (existing) {
+        existing.total_qty += r.total_qty;
+        existing.total_revenue += r.total_revenue;
+        existing.total_cost += r.total_cost;
+        existing.total_profit += r.total_profit;
+        existing.shipping_fee += r.shipping_fee;
+        existing.platform_fee += r.platform_fee;
+        existing.net_profit += r.net_profit;
+      } else {
+        monthMap.set(month, { ...r, date: month });
+      }
+    }
+    return Array.from(monthMap.values()).sort((a, b) => b.date.localeCompare(a.date));
+  }, [records, viewMode]);
 
   // 加载快递费率
   useEffect(() => {
@@ -195,15 +218,31 @@ export default function PlatformFeePage() {
 
       {/* 平台抽点表格 */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+        {/* 日度/月度切换 */}
+        <div className="flex items-center justify-between px-3 py-2 border-b-[2px] border-gray-200 bg-gray-50">
+          <span className="text-xs font-extrabold text-gray-700">
+            {viewMode === "day" ? "按日统计" : "按月统计"}
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setViewMode("day")}
+              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${viewMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+            >日度</button>
+            <button
+              onClick={() => setViewMode("month")}
+              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${viewMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+            >月度</button>
+          </div>
+        </div>
         <div className="overflow-x-auto max-h-[60vh]">
           <table className="w-full text-sm whitespace-nowrap">
             <thead className="sticky top-0 z-10 bg-gray-900 text-white">
               <tr>
-                <th className="px-3 py-2 text-left font-extrabold">下单日期</th>
+                <th className="px-3 py-2 text-left font-extrabold">{viewMode === "day" ? "下单日期" : "下单月份"}</th>
                 <th className="px-3 py-2 text-center font-extrabold">售出件数</th>
-                <th className="px-3 py-2 text-right font-extrabold">当日营业额</th>
+                <th className="px-3 py-2 text-right font-extrabold">{viewMode === "day" ? "当日营业额" : "当月营业额"}</th>
                 <th className="px-3 py-2 text-right font-extrabold">进货成本</th>
-                <th className="px-3 py-2 text-right font-extrabold">当日利润</th>
+                <th className="px-3 py-2 text-right font-extrabold">{viewMode === "day" ? "当日利润" : "当月利润"}</th>
                 <th className="px-3 py-2 text-right font-extrabold">快递费</th>
                 <th className="px-3 py-2 text-right font-extrabold">平台抽点</th>
                 <th className="px-3 py-2 text-right font-extrabold">净利润</th>
@@ -214,12 +253,12 @@ export default function PlatformFeePage() {
                 <tr>
                   <td colSpan={8} className="text-center py-8 text-gray-400 font-bold">加载中...</td>
                 </tr>
-              ) : records.length === 0 ? (
+              ) : displayRecords.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="text-center py-8 text-gray-400 font-bold">暂无数据</td>
                 </tr>
               ) : (
-                records.map((r, i) => (
+                displayRecords.map((r, i) => (
                   <tr key={r.date} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                     <td className="px-3 py-2 text-xs font-bold text-gray-900">{r.date}</td>
                     <td className="px-3 py-2 text-center text-xs font-bold">{r.total_qty}件</td>

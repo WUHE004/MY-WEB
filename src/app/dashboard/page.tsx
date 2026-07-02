@@ -72,14 +72,33 @@ export default function DashboardPage() {
         ]);
         if (Array.isArray(salesRes)) setSalesData(salesRes);
         if (Array.isArray(prodsRes)) setProducts(prodsRes);
-        if (Array.isArray(trendRes)) setTrendData(trendRes);
+        // 兼容 /api/sales-trend 的新格式 { salesTrend, returnsTrend }
+        const trendArr = Array.isArray(trendRes)
+          ? trendRes
+          : Array.isArray(trendRes?.salesTrend)
+            ? trendRes.salesTrend.map((r: any) => ({
+                date: r.date,
+                amount: Number(r.total_amount) || 0,
+                quantity: Number(r.total_quantity) || 0,
+              }))
+            : [];
+        if (trendArr.length > 0) setTrendData(trendArr);
         if (Array.isArray(returnsRes)) setReturnData(returnsRes);
-        if (Array.isArray(dailyRes)) {
-          setDailyStats(dailyRes);
+        // 兼容 /api/daily-profit 的新格式 { stats: [...] }
+        const dailyArr = Array.isArray(dailyRes)
+          ? dailyRes
+          : Array.isArray(dailyRes?.stats)
+            ? dailyRes.stats.map((r: any) => ({
+                date: r.date,
+                amount: Number(r.total_amount) || 0,
+                quantity: Number(r.total_quantity) || 0,
+                profit: Number(r.total_profit) || 0,
+              }))
+            : [];
+        if (dailyArr.length > 0) {
+          setDailyStats(dailyArr);
           // 默认选中最新日期
-          if (dailyRes.length > 0) {
-            setSelectedDate(dailyRes[dailyRes.length - 1].date);
-          }
+          setSelectedDate(dailyArr[dailyArr.length - 1].date);
         }
       } catch (e) {
         console.error("Dashboard data load error:", e);
