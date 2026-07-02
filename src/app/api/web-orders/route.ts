@@ -119,7 +119,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const saleId = body.sale_id || "";
+    const rawSaleId = body.sale_id || "";
+    const saleId = rawSaleId.toUpperCase();
     const size = Number(body.size) || 0;
     const quantity = Number(body.quantity) || 1;
     const sellPrice = Number(body.sell_price) || 0;
@@ -202,6 +203,7 @@ export async function POST(request: NextRequest) {
     const totalProfit = profit * quantity;
 
     // 3. 创建售卖记录（用于总表库存扣减）
+    const orderTime = new Date().toISOString();
     const { error: salesError } = await supabase
       .from("sales_records")
       .insert({
@@ -218,6 +220,8 @@ export async function POST(request: NextRequest) {
         shelf_no: shelfNo,
         notes: `网页下单 #${orderData.id} - ${body.customer || "未知顾客"}`,
         registrant: "网页下单",
+        order_time: orderTime,
+        tracking_number: "",
       });
 
     if (salesError) {
@@ -225,6 +229,11 @@ export async function POST(request: NextRequest) {
     } else {
       // 同步更新 sales_summary
       upsertSalesSummary(saleId).catch((e) => console.error("upsertSalesSummary error:", e));
+
+      // 同步更新 sales_daily_stats 当日数据
+      updateDailyStats(saleId, orderTime, sellPrice, quantity, totalProfit).catch((e) =>
+        console.error("updateDailyStats error:", e)
+      );
     }
 
     // 4. 发送企业微信群消息通知
@@ -360,16 +369,41 @@ export async function DELETE(request: NextRequest) {
     // 通过 notes 字段匹配 "网页下单 #orderId"
     const { data: salesRecords, error: findSalesError } = await supabase
       .from("sales_records")
-      .select("id")
+      .select("id, order_time, sell_price, quantity, total_profit, sale_id")
       .like("notes", `%#${orderId}%`);
 
     if (!findSalesError && salesRecords && salesRecords.length > 0) {
-      // 删除售卖记录（summary表库存会自动恢复）
+      // 扣减 sales_daily_stats 当日数据
       for (const record of salesRecords) {
+        const date = (record.order_time as string)?.slice(0, 10);
+        if (date) {
+          const amount = Number(record.sell_price) * Number(record.quantity);
+          const { data: existing } = await supabase
+            .from("sales_daily_stats")
+            .select("id, total_amount, total_quantity, total_profit")
+            .eq("date", date)
+            .maybeSingle();
+          if (existing) {
+            await supabase
+              .from("sales_daily_stats")
+              .update({
+                total_amount: Math.max(0, Number(existing.total_amount) - amount),
+                total_quantity: Math.max(0, Number(existing.total_quantity) - Number(record.quantity)),
+                total_profit: Number(existing.total_profit) - Number(record.total_profit),
+              })
+              .eq("id", existing.id);
+          }
+        }
+        // 删除售卖记录
         await supabase
           .from("sales_records")
           .delete()
           .eq("id", record.id);
+
+        // 更新 sales_summary
+        upsertSalesSummary(String(record.sale_id)).catch((e) =>
+          console.error("upsertSalesSummary error on delete:", e)
+        );
       }
     }
 
@@ -381,5 +415,43 @@ export async function DELETE(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+// 增量更新 sales_daily_stats 当日数据
+async function updateDailyStats(
+  saleId: string,
+  orderTime: string,
+  sellPrice: number,
+  quantity: number,
+  totalProfit: number
+) {
+  const date = orderTime.slice(0, 10);
+  const amount = sellPrice * quantity;
+
+  const { data: existing } = await supabase
+    .from("sales_daily_stats")
+    .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
+    .eq("date", date)
+    .maybeSingle();
+
+  if (existing) {
+    await supabase
+      .from("sales_daily_stats")
+      .update({
+        total_amount: Number(existing.total_amount) + amount,
+        total_quantity: Number(existing.total_quantity) + quantity,
+        total_profit: Number(existing.total_profit) + totalProfit,
+      })
+      .eq("id", existing.id);
+  } else {
+    await supabase.from("sales_daily_stats").insert({
+      date,
+      total_amount: amount,
+      total_quantity: quantity,
+      total_profit: totalProfit,
+      shipping_fee: 0,
+      platform_fee: 0,
+    });
   }
 }
