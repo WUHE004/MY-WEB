@@ -36,11 +36,26 @@ export async function GET(request: NextRequest) {
     const order = searchParams.get("order") || "desc";
     const filter = searchParams.get("filter") || "";
 
-    if (!table || !TABLE_COLUMNS[table]) {
+    if (!table) {
       return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     }
 
-    const columnNames = TABLE_COLUMNS[table];
+    // 动态获取列信息（优先 RPC，兜底用硬编码）
+    let columnNames: string[] | null = null;
+    try {
+      const { data: colRows } = await supabase.rpc("get_db_columns" as any, { tbl: table as any });
+      if (colRows && Array.isArray(colRows)) {
+        columnNames = (colRows as Array<{ column_name: string }>).map((c) => c.column_name);
+      }
+    } catch {
+      // RPC 不可用
+    }
+    if (!columnNames && TABLE_COLUMNS[table]) {
+      columnNames = TABLE_COLUMNS[table];
+    }
+    if (!columnNames) {
+      columnNames = ["id", "created_at"]; // 最小兜底
+    }
     const ascending = order === "asc";
 
     let query = supabase.from(table).select("*", { count: "exact" });
