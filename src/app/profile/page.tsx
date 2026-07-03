@@ -241,6 +241,8 @@ export default function ProfilePage() {
     localStorage.removeItem("member_role");
     localStorage.removeItem("member_phone");
     localStorage.removeItem("member_id");
+    // 清除 cookie
+    document.cookie = "member_token=; path=/; max-age=0";
     window.location.href = "/";
   };
 

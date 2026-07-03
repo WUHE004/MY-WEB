@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { hashPassword, verifyPassword, signJwt } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -33,10 +34,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "该手机号未注册" }, { status: 404 });
       }
 
-      // 更新密码
+      // 更新密码（哈希存储）
       const { error: updateError } = await supabase
         .from("members")
-        .update({ password })
+        .update({ password: hashPassword(password) })
         .eq("id", member.id);
 
       if (updateError) {
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
 
       const { error } = await supabase.from("members").insert({
         phone,
-        password,
+        password: hashPassword(password),
         name,
         address: address || "",
         role: "customer",
@@ -82,15 +83,29 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "login") {
+      // 只按手机号查用户（密码用 verifyPassword 比对，避免 SQL eq 泄露时序信息）
       const { data: member, error } = await supabase
         .from("members")
         .select("*")
         .eq("phone", phone)
-        .eq("password", password)
         .single();
 
       if (error || !member) {
         return NextResponse.json({ error: "手机号或密码错误" }, { status: 401 });
+      }
+
+      // 验证密码（兼容旧明文密码，下次登录会自动升级为哈希）
+      const passwordOk = verifyPassword(password, member.password || "");
+      if (!passwordOk) {
+        return NextResponse.json({ error: "手机号或密码错误" }, { status: 401 });
+      }
+
+      // 平滑迁移：如果密码是旧明文，自动升级为哈希
+      if (!String(member.password || "").startsWith("scrypt$")) {
+        await supabase
+          .from("members")
+          .update({ password: hashPassword(password) })
+          .eq("id", member.id);
       }
 
       // 更新在线状态
@@ -99,7 +114,12 @@ export async function POST(request: NextRequest) {
         .update({ is_online: true, last_online: new Date().toISOString() })
         .eq("id", member.id);
 
-      const token = Buffer.from(`${member.id}:${Date.now()}`).toString("base64");
+      // 签发 JWT（带签名，不可伪造）
+      const token = signJwt({
+        sub: String(member.id),
+        role: member.role,
+        phone: member.phone,
+      });
 
       return NextResponse.json({
         token,

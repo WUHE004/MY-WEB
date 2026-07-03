@@ -6,8 +6,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { member_id, offline } = body;
 
-    if (!member_id) {
-      return NextResponse.json({ error: "缺少member_id" }, { status: 400 });
+    // 优先使用 proxy 注入的身份（更可信，不可伪造）
+    const userIdFromProxy = request.headers.get("x-user-id");
+    const verifiedMemberId = userIdFromProxy || member_id;
+
+    if (!verifiedMemberId) {
+      return NextResponse.json({ error: "缺少 member_id" }, { status: 400 });
     }
 
     const { error } = await supabase
@@ -16,7 +20,7 @@ export async function POST(request: NextRequest) {
         is_online: !offline,
         last_online: new Date().toISOString(),
       })
-      .eq("id", member_id);
+      .eq("id", verifiedMemberId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

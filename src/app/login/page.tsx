@@ -63,6 +63,8 @@ export default function LoginPage() {
           localStorage.setItem("member_role", data.role);
           localStorage.setItem("member_phone", data.phone);
           localStorage.setItem("member_id", data.id);
+          // 同时设置 cookie，让 sendBeacon 等无法设置 Authorization header 的请求也能鉴权
+          document.cookie = `member_token=${data.token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
           window.location.href = "/";
         }
       }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { hashPassword } from "@/lib/auth";
 
 // GET /api/members 或 /api/members?phone=xxx 或 /api/members?id=xxx
 export async function GET(request: NextRequest) {
@@ -80,7 +81,7 @@ export async function PUT(request: NextRequest) {
     if (recipient !== undefined) updates.recipient = recipient;
     if (recipient_phone !== undefined) updates.recipient_phone = recipient_phone;
     if (douyin !== undefined) updates.douyin = douyin;
-    if (password !== undefined) updates.password = password;
+    if (password !== undefined) updates.password = hashPassword(password);
 
     const { error } = await supabase
       .from("members")
