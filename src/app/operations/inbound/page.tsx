@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -167,6 +168,32 @@ export default function InboundPage() {
     };
     loadSettings();
   }, []);
+
+  // ===== 从 URL 参数读取预填数据（从未入库售出记录跳转过来）=====
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const preSaleId = searchParams.get("sale_id");
+    const preSizes = searchParams.get("sizes");
+    if (preSaleId) {
+      setSaleId(preSaleId.toUpperCase());
+      setSaleIdExists(false);
+    }
+    if (preSizes) {
+      try {
+        // 格式: "80:2,100:1,120:3"
+        const sizeMap: Record<number, number> = Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]));
+        const pairs = preSizes.split(",").map((p) => p.split(":"));
+        for (const [sz, qty] of pairs) {
+          const sizeNum = Number(sz);
+          const qtyNum = Number(qty);
+          if (sizeNum > 0 && qtyNum > 0 && SIZE_OPTIONS.includes(sizeNum)) {
+            sizeMap[sizeNum] = qtyNum;
+          }
+        }
+        setSizes(sizeMap);
+      } catch { /* ignore */ }
+    }
+  }, [searchParams]);
 
   // ===== 保存设置到数据库 =====
   const saveSettings = async (key: string, value: unknown) => {

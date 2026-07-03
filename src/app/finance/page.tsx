@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -124,6 +125,7 @@ export default function FinancePage() {
   const [stockFilter, setStockFilter] = useState<string>("");
   const [valueFilter, setValueFilter] = useState<string>("");
   const [errorFilter, setErrorFilter] = useState(false);
+  const [uninboundFilter, setUninboundFilter] = useState(false);
 
   // 明细弹窗
   const [detailType, setDetailType] = useState<"sales" | "returns" | null>(null);
@@ -576,8 +578,13 @@ export default function FinancePage() {
     if (salesDateFilter && salesDateIds.size > 0) {
       result = result.filter((r) => salesDateIds.has(r.sale_id));
     }
+    // 未入库筛选：售出总表中存在但入库表中不存在的记录
+    if (uninboundFilter) {
+      const inboundIds = new Set(inboundData.map((r) => r.sale_id.toUpperCase()));
+      result = result.filter((r) => !inboundIds.has(r.sale_id.toUpperCase()));
+    }
     return result;
-  }, [salesData, search, salesDateFilter, salesDateIds]);
+  }, [salesData, search, salesDateFilter, salesDateIds, uninboundFilter, inboundData]);
 
   const filteredReturns = useMemo(() => {
     let result = returnData;
@@ -647,6 +654,20 @@ export default function FinancePage() {
 
   const fmt = (n: number) => n.toFixed(2);
   const pct = (n: number) => (n * 100).toFixed(1) + "%";
+
+  // 跳转到入库登记页面，预填售出记录中的信息
+  const router = useRouter();
+  const jumpToInbound = (row: AggRow) => {
+    const sizePairs: string[] = [];
+    for (const s of ALL_SIZES) {
+      const val = Number(row[`size_${s}`]) || 0;
+      if (val > 0) sizePairs.push(`${s}:${val}`);
+    }
+    const params = new URLSearchParams();
+    params.set("sale_id", row.sale_id);
+    if (sizePairs.length > 0) params.set("sizes", sizePairs.join(","));
+    router.push(`/operations/inbound?${params.toString()}`);
+  };
 
   const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : "入库登记清单";
   const viewTitleShort = viewMode === "summary" ? "总表" : viewMode === "sales" ? "售出" : viewMode === "returns" ? "退货" : "入库";
@@ -896,6 +917,14 @@ export default function FinancePage() {
               className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
+            <button onClick={() => setUninboundFilter(!uninboundFilter)}
+              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                uninboundFilter
+                  ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]"
+                  : "border-red-500 bg-white text-red-500 hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(239,68,68,0.4)]"
+              }`}>
+              <AlertTriangle className="h-4 w-4" />未入库
+            </button>
           </div>
         )}
 
@@ -1021,6 +1050,12 @@ export default function FinancePage() {
       {/* ===== 售出表 - 桌面端 ===== */}
       {viewMode === "sales" && (
         <div className="hidden lg:block overflow-x-auto">
+          {uninboundFilter && (
+            <div className="mb-2 rounded-lg border-[2px] border-red-500 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              以下售出记录对应的商品尚未入库，点击行可跳转到入库登记页面并自动填入信息
+            </div>
+          )}
           <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
             <div className="overflow-x-auto max-h-[65vh]">
               <table className="w-full text-sm whitespace-nowrap">
@@ -1047,7 +1082,10 @@ export default function FinancePage() {
                       const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
                       const rate = sp > 0 ? ((sp - cp) / sp) : 0;
                       return (
-                        <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <tr key={row.sale_id}
+                          className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${uninboundFilter && !salesEditMode ? "cursor-pointer hover:bg-red-50" : ""}`}
+                          onClick={uninboundFilter && !salesEditMode ? () => jumpToInbound(row) : undefined}
+                        >
                           <td className="px-2 py-2.5">
                             <HoverImage src={photo} alt="" />
                           </td>
@@ -1420,6 +1458,12 @@ export default function FinancePage() {
         {/* 售出表移动端 */}
         {viewMode === "sales" && (
           <>
+            {uninboundFilter && (
+              <div className="mb-2 rounded-lg border-[2px] border-red-500 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                以下售出记录对应的商品尚未入库，点击可跳转到入库登记页面并自动填入信息
+              </div>
+            )}
             {filteredSales.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
@@ -1438,6 +1482,11 @@ export default function FinancePage() {
                   <div key={row.sale_id}>
                     <div
                       onClick={() => {
+                        // 未入库筛选模式下，点击直接跳转到入库登记页面
+                        if (uninboundFilter) {
+                          jumpToInbound(row);
+                          return;
+                        }
                         // 打开编辑悬浮窗
                         const vals: Record<number, number> = {};
                         for (const s of ALL_SIZES) {
@@ -1446,7 +1495,7 @@ export default function FinancePage() {
                         setEditSizeValues(vals);
                         setSalesEditModal(row.sale_id);
                       }}
-                      className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
+                      className={`bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform ${uninboundFilter ? "border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]" : ""}`}
                     >
                       <div className="flex gap-2">
                         <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
