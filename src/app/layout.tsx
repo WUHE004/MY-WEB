@@ -64,7 +64,25 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js').catch(() => {});
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/sw.js?v=1.0.0').then((reg) => {
+                    // 检测新版本 SW，自动激活
+                    reg.addEventListener('updatefound', () => {
+                      const newWorker = reg.installing;
+                      if (newWorker) {
+                        newWorker.addEventListener('statechange', () => {
+                          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            newWorker.postMessage('SKIP_WAITING');
+                          }
+                        });
+                      }
+                    });
+                  }).catch(() => {});
+                  // 新 SW 激活后自动刷新页面
+                  navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    window.location.reload();
+                  });
+                });
               }
             `,
           }}

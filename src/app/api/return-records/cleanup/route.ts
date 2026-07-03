@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { sendAlert } from "@/lib/alert";
 
 // Vercel Cron Job: 每月1号凌晨3点归档并清空 return_records 表
 export async function GET() {
@@ -57,6 +58,7 @@ export async function GET() {
 
     if (deleteErr) {
       console.error("清理 return_records 失败:", deleteErr.message);
+      await sendAlert(`清理 return_records 失败（删除阶段）: ${deleteErr.message}\n已归档 ${allRecords.length} 条记录但未成功清空，请手动检查！`);
       return NextResponse.json({ error: deleteErr.message }, { status: 500 });
     }
 
@@ -65,6 +67,7 @@ export async function GET() {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("清理 return_records 异常:", msg);
+    await sendAlert(`清理 return_records 异常: ${msg}\n请手动检查数据是否已归档！`);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
