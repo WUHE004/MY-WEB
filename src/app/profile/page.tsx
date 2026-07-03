@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
+import { authFetch } from "@/lib/auth-fetch";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -158,9 +159,8 @@ export default function ProfilePage() {
     setError("");
     setSuccess("");
     try {
-      const res = await fetch("/api/members", {
+      const res = await authFetch("/api/members", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: memberId,
           name,

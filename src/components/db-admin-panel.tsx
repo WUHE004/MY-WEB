@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download } from "lucide-react";
+import { authFetch } from "@/lib/auth-fetch";
 
 interface ColumnInfo {
   name: string;
@@ -81,7 +82,7 @@ export function DbAdminPanel() {
     setTableLoading(true);
     setTableError("");
     try {
-      const res = await fetch("/api/db-admin/tables");
+      const res = await authFetch("/api/db-admin/tables");
       const json = await res.json();
       if (json.error) { setTableError(json.error); } else { setTables(json.tables || []); }
     } catch { setTableError("获取表列表失败"); } finally { setTableLoading(false); }
@@ -99,7 +100,7 @@ export function DbAdminPanel() {
         sort: sortCol, order: sortOrder,
       });
       if (filterText) params.set("filter", filterText);
-      const res = await fetch(`/api/db-admin?${params}`);
+      const res = await authFetch(`/api/db-admin?${params}`);
       const json = await res.json();
       if (json.error) { setDataError(json.error); } else { setData(json.data || []); setTotal(json.total || 0); }
     } catch { setDataError("获取数据失败"); } finally { setDataLoading(false); }
@@ -128,7 +129,7 @@ export function DbAdminPanel() {
     if (!confirm("确定要从 sales_records 和 return_records 手动归档日统计数据吗？")) return;
     setBackfilling(true);
     try {
-      const res = await fetch("/api/backfill-daily-stats", { method: "POST" });
+      const res = await authFetch("/api/backfill-daily-stats", { method: "POST" });
       const json = await res.json();
       if (json.error) {
         alert("归档失败: " + json.error);
@@ -169,15 +170,15 @@ export function DbAdminPanel() {
     setSubmitting(true);
     try {
       if (editingRow) {
-        const res = await fetch("/api/db-admin", {
-          method: "PUT", headers: { "Content-Type": "application/json" },
+        const res = await authFetch("/api/db-admin", {
+          method: "PUT",
           body: JSON.stringify({ table: selectedTable.name, id: editingRow.id as string, data: formData }),
         });
         const json = await res.json();
         if (json.error) { alert("更新失败: " + json.error); } else { setShowModal(false); fetchData(); }
       } else {
-        const res = await fetch("/api/db-admin", {
-          method: "POST", headers: { "Content-Type": "application/json" },
+        const res = await authFetch("/api/db-admin", {
+          method: "POST",
           body: JSON.stringify({ table: selectedTable.name, data: formData }),
         });
         const json = await res.json();
@@ -189,7 +190,7 @@ export function DbAdminPanel() {
   const handleDelete = async (row: Record<string, unknown>) => {
     if (!selectedTable || !confirm("确定要删除该行吗？此操作不可撤销。")) return;
     try {
-      const res = await fetch(`/api/db-admin?table=${encodeURIComponent(selectedTable.name)}&id=${encodeURIComponent(row.id as string)}`, { method: "DELETE" });
+      const res = await authFetch(`/api/db-admin?table=${encodeURIComponent(selectedTable.name)}&id=${encodeURIComponent(row.id as string)}`, { method: "DELETE" });
       const json = await res.json();
       if (json.error) { alert("删除失败: " + json.error); } else { fetchData(); }
     } catch { alert("删除失败"); }
@@ -249,7 +250,7 @@ export function DbAdminPanel() {
   // ===== Storage 操作 =====
   const fetchValidSaleIds = useCallback(async () => {
     try {
-      const res = await fetch("/api/db-admin?table=inbound_records&page=1&pageSize=5000&sort=sale_id&order=asc");
+      const res = await authFetch("/api/db-admin?table=inbound_records&page=1&pageSize=5000&sort=sale_id&order=asc");
       const json = await res.json();
       if (json.data) {
         const ids = new Set<string>((json.data as Array<{ sale_id?: string }>).map((r) => r.sale_id || "").filter(Boolean));
@@ -262,7 +263,7 @@ export function DbAdminPanel() {
     setStorageLoading(true);
     setStorageError("");
     try {
-      const res = await fetch("/api/db-admin/storage");
+      const res = await authFetch("/api/db-admin/storage");
       const json = await res.json();
       if (json.error) { setStorageError(json.error); } else { setBuckets(json.buckets || []); }
     } catch { setStorageError("获取存储列表失败"); } finally { setStorageLoading(false); }
@@ -273,7 +274,7 @@ export function DbAdminPanel() {
     setStorageError("");
     try {
       const params = new URLSearchParams({ bucket, path, page: String(p), pageSize: String(storagePageSize) });
-      const res = await fetch(`/api/db-admin/storage?${params}`);
+      const res = await authFetch(`/api/db-admin/storage?${params}`);
       const json = await res.json();
       if (json.error) { setStorageError(json.error); } else {
         setStorageFiles(json.files || []);
@@ -317,7 +318,7 @@ export function DbAdminPanel() {
     if (!confirm(`确定要删除 ${fileName} 吗？`)) return;
     const filePath = currentPath ? `${currentPath}/${fileName}` : fileName;
     try {
-      const res = await fetch(`/api/db-admin/storage?bucket=${encodeURIComponent(selectedBucket)}&path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+      const res = await authFetch(`/api/db-admin/storage?bucket=${encodeURIComponent(selectedBucket)}&path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
       const json = await res.json();
       if (json.error) { alert("删除失败: " + json.error); } else { fetchStorageFiles(selectedBucket, currentPath, storagePage); }
     } catch { alert("删除失败"); }

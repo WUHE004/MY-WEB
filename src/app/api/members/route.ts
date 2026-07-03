@@ -53,6 +53,10 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    // 从 proxy 注入的 header 获取可信用户身份
+    const userId = request.headers.get("x-user-id");
+    const userRole = request.headers.get("x-user-role");
+
     const body = await request.json();
     const { id, role, name, address, recipient, recipient_phone, douyin, password } = body as {
       id?: string;
@@ -67,6 +71,17 @@ export async function PUT(request: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: "缺少ID" }, { status: 400 });
+    }
+
+    // 权限校验：非管理员只能修改自己的资料，且不能修改角色
+    const isSelfEdit = userId === id;
+    const isAdmin = userRole === "admin";
+    if (!isAdmin && !isSelfEdit) {
+      return NextResponse.json({ error: "只能修改自己的资料" }, { status: 403 });
+    }
+    // 非管理员不能修改角色
+    if (!isAdmin && role !== undefined) {
+      return NextResponse.json({ error: "无权修改角色" }, { status: 403 });
     }
 
     const updates: Record<string, unknown> = {};

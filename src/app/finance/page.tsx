@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
+import { authFetch } from "@/lib/auth-fetch";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
@@ -227,7 +228,7 @@ export default function FinancePage() {
     setSyncing(true);
     setEditSaveMsg("");
     try {
-      const res = await fetch("/api/sync-summary", { method: "POST" });
+      const res = await authFetch("/api/sync-summary", { method: "POST" });
       const result = await res.json();
       if (result.error) {
         setEditSaveMsg("同步失败: " + result.error);

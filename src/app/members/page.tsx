@@ -7,6 +7,7 @@ import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff,
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
 import { DbAdminPanel } from "@/components/db-admin-panel";
+import { authFetch } from "@/lib/auth-fetch";
 
 interface Member {
   id: string;
@@ -58,9 +59,8 @@ export default function MembersPage() {
 
   const handleRoleChange = async (id: string, role: string) => {
     try {
-      const res = await fetch("/api/members", {
+      const res = await authFetch("/api/members", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, role }),
       });
       const data = await res.json();
@@ -83,7 +83,7 @@ export default function MembersPage() {
   const handleDelete = async (id: string) => {
     if (!confirm("确定要删除该成员吗？")) return;
     try {
-      const res = await fetch(`/api/members?id=${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/members?id=${id}`, { method: "DELETE" });
       const data = await res.json();
       if (data.error) {
         setError(data.error);
@@ -102,9 +102,8 @@ export default function MembersPage() {
       return;
     }
     try {
-      const res = await fetch("/api/members", {
+      const res = await authFetch("/api/members", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, password: newPassword }),
       });
       const data = await res.json();

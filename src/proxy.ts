@@ -30,7 +30,6 @@ const ADMIN_PATHS = new Set([
 
 // 需要管理员权限的路径 + 方法组合
 const ADMIN_METHOD_PATHS: Array<{ method: string; path: string }> = [
-  { method: "PUT", path: "/api/members" },
   { method: "DELETE", path: "/api/members" },
 ];
 
@@ -38,6 +37,12 @@ const ADMIN_METHOD_PATHS: Array<{ method: string; path: string }> = [
 const AUTH_REQUIRED_PATHS = new Set([
   "/api/members/heartbeat",
 ]);
+
+// 需要登录（任意角色）的路径 + 方法组合
+const AUTH_REQUIRED_METHOD_PATHS: Array<{ method: string; path: string }> = [
+  // PUT /api/members 允许登录用户更新自己的资料（API 层校验是否为本人或 admin）
+  { method: "PUT", path: "/api/members" },
+];
 
 // 需要管理员或操作员权限的路径
 const OPERATOR_PATHS = new Set([
@@ -69,10 +74,13 @@ export function proxy(request: NextRequest) {
   );
   const isOperatorPath = OPERATOR_PATHS.has(pathname);
   const isAuthRequired = AUTH_REQUIRED_PATHS.has(pathname);
+  const isAuthRequiredMethodPath = AUTH_REQUIRED_METHOD_PATHS.some(
+    (m) => m.method === method && m.path === pathname
+  );
 
   const needAdmin = isAdminPrefix || isAdminPath || isAdminMethodPath;
   const needOperator = isOperatorPath;
-  const needAuth = isAuthRequired || needAdmin || needOperator;
+  const needAuth = isAuthRequired || isAuthRequiredMethodPath || needAdmin || needOperator;
 
   // 不需要鉴权的路径直接放行
   if (!needAuth) {

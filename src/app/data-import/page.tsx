@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageWrapper } from "@/components/page-wrapper";
+import { authFetch } from "@/lib/auth-fetch";
 
 const FIELD_LABELS: Record<string, string> = {
   // 入库清单字段（照片字段填入文件名，由文件夹匹配上传）
@@ -269,9 +270,8 @@ export default function DataImportPage() {
     setResult(null);
     try {
       const registrant = typeof window !== "undefined" ? localStorage.getItem("member_name") || "" : "";
-      const res = await fetch("/api/import", {
+      const res = await authFetch("/api/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csvContent, columnMap, importType, registrant, photoFilter }),
       });
       const data = await res.json();
@@ -280,7 +280,7 @@ export default function DataImportPage() {
         setResult(data);
         // 售出/退货导入成功后，自动触发汇总同步
         if (data.success && (data.importType === "sales" || data.importType === "returns")) {
-          fetch("/api/sync-summary", { method: "POST" }).catch(() => {});
+          authFetch("/api/sync-summary", { method: "POST" }).catch(() => {});
         }
       }
     } catch {
