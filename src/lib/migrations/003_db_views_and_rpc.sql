@@ -120,6 +120,9 @@ LEFT JOIN (
 -- 解决 web-orders 并发竞态超卖问题
 -- ============================================================
 
+-- 先删除旧函数（返回类型不同时无法用 CREATE OR REPLACE 覆盖）
+DROP FUNCTION IF EXISTS create_web_order(TEXT, TEXT, INT, INT, NUMERIC, TEXT, TEXT, TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION create_web_order(
   p_member_id TEXT,
   p_sale_id TEXT,
@@ -182,13 +185,16 @@ $$;
 -- 替代 db-admin 中硬编码的 TABLE_COLUMNS
 -- ============================================================
 
+-- 先删除旧函数（返回类型不同时无法用 CREATE OR REPLACE 覆盖）
+DROP FUNCTION IF EXISTS get_db_tables();
+
 CREATE OR REPLACE FUNCTION get_db_tables()
 RETURNS TABLE(table_name TEXT, column_name TEXT, data_type TEXT)
 LANGUAGE sql
 SECURITY DEFINER
 AS $$
   SELECT
-    c.rel_name::TEXT AS table_name,
+    c.relname::TEXT AS table_name,
     a.attname::TEXT AS column_name,
     format_type(a.atttypid, a.atttypmod)::TEXT AS data_type
   FROM pg_class c
@@ -198,5 +204,5 @@ AS $$
     AND n.nspname = 'public'
     AND a.attnum > 0
     AND NOT a.attisdropped
-  ORDER BY c.rel_name, a.attnum;
+  ORDER BY c.relname, a.attnum;
 $$;

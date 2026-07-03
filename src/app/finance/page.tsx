@@ -121,6 +121,10 @@ export default function FinancePage() {
   const [inboundData, setInboundData] = useState<AggRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  // 防抖后的搜索词，避免每次按键触发全量重渲染
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 100;
 
   // 筛选
   const [stockFilter, setStockFilter] = useState<string>("");
@@ -187,6 +191,18 @@ export default function FinancePage() {
       })
       .catch(() => {});
   }, []);
+
+  // 搜索防抖：300ms
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // 切换视图/筛选时重置分页
+  useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, returnsDateFilter]);
 
   // 日期筛选时获取对应 sale_ids
   useEffect(() => {
@@ -539,11 +555,11 @@ export default function FinancePage() {
   };
   const hasErrorStock = (row: SummaryRow) => ALL_SIZES.some((s) => Number(row[`size_${s}`]) < 0);
 
-  // ===== 筛选逻辑 =====
+  // ===== 筛选逻辑（使用防抖后的 debouncedSearch）=====
   const filteredSummary = useMemo(() => {
     let result = data;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)) || (r.manufacturer && r.manufacturer.toLowerCase().includes(q)));
     }
     if (stockFilter) {
@@ -568,12 +584,12 @@ export default function FinancePage() {
     }
     if (errorFilter) result = result.filter((r) => hasErrorStock(r));
     return result;
-  }, [data, search, stockFilter, valueFilter, errorFilter]);
+  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter]);
 
   const filteredSales = useMemo(() => {
     let result = salesData;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
     }
     if (salesDateFilter && salesDateIds.size > 0) {
@@ -585,28 +601,77 @@ export default function FinancePage() {
       result = result.filter((r) => !inboundIds.has(r.sale_id.toUpperCase()));
     }
     return result;
-  }, [salesData, search, salesDateFilter, salesDateIds, uninboundFilter, inboundData]);
+  }, [salesData, debouncedSearch, salesDateFilter, salesDateIds, uninboundFilter, inboundData]);
 
   const filteredReturns = useMemo(() => {
     let result = returnData;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q));
     }
     if (returnsDateFilter && returnsDateIds.size > 0) {
       result = result.filter((r) => returnsDateIds.has(r.sale_id));
     }
     return result;
-  }, [returnData, search, returnsDateFilter, returnsDateIds]);
+  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds]);
 
   const filteredInbound = useMemo(() => {
     let result = inboundData;
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
     }
     return result;
-  }, [inboundData, search]);
+  }, [inboundData, debouncedSearch]);
+
+  // ===== Map 索引：消除 data.find() 的 O(n²) 查找 =====
+  const summaryBySaleId = useMemo(() => {
+    const m = new Map<string, SummaryRow>();
+    for (const r of data) m.set(r.sale_id, r);
+    return m;
+  }, [data]);
+
+  // ===== 入库视图汇总（移出内联 reduce）=====
+  const inboundTotals = useMemo(() => {
+    let totalInbound = 0;
+    let totalValue = 0;
+    for (const r of filteredInbound) {
+      totalInbound += r.total || 0;
+      totalValue += (r.total || 0) * (r.cost_price || 0);
+    }
+    return { totalInbound, totalValue };
+  }, [filteredInbound]);
+
+  // ===== 分页数据（每页 100 条，避免一次性渲染上万 DOM 节点）=====
+  const pagedSummary = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredSummary.slice(start, start + PAGE_SIZE);
+  }, [filteredSummary, page]);
+
+  const pagedSales = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredSales.slice(start, start + PAGE_SIZE);
+  }, [filteredSales, page]);
+
+  const pagedReturns = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredReturns.slice(start, start + PAGE_SIZE);
+  }, [filteredReturns, page]);
+
+  const pagedInbound = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredInbound.slice(start, start + PAGE_SIZE);
+  }, [filteredInbound, page]);
+
+  const totalPages = useMemo(() => {
+    switch (viewMode) {
+      case "summary": return Math.max(1, Math.ceil(filteredSummary.length / PAGE_SIZE));
+      case "sales": return Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
+      case "returns": return Math.max(1, Math.ceil(filteredReturns.length / PAGE_SIZE));
+      case "inbound": return Math.max(1, Math.ceil(filteredInbound.length / PAGE_SIZE));
+      default: return 1;
+    }
+  }, [viewMode, filteredSummary.length, filteredSales.length, filteredReturns.length, filteredInbound.length]);
 
   // ===== 汇总数据 =====
   const totals = useMemo(() => {
@@ -836,7 +901,7 @@ export default function FinancePage() {
                 </div>
                 <span className="text-[10px] sm:text-xs font-bold text-gray-500">总入库</span>
               </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{filteredInbound.reduce((s, r) => s + r.total, 0)}</div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{inboundTotals.totalInbound}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
             <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
@@ -846,7 +911,7 @@ export default function FinancePage() {
                 </div>
                 <span className="text-[10px] sm:text-xs font-bold text-gray-500">入库金额</span>
               </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">¥{fmt(filteredInbound.reduce((s, r) => s + (r.total || 0) * (r.cost_price || 0), 0))}</div>
+              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">¥{fmt(inboundTotals.totalValue)}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">成本价</div>
             </div>
           </>
@@ -1010,7 +1075,7 @@ export default function FinancePage() {
                   {filteredSummary.length === 0 ? (
                     <tr><td colSpan={25} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
-                    filteredSummary.map((row, idx) => {
+                    pagedSummary.map((row, idx) => {
                       const isError = hasErrorStock(row);
                       return (
                         <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
@@ -1076,8 +1141,8 @@ export default function FinancePage() {
                   {filteredSales.length === 0 ? (
                     <tr><td colSpan={7 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
-                    filteredSales.map((row, idx) => {
-                      const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+                    pagedSales.map((row, idx) => {
+                      const summaryRow = summaryBySaleId.get(row.sale_id);
                       const photo = row.photo || summaryRow?.photo || "";
                       const sp = row.sell_price || 0;
                       const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
@@ -1155,8 +1220,8 @@ export default function FinancePage() {
                   {filteredReturns.length === 0 ? (
                     <tr><td colSpan={5 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
-                    filteredReturns.map((row, idx) => {
-                      const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+                    pagedReturns.map((row, idx) => {
+                      const summaryRow = summaryBySaleId.get(row.sale_id);
                       const photo = summaryRow?.photo || "";
                       const soldTotal = summaryRow?.sold_total || 0;
                       const returnRate = soldTotal > 0 ? row.total / soldTotal : 0;
@@ -1231,8 +1296,8 @@ export default function FinancePage() {
                   {filteredInbound.length === 0 ? (
                     <tr><td colSpan={8 + ALL_SIZES.length} className="py-8 text-center text-gray-400">暂无数据</td></tr>
                   ) : (
-                    filteredInbound.map((row, idx) => {
-                      const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+                    pagedInbound.map((row, idx) => {
+                      const summaryRow = summaryBySaleId.get(row.sale_id);
                       const photo = row.photo || summaryRow?.photo || "";
                       const shelfNo = (row as Record<string, unknown>).shelf_no as string || "";
                       const season = (row as Record<string, unknown>).season as string || "";
@@ -1387,7 +1452,7 @@ export default function FinancePage() {
             {filteredSummary.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
-              filteredSummary.map((row) => {
+              pagedSummary.map((row) => {
                 const isError = hasErrorStock(row);
                 const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
                 const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
@@ -1396,7 +1461,7 @@ export default function FinancePage() {
                     <div className="flex gap-2">
                       {/* 图片区域 */}
                       <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {row.photo ? <img src={row.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                        {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                       </div>
                       {/* 右侧内容区 */}
                       <div className="flex-1 min-w-0">
@@ -1468,8 +1533,8 @@ export default function FinancePage() {
             {filteredSales.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
-              filteredSales.map((row) => {
-                const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+              pagedSales.map((row) => {
+                const summaryRow = summaryBySaleId.get(row.sale_id);
                 const photo = row.photo || summaryRow?.photo || "";
                 const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
                 const sp = row.sell_price || 0;
@@ -1500,7 +1565,7 @@ export default function FinancePage() {
                     >
                       <div className="flex gap-2">
                         <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                          {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
@@ -1578,7 +1643,7 @@ export default function FinancePage() {
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
               filteredReturns.map((row) => {
-                const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+                const summaryRow = summaryBySaleId.get(row.sale_id);
                 const photo = summaryRow?.photo || "";
                 const soldTotal = summaryRow?.sold_total || 0;
                 const returnRate = soldTotal > 0 ? row.total / soldTotal : 0;
@@ -1604,7 +1669,7 @@ export default function FinancePage() {
                     >
                       <div className="flex gap-2">
                         <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                          {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
@@ -1680,8 +1745,8 @@ export default function FinancePage() {
             {filteredInbound.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
-              filteredInbound.map((row) => {
-                const summaryRow = data.find((r) => r.sale_id === row.sale_id);
+              pagedInbound.map((row) => {
+                const summaryRow = summaryBySaleId.get(row.sale_id);
                 const photo = row.photo || summaryRow?.photo || "";
                 const curSeason = (row as Record<string, unknown>).season as string || (summaryRow as Record<string, unknown>)?.season as string || "";
                 const curStyle = (row as Record<string, unknown>).style_category as string || (summaryRow as Record<string, unknown>)?.style_category as string || "";
@@ -1726,7 +1791,7 @@ export default function FinancePage() {
                     >
                       <div className="flex gap-2 mb-2">
                         <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                          {photo ? <img src={photo} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                          {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 flex-wrap">
@@ -1768,6 +1833,29 @@ export default function FinancePage() {
           </>
         )}
       </div>
+
+      {/* 分页控制 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 sm:gap-3 mt-4 mb-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="h-10 px-4 rounded-xl border-[3px] border-gray-900 bg-white font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-all"
+          >
+            上一页
+          </button>
+          <div className="h-10 px-4 flex items-center rounded-xl border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+            {page} / {totalPages}
+          </div>
+          <button
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            className="h-10 px-4 rounded-xl border-[3px] border-gray-900 bg-white font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 transition-all"
+          >
+            下一页
+          </button>
+        </div>
+      )}
 
       {/* 移动端入库编辑弹窗 */}
       {mobileEditModal && (
@@ -1912,7 +2000,7 @@ export default function FinancePage() {
       {salesEditModal && (() => {
         const row = filteredSales.find((r) => r.sale_id === salesEditModal);
         if (!row) return null;
-        const summaryRow = data.find((r) => r.sale_id === salesEditModal);
+        const summaryRow = summaryBySaleId.get(salesEditModal);
         const photo = row.photo || summaryRow?.photo || "";
         return (
           <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setSalesEditModal(null)}>
@@ -2001,7 +2089,7 @@ export default function FinancePage() {
       {returnsEditModal && (() => {
         const row = filteredReturns.find((r) => r.sale_id === returnsEditModal);
         if (!row) return null;
-        const summaryRow = data.find((r) => r.sale_id === returnsEditModal);
+        const summaryRow = summaryBySaleId.get(returnsEditModal);
         const photo = summaryRow?.photo || "";
         return (
           <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setReturnsEditModal(null)}>
