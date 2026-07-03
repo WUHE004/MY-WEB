@@ -151,7 +151,7 @@ export async function POST() {
     // ---------- 1. 并行读取所有售出记录和入库记录 ----------
     let [allSalesRecords, allInboundRecords] = await Promise.all([
       readAllPages("sales_records", "*"),
-      readAllPages("inbound_records", "sale_id, photo, shelf_no, manufacturer, name, cost_price, sell_price"),
+      readAllPages("inbound_records", "sale_id, photo, shelf_no, manufacturer, name, cost_price"),
     ]);
     diagnostics.push(`读取 ${allSalesRecords.length} 条售出记录`);
     console.log(`sync-summary: 读取 ${allSalesRecords.length} 条售出记录`);

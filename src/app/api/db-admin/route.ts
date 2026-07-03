@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase";
 
 // 表名 → 列名列表（与数据库实际结构一致）
 const TABLE_COLUMNS: Record<string, string[]> = {
-  inbound_records: ["id", "sale_id", "name", "manufacturer", "cost_price", "sell_price", "total_stock", "photo", "shelf_no", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "inbound_date", "created_at", "updated_at"],
+  inbound_records: ["id", "sale_id", "name", "manufacturer", "cost_price", "total_stock", "photo", "shelf_no", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "inbound_date", "season", "style_category", "notes", "created_at"],
   sales_records: ["id", "sale_id", "product_name", "size", "quantity", "sell_price", "cost_price", "profit", "total_profit", "photo", "manufacturer", "shelf_no", "tracking_number", "order_time", "registration_date", "notes", "registrant", "member_id", "member_name", "created_at"],
   return_records: ["id", "sale_id", "name", "size", "quantity", "member_id", "member_name", "return_time", "created_at"],
   members: ["id", "name", "phone", "password", "role", "is_online", "last_online", "address", "recipient", "recipient_phone", "douyin", "created_at"],
@@ -20,7 +20,7 @@ const TABLE_COLUMNS: Record<string, string[]> = {
   platform_revenue: ["id", "platform", "revenue", "created_at"],
   settings: ["id", "key", "value", "created_at"],
   links: ["id", "name", "url", "status", "created_at"],
-  web_orders: ["id", "member_id", "customer", "address", "recipient", "recipient_phone", "sale_id", "size", "quantity", "sell_price", "total_price", "tracking_number", "order_time", "status", "created_at"],
+  web_orders: ["id", "member_id", "member_name", "customer", "address", "recipient", "recipient_phone", "sale_id", "size", "quantity", "sell_price", "total_price", "payment_status", "payment_method", "tracking_number", "shipping_status", "shipping_company", "created_at"],
   "product-photos": ["id", "sale_id", "photo_url", "created_at"],
   sales_summary: ["id", "sale_id", "name", "photo", "shelf_no", "manufacturer", "cost_price", "sell_price", "total_sold", "total_revenue", "sell_price_info", "sales_count", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "updated_at", "created_at"],
   returns_summary: ["id", "sale_id", "name", "photo", "shelf_no", "manufacturer", "cost_price", "total_returned", "total_return_amount", "return_price_info", "return_count", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "updated_at", "created_at"],

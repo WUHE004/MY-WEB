@@ -17,7 +17,6 @@ SELECT
   i.shelf_no,
   i.manufacturer,
   i.cost_price,
-  i.sell_price,
   -- 入库总量 = 各尺码入库数之和
   COALESCE(i.size_80,0) + COALESCE(i.size_90,0) + COALESCE(i.size_95,0) +
   COALESCE(i.size_100,0) + COALESCE(i.size_105,0) + COALESCE(i.size_110,0) +
@@ -122,7 +121,7 @@ LEFT JOIN (
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION create_web_order(
-  p_member_id UUID,
+  p_member_id TEXT,
   p_sale_id TEXT,
   p_size INT,
   p_quantity INT,
@@ -132,7 +131,7 @@ CREATE OR REPLACE FUNCTION create_web_order(
   p_recipient TEXT DEFAULT '',
   p_recipient_phone TEXT DEFAULT ''
 )
-RETURNS TABLE(order_id UUID, success BOOLEAN, error_msg TEXT)
+RETURNS TABLE(order_id INT, success BOOLEAN, error_msg TEXT)
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
@@ -141,7 +140,7 @@ DECLARE
   v_sold_qty INT;
   v_returned_qty INT;
   v_stock INT;
-  v_order_id UUID;
+  v_order_id INT;
   v_total_price NUMERIC;
 BEGIN
   -- 计算当前库存（加行锁防止并发超卖）
@@ -164,14 +163,14 @@ BEGIN
   v_stock := COALESCE(v_inbound_qty, 0) - v_sold_qty + v_returned_qty;
 
   IF v_stock < p_quantity THEN
-    RETURN QUERY SELECT NULL::UUID, FALSE, '库存不足（剩余 ' || v_stock || ' 件）';
+    RETURN QUERY SELECT NULL::INT, FALSE, '库存不足（剩余 ' || v_stock || ' 件）';
     RETURN;
   END IF;
 
   -- 创建订单
   v_total_price := p_sell_price * p_quantity;
-  INSERT INTO web_orders (member_id, sale_id, size, quantity, sell_price, total_price, customer, address, recipient, recipient_phone, order_time, status)
-  VALUES (p_member_id, p_sale_id, p_size, p_quantity, p_sell_price, v_total_price, p_customer, p_address, p_recipient, p_recipient_phone, NOW(), 'pending')
+  INSERT INTO web_orders (member_id, sale_id, size, quantity, sell_price, total_price, customer, address, recipient, recipient_phone, payment_status)
+  VALUES (p_member_id, p_sale_id, p_size, p_quantity, p_sell_price, v_total_price, p_customer, p_address, p_recipient, p_recipient_phone, 'pending')
   RETURNING id INTO v_order_id;
 
   RETURN QUERY SELECT v_order_id, TRUE, NULL::TEXT;
