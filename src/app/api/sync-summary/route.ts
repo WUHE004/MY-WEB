@@ -4,6 +4,9 @@ import { supabase } from "@/lib/supabase";
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
 async function getSalesSummaryColumns(): Promise<string[]> {
+  // 命中缓存直接返回（表结构很少变化，避免每次调用都探测）
+  if (cachedSalesCols) return cachedSalesCols;
+
   // 方案1: 先试一次插入 1 条测试数据，从错误信息获取不存在的列
   const testSaleId = "__column_probe__";
   const testRow: Record<string, unknown> = {
@@ -30,7 +33,8 @@ async function getSalesSummaryColumns(): Promise<string[]> {
     if (!error) {
       // 成功，说明所有列都存在，先删掉测试数据
       await supabase.from("sales_summary").delete().eq("sale_id", testSaleId);
-      return Object.keys(testRow);
+      cachedSalesCols = Object.keys(testRow);
+      return cachedSalesCols;
     }
 
     // 从错误信息中提取不存在的列名
@@ -42,7 +46,8 @@ async function getSalesSummaryColumns(): Promise<string[]> {
       const missingCol = match[1];
       delete testRow[missingCol];
       // 重新尝试，用剩余的列
-      return await probeColumns(Object.keys(testRow), "sales_summary");
+      cachedSalesCols = await probeColumns(Object.keys(testRow), "sales_summary");
+      return cachedSalesCols;
     }
 
     // 其他错误，返回空
@@ -92,6 +97,33 @@ async function probeColumns(cols: string[], table: string): Promise<string[]> {
   }
 }
 
+// 模块级缓存：避免每次调用都探测列名（表结构很少变化）
+let cachedSalesCols: string[] | null = null;
+let cachedReturnCols: string[] | null = null;
+
+// 分页读取整张表的辅助函数（复用分页逻辑）
+async function readAllPages(table: string, select: string): Promise<Record<string, unknown>[]> {
+  let allData: Record<string, unknown>[] = [];
+  let page = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data: chunk, error } = await supabase
+      .from(table)
+      .select(select)
+      .range(page * pageSize, (page + 1) * pageSize - 1)
+      .order("id", { ascending: true });
+    if (error) {
+      console.error(`readAllPages(${table}) page ${page} error:`, error.message);
+      break;
+    }
+    if (!chunk || chunk.length === 0) break;
+    allData = allData.concat(chunk as unknown as Record<string, unknown>[]);
+    if (chunk.length < pageSize) break;
+    page++;
+  }
+  return allData;
+}
+
 export async function POST() {
   try {
     const diagnostics: string[] = [];
@@ -116,28 +148,14 @@ export async function POST() {
       });
     }
 
-    // ---------- 1. 一次性读取所有售出记录 ----------
-    let allSalesRecords: Record<string, unknown>[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    while (true) {
-      const { data: chunk, error } = await supabase
-        .from("sales_records")
-        .select("*")
-        .range(page * pageSize, (page + 1) * pageSize - 1)
-        .order("id", { ascending: true });
-      if (error) {
-        diagnostics.push(`sales_records 第${page}页查询错误: ${error.message}`);
-        console.error("sync-summary: sales_records query error:", error.message);
-        break;
-      }
-      if (!chunk || chunk.length === 0) break;
-      allSalesRecords = allSalesRecords.concat(chunk);
-      if (chunk.length < pageSize) break;
-      page++;
-    }
+    // ---------- 1. 并行读取所有售出记录和入库记录 ----------
+    let [allSalesRecords, allInboundRecords] = await Promise.all([
+      readAllPages("sales_records", "*"),
+      readAllPages("inbound_records", "sale_id, photo, shelf_no, manufacturer, name, cost_price, sell_price"),
+    ]);
     diagnostics.push(`读取 ${allSalesRecords.length} 条售出记录`);
     console.log(`sync-summary: 读取 ${allSalesRecords.length} 条售出记录`);
+    console.log(`sync-summary: 读取 ${allInboundRecords.length} 条入库记录`);
 
     if (allSalesRecords.length === 0) {
       return NextResponse.json({
@@ -217,26 +235,7 @@ export async function POST() {
       diagnostics.push(`零数量样本值: sale_id=${sample0.sale_id}, size=${sample0.size}, quantity=${sample0.quantity}, sell_price=${sample0.sell_price}, product_name=${sample0.product_name}`);
     }
 
-    // ---------- 2. 一次性读取所有入库记录 ----------
-    let allInboundRecords: Record<string, unknown>[] = [];
-    page = 0;
-    while (true) {
-      const { data: chunk, error } = await supabase
-        .from("inbound_records")
-        .select("sale_id, photo, shelf_no, manufacturer, name, cost_price, sell_price")
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-      if (error) {
-        console.error("sync-summary: inbound_records query error:", error.message);
-        break;
-      }
-      if (!chunk || chunk.length === 0) break;
-      allInboundRecords = allInboundRecords.concat(chunk);
-      if (chunk.length < pageSize) break;
-      page++;
-    }
-    console.log(`sync-summary: 读取 ${allInboundRecords.length} 条入库记录`);
-
-    // 构建入库查找表 (uppercase sale_id -> 入库信息)
+    // ---------- 2. 构建入库查找表 (uppercase sale_id -> 入库信息) ----------
     const inboundMap = new Map<string, Record<string, unknown>>();
     for (const ib of allInboundRecords) {
       const key = String(ib.sale_id || "").toUpperCase();
@@ -387,50 +386,43 @@ export async function POST() {
     diagnostics.push(`return_records 表共 ${returnCount ?? 0} 条记录`);
 
     if (returnCount && returnCount > 0) {
-      // 探测 returns_summary 表列
-      const returnTestRow: Record<string, unknown> = {
-        sale_id: "__column_probe__",
-        photo: "", name: "", shelf_no: "", manufacturer: "",
-        cost_price: 0, total_returned: 0, total_return_amount: 0,
-        return_price_info: {}, return_count: 0,
-        updated_at: new Date().toISOString(),
-      };
-      for (const s of ALL_SIZES) returnTestRow[`size_${s}`] = 0;
-
+      // 探测 returns_summary 表列（带缓存）
       let returnCols: string[] = [];
-      try {
-        const { error: testErr } = await supabase
-          .from("returns_summary")
-          .upsert(returnTestRow, { onConflict: "sale_id" });
-        if (!testErr) {
-          await supabase.from("returns_summary").delete().eq("sale_id", "__column_probe__");
-          returnCols = Object.keys(returnTestRow);
-        } else {
-          const match = testErr.message.match(/Could not find the '([^']+)' column/);
-          if (match) {
-            delete returnTestRow[match[1]];
-            returnCols = await probeColumns(Object.keys(returnTestRow), "returns_summary");
+      if (cachedReturnCols) {
+        returnCols = cachedReturnCols;
+      } else {
+        const returnTestRow: Record<string, unknown> = {
+          sale_id: "__column_probe__",
+          photo: "", name: "", shelf_no: "", manufacturer: "",
+          cost_price: 0, total_returned: 0, total_return_amount: 0,
+          return_price_info: {}, return_count: 0,
+          updated_at: new Date().toISOString(),
+        };
+        for (const s of ALL_SIZES) returnTestRow[`size_${s}`] = 0;
+
+        try {
+          const { error: testErr } = await supabase
+            .from("returns_summary")
+            .upsert(returnTestRow, { onConflict: "sale_id" });
+          if (!testErr) {
+            await supabase.from("returns_summary").delete().eq("sale_id", "__column_probe__");
+            returnCols = Object.keys(returnTestRow);
+          } else {
+            const match = testErr.message.match(/Could not find the '([^']+)' column/);
+            if (match) {
+              delete returnTestRow[match[1]];
+              returnCols = await probeColumns(Object.keys(returnTestRow), "returns_summary");
+            }
           }
+        } catch {
+          returnCols = Object.keys(returnTestRow);
         }
-      } catch {
-        returnCols = Object.keys(returnTestRow);
+        cachedReturnCols = returnCols;
       }
       diagnostics.push(`returns_summary 表有 ${returnCols.length} 列`);
 
       // 读取所有退货记录
-      allReturnRecords = [];
-      let rPage = 0;
-      while (true) {
-        const { data: chunk, error } = await supabase
-          .from("return_records")
-          .select("*")
-          .range(rPage * pageSize, (rPage + 1) * pageSize - 1)
-          .order("id", { ascending: true });
-        if (error || !chunk || chunk.length === 0) break;
-        allReturnRecords = allReturnRecords.concat(chunk);
-        if (chunk.length < pageSize) break;
-        rPage++;
-      }
+      allReturnRecords = await readAllPages("return_records", "*");
       diagnostics.push(`读取 ${allReturnRecords.length} 条退货记录`);
 
       // 按 sale_id 分组汇总退货
@@ -541,23 +533,16 @@ export async function POST() {
     // ========== 归档每日统计到 sales_daily_stats（含快递费和平台抽点）==========
     let dailyStatsSynced = 0;
     if (allSalesRecords.length > 0) {
-      // 读取快递费率和平台抽点率
-      const { data: shippingRatesData } = await supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "shipping_rates")
-        .single();
-      const sRates = (shippingRatesData?.value as any) || {};
+      // 并行读取快递费率和平台抽点率
+      const [shippingRatesResult, platformRateResult] = await Promise.all([
+        supabase.from("settings").select("value").eq("key", "shipping_rates").single(),
+        supabase.from("settings").select("value").eq("key", "platform_fee_rate").single(),
+      ]);
+      const sRates = (shippingRatesResult.data?.value as Record<string, unknown>) || {};
       const sRate1 = Number(sRates.rate1) || 0;
       const sRate2 = Number(sRates.rate2) || 0;
       const sRate3 = Number(sRates.rate3) || 0;
-
-      const { data: platformRateData } = await supabase
-        .from("settings")
-        .select("value")
-        .eq("key", "platform_fee_rate")
-        .single();
-      const sPlatformRate = Number(platformRateData?.value) || 5;
+      const sPlatformRate = Number(platformRateResult.data?.value) || 5;
 
       const dailyMap = new Map<string, {
         total_amount: number; total_quantity: number; total_profit: number;
@@ -588,45 +573,50 @@ export async function POST() {
         }
       }
 
-      for (const [date, stats] of dailyMap) {
-        // 计算快递费
-        let shippingFee = 0;
-        for (const [, qty] of stats.trackingMap) {
-          if (qty <= 4) shippingFee += sRate1;
-          else if (qty <= 7) shippingFee += sRate2;
-          else shippingFee += sRate3;
-        }
-        // 计算平台抽点
-        const platformFee = stats.total_quantity >= 100 ? stats.total_amount * (sPlatformRate / 100) : 0;
-
-        const { data: existing } = await supabase
+      // 批量 upsert 日统计（消除 N+1：一次性查询所有已存在日期，内存合并后单次 upsert）
+      const allDates = Array.from(dailyMap.keys());
+      if (allDates.length > 0) {
+        const { data: existingStats } = await supabase
           .from("sales_daily_stats")
-          .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
-          .eq("date", date)
-          .maybeSingle();
+          .select("date, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
+          .in("date", allDates);
 
-        if (existing) {
-          await supabase
-            .from("sales_daily_stats")
-            .update({
-              total_amount: Number(existing.total_amount) + stats.total_amount,
-              total_quantity: Number(existing.total_quantity) + stats.total_quantity,
-              total_profit: Number(existing.total_profit) + stats.total_profit,
-              shipping_fee: Number(existing.shipping_fee || 0) + shippingFee,
-              platform_fee: Number(existing.platform_fee || 0) + platformFee,
-            })
-            .eq("id", existing.id);
-        } else {
-          await supabase.from("sales_daily_stats").insert({
+        const existingMap = new Map(
+          (existingStats || []).map((s: Record<string, unknown>) => [String(s.date), s])
+        );
+
+        const dailyUpsertBatch = allDates.map((date) => {
+          const stats = dailyMap.get(date)!;
+          // 计算快递费
+          let shippingFee = 0;
+          for (const [, qty] of stats.trackingMap) {
+            if (qty <= 4) shippingFee += sRate1;
+            else if (qty <= 7) shippingFee += sRate2;
+            else shippingFee += sRate3;
+          }
+          // 计算平台抽点
+          const platformFee = stats.total_quantity >= 100 ? stats.total_amount * (sPlatformRate / 100) : 0;
+
+          const existing = existingMap.get(date) as Record<string, unknown> | undefined;
+          return {
             date,
-            total_amount: stats.total_amount,
-            total_quantity: stats.total_quantity,
-            total_profit: stats.total_profit,
-            shipping_fee: shippingFee,
-            platform_fee: platformFee,
-          });
+            total_amount: (Number(existing?.total_amount) || 0) + stats.total_amount,
+            total_quantity: (Number(existing?.total_quantity) || 0) + stats.total_quantity,
+            total_profit: (Number(existing?.total_profit) || 0) + stats.total_profit,
+            shipping_fee: (Number(existing?.shipping_fee) || 0) + shippingFee,
+            platform_fee: (Number(existing?.platform_fee) || 0) + platformFee,
+          };
+        });
+
+        const { error: dailyUpsertError } = await supabase
+          .from("sales_daily_stats")
+          .upsert(dailyUpsertBatch, { onConflict: "date" });
+
+        if (dailyUpsertError) {
+          diagnostics.push(`销售日统计批量写入失败: ${dailyUpsertError.message}`);
+        } else {
+          dailyStatsSynced = dailyUpsertBatch.length;
         }
-        dailyStatsSynced++;
       }
     }
     diagnostics.push(`销售日统计归档: ${dailyStatsSynced} 天`);
@@ -643,24 +633,32 @@ export async function POST() {
         retDailyMap.set(date, (retDailyMap.get(date) || 0) + (Number(row.quantity) || 0));
       }
 
-      for (const [date, totalReturned] of retDailyMap) {
-        const { data: existing } = await supabase
+      // 批量 upsert 退货日统计（消除 N+1）
+      const allReturnDates = Array.from(retDailyMap.keys());
+      if (allReturnDates.length > 0) {
+        const { data: existingRetStats } = await supabase
           .from("returns_daily_stats")
-          .select("id, total_returned")
-          .eq("date", date)
-          .maybeSingle();
+          .select("date, total_returned")
+          .in("date", allReturnDates);
 
-        if (existing) {
-          await supabase
-            .from("returns_daily_stats")
-            .update({
-              total_returned: Number(existing.total_returned) + totalReturned,
-            })
-            .eq("id", existing.id);
+        const existingRetMap = new Map(
+          (existingRetStats || []).map((s: Record<string, unknown>) => [String(s.date), s])
+        );
+
+        const retDailyUpsertBatch = allReturnDates.map((date) => ({
+          date,
+          total_returned: (Number(existingRetMap.get(date)?.total_returned) || 0) + (retDailyMap.get(date) || 0),
+        }));
+
+        const { error: retDailyUpsertError } = await supabase
+          .from("returns_daily_stats")
+          .upsert(retDailyUpsertBatch, { onConflict: "date" });
+
+        if (retDailyUpsertError) {
+          diagnostics.push(`退货日统计批量写入失败: ${retDailyUpsertError.message}`);
         } else {
-          await supabase.from("returns_daily_stats").insert({ date, total_returned: totalReturned });
+          returnDailySynced = retDailyUpsertBatch.length;
         }
-        returnDailySynced++;
       }
     }
     diagnostics.push(`退货日统计归档: ${returnDailySynced} 天`);

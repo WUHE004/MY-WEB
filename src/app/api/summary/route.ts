@@ -229,7 +229,11 @@ export async function GET() {
     // 按 sale_id 排序
     result.sort((a, b) => a.sale_id.localeCompare(b.sale_id));
 
-    return NextResponse.json(result);
+    // CDN 缓存 15 秒，过期后 30 秒内仍返回旧数据并后台刷新
+    // 商品页每 15 秒轮询，缓存可大幅减轻 Serverless 函数压力
+    const response = NextResponse.json(result);
+    response.headers.set("Cache-Control", "s-maxage=15, stale-while-revalidate=30");
+    return response;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });

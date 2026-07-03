@@ -127,31 +127,22 @@ export async function POST(request: NextRequest) {
     const memberId = body.member_id || "";
 
     // 0. 检查库存：计算当前尺码的剩余库存
+    // 注意：此处存在 check-then-act 竞态窗口（并发下单可能超卖）
+    // 完整修复需用 PostgreSQL RPC + SELECT FOR UPDATE，当前用并行查询缩小窗口
     const sizeKey = `size_${size}`;
-    
-    // 入库总量
-    const { data: inboundData } = await supabase
-      .from("inbound_records")
-      .select(sizeKey)
-      .eq("sale_id", saleId);
-    const inboundTotal = (inboundData || []).reduce((sum, r) => sum + (Number((r as any)[sizeKey]) || 0), 0);
-    
-    // 已售数量
-    const { data: salesData } = await supabase
-      .from("sales_records")
-      .select("quantity")
-      .eq("sale_id", saleId)
-      .eq("size", size);
-    const soldTotal = (salesData || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-    
-    // 退货数量
-    const { data: returnData } = await supabase
-      .from("return_records")
-      .select("quantity")
-      .eq("sale_id", saleId)
-      .eq("size", size);
-    const returnTotal = (returnData || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-    
+
+    // 并行查询入库、已售、退货数量（缩小竞态窗口）
+    const [inboundResult, salesResult, returnResult] = await Promise.all([
+      supabase.from("inbound_records").select(sizeKey).eq("sale_id", saleId),
+      supabase.from("sales_records").select("quantity").eq("sale_id", saleId).eq("size", size),
+      supabase.from("return_records").select("quantity").eq("sale_id", saleId).eq("size", size),
+    ]);
+
+    const inboundData = (inboundResult.data || []) as unknown as Record<string, unknown>[];
+    const inboundTotal = inboundData.reduce((sum, r) => sum + (Number(r[sizeKey]) || 0), 0);
+    const soldTotal = (salesResult.data || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+    const returnTotal = (returnResult.data || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+
     const currentStock = inboundTotal - soldTotal + returnTotal;
     
     if (currentStock < quantity) {
