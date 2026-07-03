@@ -393,7 +393,7 @@ export default function FinancePage() {
     setStockFilter("");
     setValueFilter("");
     setErrorFilter(false);
-    if (mode === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+    if (mode === "sales") { fetchSalesAgg(); fetchSalesDates(); fetchInboundAgg(); }
     if (mode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
     if (mode === "inbound") fetchInboundAgg();
   };
