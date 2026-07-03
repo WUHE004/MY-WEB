@@ -74,6 +74,29 @@ export async function GET(request: NextRequest) {
     page++;
   }
 
+  // 关联产品信息：照片、厂家、货架号、名称（与有筛选条件分支一致）
+  if (allData.length > 0) {
+    const saleIds = [...new Set(allData.map((r: any) => r.sale_id).filter(Boolean))];
+    if (saleIds.length > 0) {
+      const { data: products } = await supabase
+        .from("inbound_records")
+        .select("sale_id, photo, manufacturer, shelf_no, name")
+        .in("sale_id", saleIds);
+      if (products) {
+        const productMap = new Map(products.map((p: any) => [p.sale_id, p]));
+        for (const record of allData) {
+          const product = productMap.get(record.sale_id);
+          if (product) {
+            record.photo = product.photo || "";
+            record.manufacturer = product.manufacturer || "";
+            record.shelf_no = product.shelf_no || "";
+            record.product_name = product.name || record.product_name || "";
+          }
+        }
+      }
+    }
+  }
+
   return NextResponse.json(allData);
 }
 
@@ -131,8 +154,8 @@ export async function POST(request: NextRequest) {
       }
       inserted.push(data);
 
-      // 更新售卖总表
-      upsertSalesSummary(record.sale_id || "").catch((e) => console.error("upsert sales summary error:", e));
+      // 更新售卖总表（同步等待，避免 Serverless 超时导致汇总表未更新）
+      await upsertSalesSummary(record.sale_id || "").catch((e) => console.error("upsert sales summary error:", e));
     }
 
     return NextResponse.json(inserted, { status: 201 });
@@ -198,8 +221,8 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: insertErr.message }, { status: 400 });
       }
 
-      // 更新售卖总表
-      upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
+      // 更新售卖总表（同步等待，避免汇总表数据不一致）
+      await upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
       return NextResponse.json({ message: "已增加", delta, currentTotal, newTotal: newQty });
     } else {
@@ -229,8 +252,8 @@ export async function PUT(request: NextRequest) {
         remaining -= toRemove;
       }
 
-      // 更新售卖总表
-      upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
+      // 更新售卖总表（同步等待，避免汇总表数据不一致）
+      await upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
       return NextResponse.json({ message: "已减少", delta, currentTotal, newTotal: newQty });
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -643,25 +643,30 @@ export default function FinancePage() {
   }, [filteredInbound]);
 
   // ===== 分页数据（每页 100 条，避免一次性渲染上万 DOM 节点）=====
+  // 用 useDeferredValue 延迟 page 和 viewMode，让 tab 切换/翻页按钮立即响应，
+  // 表格内容在低优先级渲染，避免 2500 个带硬偏移 shadow 的单元格阻塞主线程
+  const deferredPage = useDeferredValue(page);
+  const deferredViewMode = useDeferredValue(viewMode);
+
   const pagedSummary = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
+    const start = (deferredPage - 1) * PAGE_SIZE;
     return filteredSummary.slice(start, start + PAGE_SIZE);
-  }, [filteredSummary, page]);
+  }, [filteredSummary, deferredPage]);
 
   const pagedSales = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
+    const start = (deferredPage - 1) * PAGE_SIZE;
     return filteredSales.slice(start, start + PAGE_SIZE);
-  }, [filteredSales, page]);
+  }, [filteredSales, deferredPage]);
 
   const pagedReturns = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
+    const start = (deferredPage - 1) * PAGE_SIZE;
     return filteredReturns.slice(start, start + PAGE_SIZE);
-  }, [filteredReturns, page]);
+  }, [filteredReturns, deferredPage]);
 
   const pagedInbound = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
+    const start = (deferredPage - 1) * PAGE_SIZE;
     return filteredInbound.slice(start, start + PAGE_SIZE);
-  }, [filteredInbound, page]);
+  }, [filteredInbound, deferredPage]);
 
   const totalPages = useMemo(() => {
     switch (viewMode) {
@@ -1114,7 +1119,7 @@ export default function FinancePage() {
       )}
 
       {/* ===== 售出表 - 桌面端 ===== */}
-      {viewMode === "sales" && (
+      {deferredViewMode === "sales" && (
         <div className="hidden lg:block overflow-x-auto">
           {uninboundFilter && (
             <div className="mb-2 rounded-lg border-[2px] border-red-500 bg-red-50 px-3 py-2 text-xs font-bold text-red-600 flex items-center gap-1.5">
@@ -1740,7 +1745,7 @@ export default function FinancePage() {
         )}
 
         {/* 入库表移动端 */}
-        {viewMode === "inbound" && (
+        {deferredViewMode === "inbound" && (
           <>
             {filteredInbound.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>

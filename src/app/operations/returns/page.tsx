@@ -146,8 +146,10 @@ export default function ReturnsPage() {
   };
 
   const getSoldQuantity = (size: number): number => {
-    const record = selectedSaleInfo.find((r) => r.size === size);
-    return record ? record.quantity : 0;
+    // 同一尺码可能有多条售出记录，需要 SUM 而非取第一条
+    return selectedSaleInfo
+      .filter((r) => r.size === size)
+      .reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
   };
 
   const getMaxReturnable = (size: number): number => {
@@ -347,7 +349,10 @@ export default function ReturnsPage() {
                   <p className="font-extrabold text-gray-900">{selectedSaleInfo[0]?.manufacturer}</p>
                   <p className="text-gray-500">{selectedSaleInfo[0]?.product_name || "未命名"}</p>
                   <p className="text-gray-400 text-xs">
-                    已售尺码: {selectedSaleInfo.map((r) => `${r.size}(${r.quantity}件)`).join(", ")}
+                    已售尺码: {SIZE_OPTIONS.map((s) => {
+                      const sold = getSoldQuantity(s);
+                      return sold > 0 ? `${s}(${sold}件)` : null;
+                    }).filter(Boolean).join(", ")}
                   </p>
                 </div>
               </div>
