@@ -292,8 +292,21 @@ async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): P
   // 白底图提示词：只换背景为纯白，不改变衣服任何特征（防止袖长/领型/颜色变形）
   const flatPrompt = `Remove the background completely and replace it with pure white #FFFFFF. Keep the original garment exactly as-is — same style, same sleeve length, same collar type, same colors, same patterns, same prints, same fabric texture, same proportions, same every single detail. Do NOT alter, redraw, transform, or regenerate the garment in any way. The garment must be a pixel-perfect copy of the original, only the background changes to pure white. Flat-lay front view, no model, no shadow, no mannequin, professional e-commerce product photography, sharp focus.`;
 
-  // 试穿图提示词：浅灰质感棚拍背景，3:4，强调保留袖长/版型/模特细节
-  const tryOnPrompt = `A premium fashion studio photograph of the model wearing the exact garment from the reference clothing photo. The model's face, facial features, body shape, skin tone, and hairstyle must remain identical to the reference model photo. The garment must be preserved with absolute fidelity — same style, same sleeve length, same collar, same fit, same colors, same patterns, same prints, same fabric texture, same every detail, no alteration whatsoever. Light gray textured seamless studio backdrop (#E8E8E8 tone), premium fashion photography, soft even studio lighting, subtle natural shadow, full body shot, vertical 3:4 composition, elegant confident pose, sharp focus, high-end editorial quality.`;
+  // 试穿图提示词：浅灰质感棚拍背景，3:4，强调保留袖长/版型/模特幼态可爱感
+  // 姿势随机变化，避免每张图动作雷同
+  const childPoses = [
+    "standing naturally with a gentle innocent smile, hands relaxed at sides",
+    "slightly tilting head with a cute playful smile, one hand lightly touching the garment hem",
+    "standing with hands behind back, cheerful childlike expression",
+    "gently posing with one hand on hip, natural sweet smile",
+    "standing casually with arms crossed loosely, bright innocent look",
+    "slightly turning body with a lovely smile, hands naturally positioned in front",
+    "standing with one hand touching hair, adorable childlike expression",
+    "gently stepping forward with a warm cute smile, hands relaxed",
+  ];
+  const randomPose = childPoses[Math.floor(Math.random() * childPoses.length)];
+
+  const tryOnPrompt = `A premium fashion studio photograph of the model wearing the exact garment from the reference clothing photo. The model's face, facial features, body shape, skin tone, hairstyle, AND age appearance must remain strictly identical to the reference model photo — preserve the cute childlike charm, youthful innocence, and adorable features exactly. DO NOT make the model look older, more mature, or lose the child's innocent vibe. The garment must be preserved with absolute fidelity — same style, same sleeve length, same collar, same fit, same colors, same patterns, same prints, same fabric texture, same every detail, no alteration whatsoever. Light gray textured seamless studio backdrop (#E8E8E8 tone), premium fashion photography, soft even studio lighting, subtle natural shadow, full body shot, vertical 3:4 composition, ${randomPose}, sharp focus, high-end editorial quality.`;
 
   // 白底图和试穿图并行生成（互不依赖，节省一半时间）
   // 试穿图直接用衣服原图+模特图，避免白底图变形累积误差
