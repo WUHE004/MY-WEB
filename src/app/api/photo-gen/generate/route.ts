@@ -265,123 +265,85 @@ async function callAgnesTextModel(garmentDesc: string, modelDesc: string): Promi
   }
 }
 
-// 调用 Agnes 模型（一键生成流程：白底图 → 场景描述 → 竖版试穿图）
+// 503 重试包装（最多3次，间隔3秒，平衡可靠性与 Vercel 超时）
+const AGNES_MAX_RETRIES = 3;
+const AGNES_RETRY_DELAY_MS = 3000;
+
+async function agnesImageFetch(url: string, body: unknown, retries = AGNES_MAX_RETRIES): Promise<Response> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 503 && retries > 0) {
+    console.log(`[Agnes] 503 服务繁忙，剩余 ${retries} 次重试，${AGNES_RETRY_DELAY_MS}ms 后重试...`);
+    await new Promise((r) => setTimeout(r, AGNES_RETRY_DELAY_MS));
+    return agnesImageFetch(url, body, retries - 1);
+  }
+  return res;
+}
+
+// 调用 Agnes 模型（一键生成流程：白底图 ‖ 试穿图 并行生成）
 async function callAgnesModel(productPhotoUrl: string, modelPhotoUrl: string): Promise<{ modelUrl: string | null; flatUrl: string | null; sceneDescription: string }> {
   if (!AGNES_API_KEY) {
     throw new Error("Agnes API Key 未配置");
   }
 
-  // 步骤1: 用 Agnes 视觉模型识别衣服
-  console.log("Agnes: 识别衣服特征...");
-  const descPrompt = `请以JSON格式识别这张图片中的衣服英文关键词：garment_type（如t-shirt, hoodie, dress, polo, shirt, sweatshirt, jacket, romper, vest, skirt set等），main_color（精确颜色），patterns（每个图案的位置+形状+颜色+大小），neckline_sleeves，material，details。只输出JSON，不要额外文字。`;
+  // 白底图提示词：只换背景为纯白，不改变衣服任何特征（防止袖长/领型/颜色变形）
+  const flatPrompt = `Remove the background completely and replace it with pure white #FFFFFF. Keep the original garment exactly as-is — same style, same sleeve length, same collar type, same colors, same patterns, same prints, same fabric texture, same proportions, same every single detail. Do NOT alter, redraw, transform, or regenerate the garment in any way. The garment must be a pixel-perfect copy of the original, only the background changes to pure white. Flat-lay front view, no model, no shadow, no mannequin, professional e-commerce product photography, sharp focus.`;
 
-  let garmentDesc = "a piece of clothing";
+  // 试穿图提示词：浅灰质感棚拍背景，3:4，强调保留袖长/版型/模特细节
+  const tryOnPrompt = `A premium fashion studio photograph of the model wearing the exact garment from the reference clothing photo. The model's face, facial features, body shape, skin tone, and hairstyle must remain identical to the reference model photo. The garment must be preserved with absolute fidelity — same style, same sleeve length, same collar, same fit, same colors, same patterns, same prints, same fabric texture, same every detail, no alteration whatsoever. Light gray textured seamless studio backdrop (#E8E8E8 tone), premium fashion photography, soft even studio lighting, subtle natural shadow, full body shot, vertical 3:4 composition, elegant confident pose, sharp focus, high-end editorial quality.`;
 
-  try {
-    const visionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-vlm-2-flash",
-        messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: productPhotoUrl } }, { type: "text", text: descPrompt }] }],
-        temperature: 0.2,
-      }),
-    });
+  // 白底图和试穿图并行生成（互不依赖，节省一半时间）
+  // 试穿图直接用衣服原图+模特图，避免白底图变形累积误差
+  console.log("Agnes: 并行生成白底图和试穿图...");
 
-    const visionData = await visionRes.json();
-    const rawDesc = visionData?.choices?.[0]?.message?.content || "";
-    garmentDesc = rawDesc;
+  const flatTask = (async (): Promise<string | null> => {
     try {
-      const jsonMatch = rawDesc.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        garmentDesc = Object.values(parsed).filter((v) => v && String(v).trim()).join(", ");
-      }
-    } catch (_e) { /* 保持原文 */ }
-    console.log("Agnes: 服装描述:", garmentDesc);
-
-    // 步骤2: 用 Agnes 视觉模型识别模特
-    console.log("Agnes: 识别模特特征...");
-    let modelDesc = "a child model";
-    try {
-      const modelVisionRes = await fetch(`${AGNES_BASE}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-        body: JSON.stringify({
-          model: "agnes-vlm-2-flash",
-          messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: modelPhotoUrl } }, { type: "text", text: "请用英文描述这个儿童模特的性别、大致年龄、发型发色、肤色、姿势。用一句话概括。" }] }],
-          temperature: 0.2,
-        }),
-      });
-      const modelVisionData = await modelVisionRes.json();
-      modelDesc = modelVisionData?.choices?.[0]?.message?.content || "a child model";
-    } catch (_e) { /* 保持默认 */ }
-    console.log("Agnes: 模特描述:", modelDesc);
-
-    // 步骤3: 先调用文本模型生成拍摄场景和配饰
-    console.log("Agnes: 生成拍摄场景和配饰...");
-    const sceneDescription = await callAgnesTextModel(garmentDesc, modelDesc);
-
-    // 步骤4: 图生图生成白底平铺图（传入衣服照片作为参考）
-    console.log("Agnes: 生成白底平铺图（图生图）...");
-    let flatUrl: string | null = null;
-    try {
-      const flatPrompt = `Transform the garment into a professionally shot flat-lay product photo. Preserve the exact garment type, colors, patterns, prints, fabric texture, every detail from the photo. Laid flat and smooth, front view, on a pure white background. Clean sharp edges, no model, no shadow, professional product photography.`;
-      const flatRes = await fetch(`${AGNES_BASE}/images/generations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-        body: JSON.stringify({
-          model: "agnes-image-2.0-flash",
-          prompt: flatPrompt,
-          size: "1024x1024",
-          tags: ["img2img"],
-          extra_body: { image: [productPhotoUrl], response_format: "url" },
-        }),
+      const flatRes = await agnesImageFetch(`${AGNES_BASE}/images/generations`, {
+        model: "agnes-image-2.1-flash",
+        prompt: flatPrompt,
+        size: "1024x1024",
+        tags: ["img2img"],
+        extra_body: { image: [productPhotoUrl], response_format: "url" },
       });
       const flatData = await flatRes.json();
-      if (flatRes.ok) {
-        flatUrl = flatData?.data?.[0]?.url || null;
-        console.log("Agnes: 白底图生成成功:", flatUrl);
-      } else {
+      if (!flatRes.ok) {
         console.error("Agnes: 白底图生成失败:", flatData);
+        return null;
       }
-    } catch (flatErr) {
-      console.error("Agnes: 白底图生成异常:", flatErr);
+      const url = flatData?.data?.[0]?.url || null;
+      console.log("Agnes: 白底图生成成功:", url);
+      return url;
+    } catch (err) {
+      console.error("Agnes: 白底图生成异常:", err);
+      return null;
     }
+  })();
 
-    // 步骤5: 图生图生成竖版模特试穿图（白底图+模特照片+场景描述）
-    console.log("Agnes: 生成竖版模特试穿图（图生图）...");
-    const scenePrompt = sceneDescription
-      ? `Make the child model wear the exact garment from the flat lay photo. ${sceneDescription}. Preserve the model's face, body shape, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Simple clean background, soft studio lighting. Natural relaxed pose with small subtle movement, standing naturally. Full body shot, vertical composition.`
-      : `Make the child model wear the exact garment from the flat lay photo. ${garmentDesc}. Preserve the model's face, body shape, and skin tone exactly. The garment must match the flat lay photo exactly — same type, same colors, same patterns, same fabric texture, same details. Simple clean background, soft studio lighting. Natural relaxed pose with small subtle movement, standing naturally. Full body shot, vertical composition.`;
-
-    const modelImages = flatUrl ? [flatUrl, modelPhotoUrl] : [productPhotoUrl, modelPhotoUrl];
-
-    const modelRes = await fetch(`${AGNES_BASE}/images/generations`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${AGNES_API_KEY}` },
-      body: JSON.stringify({
-        model: "agnes-image-2.0-flash",
-        prompt: scenePrompt,
-        size: "768x1024",
-        tags: ["img2img"],
-        extra_body: { image: modelImages, response_format: "url" },
-      }),
+  const tryOnTask = (async (): Promise<string> => {
+    const modelRes = await agnesImageFetch(`${AGNES_BASE}/images/generations`, {
+      model: "agnes-image-2.1-flash",
+      prompt: tryOnPrompt,
+      size: "768x1024",
+      tags: ["img2img"],
+      extra_body: { image: [productPhotoUrl, modelPhotoUrl], response_format: "url" },
     });
     const modelData = await modelRes.json();
     if (!modelRes.ok) {
-      console.error("Agnes: 竖版试穿图生成失败:", modelData);
-      throw new Error(`竖版试穿图生成失败: ${JSON.stringify(modelData)}`);
+      console.error("Agnes: 试穿图生成失败:", modelData);
+      throw new Error(`试穿图生成失败: ${JSON.stringify(modelData)}`);
     }
-    const modelUrl = modelData?.data?.[0]?.url || null;
-    if (!modelUrl) throw new Error("竖版试穿图生成失败：未返回图片");
-    console.log("Agnes: 竖版试穿图生成成功:", modelUrl);
+    const url = modelData?.data?.[0]?.url || null;
+    if (!url) throw new Error("试穿图生成失败：未返回图片");
+    console.log("Agnes: 试穿图生成成功:", url);
+    return url;
+  })();
 
-    return { modelUrl, flatUrl, sceneDescription };
-  } catch (err) {
-    console.error("Agnes: 生成失败:", err);
-    return { modelUrl: null, flatUrl: null, sceneDescription: "" };
-  }
+  const [flatUrl, modelUrl] = await Promise.all([flatTask, tryOnTask]);
+
+  return { modelUrl, flatUrl, sceneDescription: "" };
 }
 
 // 调用豆包 Seedream API
@@ -699,11 +661,11 @@ export async function POST(request: NextRequest) {
     const rawBuffer = Buffer.from(await imageRes.arrayBuffer());
     const imageBuffer = await compressImage(rawBuffer);
 
-    // 4. 查询商品详情并发送企业微信（先文本，再试穿图，再白底图）
+    // 4. 查询商品详情并发送企业微信（先文本，再白底图，再试穿图）
     let wechatSent = false;
     if (WECHAT_WEBHOOK_URL) {
       try {
-        // 先发送商品信息文本
+        // 1. 先发送商品信息文本
         const [productDetail, salesStats] = await Promise.all([
           getProductDetail(sale_id),
           getSalesStats(sale_id),
@@ -713,19 +675,7 @@ export async function POST(request: NextRequest) {
           : `售卖编号：${sale_id}`;
         await sendTextToWechat(productText);
 
-        // 再发送试穿图
-        const base64Image = imageBuffer.toString("base64");
-        const md5 = await computeMd5(imageBuffer);
-        const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ msgtype: "image", image: { base64: base64Image, md5 } }),
-        });
-        const wechatData = await wechatRes.json();
-        console.log("企业微信发送试穿图结果:", wechatData);
-        wechatSent = wechatData?.errcode === 0;
-
-        // 最后发送白底图
+        // 2. 再发送白底图
         if (flatUrl) {
           try {
             const flatRes = await fetch(flatUrl);
@@ -744,6 +694,18 @@ export async function POST(request: NextRequest) {
             console.error("微信发送白底图失败:", flatErr);
           }
         }
+
+        // 3. 最后发送试穿图
+        const base64Image = imageBuffer.toString("base64");
+        const md5 = await computeMd5(imageBuffer);
+        const wechatRes = await fetch(WECHAT_WEBHOOK_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ msgtype: "image", image: { base64: base64Image, md5 } }),
+        });
+        const wechatData = await wechatRes.json();
+        console.log("企业微信发送试穿图结果:", wechatData);
+        wechatSent = wechatData?.errcode === 0;
       } catch (wechatErr) {
         console.error("微信发送失败:", wechatErr);
       }
