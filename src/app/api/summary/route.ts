@@ -83,38 +83,56 @@ export async function GET() {
     // 按 sale_id 分组
     const summaryMap = new Map<string, SummaryRow>();
 
-    // 处理入库记录
+    // 处理入库记录（累加同 sale_id 的多条记录，支持补录入库）
     for (const row of inboundData || []) {
       const saleId = (row.sale_id || "").toUpperCase();
       if (!saleId) continue;
 
-      // 计算入库总数
-      let inboundTotal = 0;
+      // 计算本条记录的入库数量
+      let rowTotal = 0;
       const sizeCounts: Record<string, number> = {};
       for (const s of SIZES) {
         const val = Number(row[`size_${s}`]) || 0;
-        inboundTotal += val;
+        rowTotal += val;
         sizeCounts[`size_${s}`] = val;
       }
 
       const costPrice = Number(row.cost_price) || 0;
+      const sellPrice = Number(row.sell_price) || 0;
 
-      summaryMap.set(saleId, {
-        sale_id: saleId,
-        inbound_total: inboundTotal,
-        sold_total: 0,
-        return_total: 0,
-        remaining: inboundTotal,
-        profits: 0,
-        inventory_value: 0,
-        cost_price: costPrice,
-        sell_price: Number(row.sell_price) || 0,
-        name: row.name || "",
-        manufacturer: row.manufacturer || "",
-        photo: row.photo || "",
-        shelf_no: row.shelf_no || "",
-        ...sizeCounts,
-      });
+      // 累加：如果该 sale_id 已存在，则累加尺码数量；否则新建
+      if (summaryMap.has(saleId)) {
+        const existing = summaryMap.get(saleId)!;
+        existing.inbound_total += rowTotal;
+        existing.remaining += rowTotal;
+        for (const s of SIZES) {
+          existing[`size_${s}`] = (Number(existing[`size_${s}`]) || 0) + sizeCounts[`size_${s}`];
+        }
+        // 基础信息：优先保留非空值（最新记录覆盖空字段）
+        if (!existing.name && row.name) existing.name = row.name;
+        if (!existing.manufacturer && row.manufacturer) existing.manufacturer = row.manufacturer;
+        if (!existing.photo && row.photo) existing.photo = row.photo;
+        if (!existing.shelf_no && row.shelf_no) existing.shelf_no = row.shelf_no;
+        if (costPrice > 0) existing.cost_price = costPrice;
+        if (sellPrice > 0) existing.sell_price = sellPrice;
+      } else {
+        summaryMap.set(saleId, {
+          sale_id: saleId,
+          inbound_total: rowTotal,
+          sold_total: 0,
+          return_total: 0,
+          remaining: rowTotal,
+          profits: 0,
+          inventory_value: 0,
+          cost_price: costPrice,
+          sell_price: sellPrice,
+          name: row.name || "",
+          manufacturer: row.manufacturer || "",
+          photo: row.photo || "",
+          shelf_no: row.shelf_no || "",
+          ...sizeCounts,
+        });
+      }
     }
 
     // 处理售卖记录

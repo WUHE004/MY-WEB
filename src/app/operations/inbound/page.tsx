@@ -148,6 +148,10 @@ export default function InboundPage() {
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
   const [restockSubmitting, setRestockSubmitting] = useState(false);
+  // 索引下拉（同售卖登记）
+  const [restockIndexList, setRestockIndexList] = useState<Array<{ sale_id: string; name: string; photo: string; manufacturer: string }>>([]);
+  const [restockDropdown, setRestockDropdown] = useState<Array<{ sale_id: string; name: string; photo: string; manufacturer: string }>>([]);
+  const [showRestockDropdown, setShowRestockDropdown] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -180,6 +184,31 @@ export default function InboundPage() {
       }
     };
     loadSettings();
+  }, []);
+
+  // ===== 加载入库记录索引（用于补录弹窗自动补全）=====
+  useEffect(() => {
+    fetch("/api/inbound-records")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        // 按 sale_id 去重，保留最新一条的基础信息
+        const seen = new Map<string, { sale_id: string; name: string; photo: string; manufacturer: string }>();
+        for (const r of data) {
+          const sid = String(r.sale_id || "").toUpperCase().trim();
+          if (!sid) continue;
+          if (!seen.has(sid)) {
+            seen.set(sid, {
+              sale_id: sid,
+              name: String(r.name || ""),
+              photo: String(r.photo || ""),
+              manufacturer: String(r.manufacturer || ""),
+            });
+          }
+        }
+        setRestockIndexList(Array.from(seen.values()));
+      })
+      .catch(() => {});
   }, []);
 
   // ===== 从 URL 参数读取预填数据（从未入库售出记录跳转过来）=====
@@ -941,8 +970,15 @@ export default function InboundPage() {
     : Object.values(sizes).reduce((sum, v) => sum + v, 0);
 
   // ===== 补录功能 =====
-  const handleRestockSearch = async () => {
-    const sid = restockSaleId.trim().toUpperCase();
+  // 判断补录商品是否为无尺码分类
+  const isRestockNoSize = (() => {
+    if (!restockProduct) return false;
+    const style = String(restockProduct.style_category || "").trim();
+    return noSizeStyles.includes(style);
+  })();
+
+  const handleRestockSearch = async (sidOverride?: string) => {
+    const sid = (sidOverride || restockSaleId).trim().toUpperCase();
     if (!sid) {
       setRestockError("请输入商品编号");
       return;
@@ -951,6 +987,7 @@ export default function InboundPage() {
     setRestockError("");
     setRestockProduct(null);
     setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    setShowRestockDropdown(false);
     try {
       const res = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(sid)}`);
       const data = await res.json();
@@ -976,6 +1013,35 @@ export default function InboundPage() {
     }
   };
 
+  // 输入编号时实时过滤下拉
+  const handleRestockInput = (value: string) => {
+    const val = value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    setRestockSaleId(val);
+    setRestockError("");
+    setRestockProduct(null);
+    setShowRestockDropdown(false);
+    if (val.trim()) {
+      const filtered = restockIndexList
+        .filter(
+          (r) =>
+            r.sale_id.toLowerCase().includes(val.toLowerCase()) ||
+            r.name.toLowerCase().includes(val.toLowerCase())
+        )
+        .slice(0, 10);
+      setRestockDropdown(filtered);
+      setShowRestockDropdown(filtered.length > 0);
+    } else {
+      setRestockDropdown([]);
+    }
+  };
+
+  // 点击下拉项
+  const handleRestockSelect = (item: { sale_id: string; name: string; photo: string; manufacturer: string }) => {
+    setRestockSaleId(item.sale_id);
+    setShowRestockDropdown(false);
+    handleRestockSearch(item.sale_id);
+  };
+
   const updateRestockSize = (size: number, delta: number) => {
     setRestockSizes((prev) => ({
       ...prev,
@@ -993,7 +1059,10 @@ export default function InboundPage() {
 
   const handleRestockSubmit = async () => {
     if (!restockProduct) return;
-    const totalRestock = Object.values(restockSizes).reduce((sum, v) => sum + v, 0);
+    // 无尺码分类时只统计 size_80（标码），有尺码时统计全部
+    const totalRestock = isRestockNoSize
+      ? restockSizes[80] || 0
+      : Object.values(restockSizes).reduce((sum, v) => sum + v, 0);
     if (totalRestock === 0) {
       alert("请输入补录数量");
       return;
@@ -1016,7 +1085,12 @@ export default function InboundPage() {
         inbound_date: new Date().toISOString(),
       };
       for (const s of SIZE_OPTIONS) {
-        record[`size_${s}`] = restockSizes[s] || 0;
+        // 无尺码分类时，只有 size_80 写入补录数量，其他尺码为 0
+        if (isRestockNoSize) {
+          record[`size_${s}`] = s === 80 ? restockSizes[80] || 0 : 0;
+        } else {
+          record[`size_${s}`] = restockSizes[s] || 0;
+        }
       }
 
       const res = await fetch("/api/inbound-records", {
@@ -1038,6 +1112,7 @@ export default function InboundPage() {
       setRestockProduct(null);
       setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
       setRestockError("");
+      setShowRestockDropdown(false);
     } catch {
       alert("网络错误，请重试");
     } finally {
@@ -1051,6 +1126,8 @@ export default function InboundPage() {
     setRestockProduct(null);
     setRestockError("");
     setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    setShowRestockDropdown(false);
+    setRestockDropdown([]);
   };
 
   return (
@@ -2107,26 +2184,59 @@ export default function InboundPage() {
 
             {/* Body - 可滚动 */}
             <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-4">
-              {/* 商品编号输入 */}
-              <div>
+              {/* 商品编号输入（带自动索引下拉） */}
+              <div className="relative">
                 <label className="text-xs lg:text-sm font-extrabold text-gray-900 mb-1.5 block">
                   商品编号 <span className="text-red-500">*</span>
                 </label>
                 <div className="flex gap-2">
-                  <Input
-                    value={restockSaleId}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-                      setRestockSaleId(val);
-                      setRestockError("");
-                      setRestockProduct(null);
-                    }}
-                    onKeyDown={(e) => e.key === "Enter" && handleRestockSearch()}
-                    placeholder="输入商品编号，如 WUHE001"
-                    className="text-sm flex-1"
-                  />
+                  <div className="relative flex-1">
+                    <Input
+                      value={restockSaleId}
+                      onChange={(e) => handleRestockInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setShowRestockDropdown(false);
+                          handleRestockSearch();
+                        }
+                      }}
+                      onBlur={() => setTimeout(() => setShowRestockDropdown(false), 150)}
+                      onFocus={() => {
+                        if (restockDropdown.length > 0) setShowRestockDropdown(true);
+                      }}
+                      placeholder="输入编号或名称搜索"
+                      className="text-sm w-full"
+                    />
+                    {showRestockDropdown && restockDropdown.length > 0 && (
+                      <div className="absolute z-50 left-0 right-0 mt-1 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-60 overflow-y-auto">
+                        {restockDropdown.map((item) => (
+                          <button
+                            key={item.sale_id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handleRestockSelect(item);
+                            }}
+                            className="w-full flex items-center gap-2 p-2 hover:bg-purple-50 border-b border-gray-100 last:border-b-0 text-left"
+                          >
+                            {item.photo ? (
+                              <img src={item.photo} alt="" className="w-8 h-8 rounded border border-gray-300 object-cover flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded border border-gray-300 bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                <Image className="h-3 w-3 text-gray-400" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</p>
+                              <p className="text-[10px] text-gray-500 truncate">{item.name || "未命名"} · {item.manufacturer || "-"}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button
-                    onClick={handleRestockSearch}
+                    onClick={() => handleRestockSearch()}
                     disabled={restockLoading || !restockSaleId.trim()}
                     className="flex items-center gap-1.5 px-3 lg:px-4 rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] text-white font-extrabold text-xs lg:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -2200,60 +2310,98 @@ export default function InboundPage() {
                     </div>
                   </div>
 
-                  {/* 尺码补录 */}
+                  {/* 尺码补录 - 无尺码分类时只显示标码输入框 */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-xs lg:text-sm font-extrabold text-gray-900">
-                        补录数量
+                        {isRestockNoSize ? "标码补录数量" : "补录数量"}
                       </label>
                       <span className="text-xs lg:text-sm font-bold text-[#7B61FF]">
-                        本次补录: {Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件
+                        本次补录: {isRestockNoSize ? restockSizes[80] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件
                       </span>
                     </div>
-                    <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 gap-2">
-                      {SIZE_OPTIONS.map((size) => {
-                        const currentQty = (restockProduct._sizeTotals as Record<number, number>)[size] || 0;
-                        const restockQty = restockSizes[size] || 0;
-                        return (
-                          <div
-                            key={size}
-                            className={`rounded-xl border-[3px] p-1.5 lg:p-2 transition-colors ${
-                              restockQty > 0 ? "border-[#7B61FF] bg-purple-50" : "border-gray-900 bg-white"
-                            }`}
-                          >
-                            <div className="text-center mb-1">
-                              <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
-                              <p className="text-[9px] lg:text-[10px] text-gray-500">当前 {currentQty} 件</p>
-                            </div>
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => updateRestockSize(size, -1)}
-                                className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
-                              >
-                                <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
-                              </button>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={restockQty}
-                                onChange={(e) => setRestockSizeValue(size, e.target.value)}
-                                className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
-                                  restockQty > 0 ? "text-[#7B61FF]" : "text-gray-300"
-                                }`}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => updateRestockSize(size, 1)}
-                                className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
-                              >
-                                <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
-                              </button>
-                            </div>
+                    {isRestockNoSize ? (
+                      // 无尺码分类：只显示一个标码输入框（居中放大显示）
+                      <div className="flex justify-center">
+                        <div className="w-40 rounded-xl border-[3px] border-gray-900 bg-white p-3">
+                          <div className="text-center mb-2">
+                            <span className="text-sm font-extrabold text-gray-900">标码</span>
+                            <p className="text-xs text-gray-500">当前 {(restockProduct._sizeTotals as Record<number, number>)[80] || 0} 件</p>
                           </div>
-                        );
-                      })}
-                    </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => updateRestockSize(80, -1)}
+                              className="flex h-9 w-9 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                            >
+                              <Minus className="h-4 w-4" />
+                            </button>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={restockSizes[80] || 0}
+                              onChange={(e) => setRestockSizeValue(80, e.target.value)}
+                              className={`w-full text-center text-lg font-extrabold border-none outline-none bg-transparent ${
+                                (restockSizes[80] || 0) > 0 ? "text-[#7B61FF]" : "text-gray-300"
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => updateRestockSize(80, 1)}
+                              className="flex h-9 w-9 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      // 有尺码：显示所有尺码
+                      <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 gap-2">
+                        {SIZE_OPTIONS.map((size) => {
+                          const currentQty = (restockProduct._sizeTotals as Record<number, number>)[size] || 0;
+                          const restockQty = restockSizes[size] || 0;
+                          return (
+                            <div
+                              key={size}
+                              className={`rounded-xl border-[3px] p-1.5 lg:p-2 transition-colors ${
+                                restockQty > 0 ? "border-[#7B61FF] bg-purple-50" : "border-gray-900 bg-white"
+                              }`}
+                            >
+                              <div className="text-center mb-1">
+                                <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
+                                <p className="text-[9px] lg:text-[10px] text-gray-500">当前 {currentQty} 件</p>
+                              </div>
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => updateRestockSize(size, -1)}
+                                  className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                                >
+                                  <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                                </button>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={restockQty}
+                                  onChange={(e) => setRestockSizeValue(size, e.target.value)}
+                                  className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
+                                    restockQty > 0 ? "text-[#7B61FF]" : "text-gray-300"
+                                  }`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateRestockSize(size, 1)}
+                                  className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                                >
+                                  <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
@@ -2264,10 +2412,10 @@ export default function InboundPage() {
               <div className="p-4 lg:p-5 border-t-[2px] border-gray-200">
                 <button
                   onClick={handleRestockSubmit}
-                  disabled={restockSubmitting || Object.values(restockSizes).reduce((sum, v) => sum + v, 0) === 0}
+                  disabled={restockSubmitting || (isRestockNoSize ? (restockSizes[80] || 0) === 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0) === 0)}
                   className="w-full py-3 text-sm lg:text-base font-extrabold text-white rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {restockSubmitting ? "提交中..." : `确认补录 ${Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件`}
+                  {restockSubmitting ? "提交中..." : `确认补录 ${isRestockNoSize ? restockSizes[80] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件`}
                 </button>
               </div>
             )}
