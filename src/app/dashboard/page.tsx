@@ -77,8 +77,6 @@ export default function DashboardPage() {
   // 新增数据
   const [salesSizeByDate, setSalesSizeByDate] = useState<SizeByDateItem[]>([]);
   const [mfrSizeStock, setMfrSizeStock] = useState<MfrSizeStockItem[]>([]);
-  // 尺码柱状图模式
-  const [sizeChartMode, setSizeChartMode] = useState<"day" | "month">("day");
   // 业绩/盈利/售卖框的模式（日度/月度）
   const [perfMode, setPerfMode] = useState<"day" | "month">("day");
 
@@ -397,40 +395,17 @@ export default function DashboardPage() {
       .reduce((s, d) => s + (d.shipping_fee || 0), 0);
   }, [dailyStats, selectedShippingMonth]);
 
-  // ===== 售卖尺码柱状图数据 =====
+  // ===== 售卖尺码柱状图数据（仅当日）=====
   const sizeChartData = useMemo(() => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-
-    if (sizeChartMode === "day") {
-      // 默认选中最新日期
-      const targetDate = selectedDate || (dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].date : "");
-      if (!targetDate) return [];
-      const found = salesSizeByDate.find(s => s.date === targetDate);
-      if (!found) return [];
-      return ALL_SIZES.map(sz => ({
-        size: `${sz}`,
-        quantity: Number(found[`size_${sz}`]) || 0,
-      })).filter(d => d.quantity > 0);
-    } else {
-      // 月度：默认当前月
-      const targetMonth = selectedPerfMonth || `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
-      const monthData: Record<string, number> = {};
-      for (const sz of ALL_SIZES) monthData[`${sz}`] = 0;
-      for (const item of salesSizeByDate) {
-        if (item.date.slice(0, 7) === targetMonth) {
-          for (const sz of ALL_SIZES) {
-            monthData[`${sz}`] += Number(item[`size_${sz}`]) || 0;
-          }
-        }
-      }
-      return ALL_SIZES.map(sz => ({
-        size: `${sz}`,
-        quantity: monthData[`${sz}`],
-      })).filter(d => d.quantity > 0);
-    }
-  }, [salesSizeByDate, sizeChartMode, selectedDate, selectedPerfMonth, dailyStats]);
+    const targetDate = selectedDate || (dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].date : "");
+    if (!targetDate) return [];
+    const found = salesSizeByDate.find(s => s.date === targetDate);
+    if (!found) return [];
+    return ALL_SIZES.map(sz => ({
+      size: `${sz}`,
+      quantity: Number(found[`size_${sz}`]) || 0,
+    })).filter(d => d.quantity > 0);
+  }, [salesSizeByDate, selectedDate, dailyStats]);
 
   // ===== 厂家尺码剩余雷达图数据 =====
   const radarData = useMemo(() => {
@@ -521,96 +496,132 @@ export default function DashboardPage() {
           }
         />
 
-        {/* 业绩 - 带日度/月度切换 */}
+        {/* 业绩 - 带日度/月度切换 + 日期下拉 */}
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
           label="业绩"
           value={`¥${performance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           color="bg-blue-500"
-          extra={
-            <div className="flex flex-col gap-1 mt-1">
-              <div className="flex gap-1 justify-end">
-                <button
-                  onClick={() => setPerfMode("day")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >日度</button>
-                <button
-                  onClick={() => setPerfMode("month")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >月度</button>
-              </div>
-              <select
-                value={perfMode === "day" ? selectedDate : selectedPerfMonth}
-                onChange={e => {
-                  if (perfMode === "day") setSelectedDate(e.target.value);
-                  else setSelectedPerfMonth(e.target.value);
-                }}
-                className="w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-              >
-                {perfMode === "day" ? (
-                  availableDates.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value="">全部累计</option>
-                    {availablePerfMonths.map(m => (
-                      <option key={m.month} value={m.month}>{m.month}（¥{m.amount.toFixed(0)}）</option>
-                    ))}
-                  </>
-                )}
-              </select>
+          modeToggle={
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPerfMode("day")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >日度</button>
+              <button
+                onClick={() => setPerfMode("month")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >月度</button>
             </div>
+          }
+          extra={
+            <select
+              value={perfMode === "day" ? selectedDate : selectedPerfMonth}
+              onChange={e => {
+                if (perfMode === "day") setSelectedDate(e.target.value);
+                else setSelectedPerfMonth(e.target.value);
+              }}
+              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+            >
+              {perfMode === "day" ? (
+                availableDates.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))
+              ) : (
+                <>
+                  <option value="">全部累计</option>
+                  {availablePerfMonths.map(m => (
+                    <option key={m.month} value={m.month}>{m.month}（¥{m.amount.toFixed(0)}）</option>
+                  ))}
+                </>
+              )}
+            </select>
           }
         />
 
-        {/* 盈利 - 与业绩同步 */}
+        {/* 盈利 - 与业绩同步（带日期下拉） */}
         <StatCard
           icon={<DollarSign className="h-5 w-5" />}
           label="盈利"
           value={`¥${dailyProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           color="bg-yellow-500"
-          extra={
-            <div className="flex flex-col gap-1 mt-1">
-              <div className="flex gap-1 justify-end">
-                <button
-                  onClick={() => setPerfMode("day")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >日度</button>
-                <button
-                  onClick={() => setPerfMode("month")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >月度</button>
-              </div>
-              <p className="text-[10px] text-gray-500 font-bold truncate">
-                {perfMode === "day" ? selectedDate || "请选择日期" : selectedPerfMonth || "全部累计"}
-              </p>
+          modeToggle={
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPerfMode("day")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >日度</button>
+              <button
+                onClick={() => setPerfMode("month")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >月度</button>
             </div>
+          }
+          extra={
+            <select
+              value={perfMode === "day" ? selectedDate : selectedPerfMonth}
+              onChange={e => {
+                if (perfMode === "day") setSelectedDate(e.target.value);
+                else setSelectedPerfMonth(e.target.value);
+              }}
+              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+            >
+              {perfMode === "day" ? (
+                availableDates.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))
+              ) : (
+                <>
+                  <option value="">全部累计</option>
+                  {availablePerfMonths.map(m => (
+                    <option key={m.month} value={m.month}>{m.month}（¥{m.amount.toFixed(0)}）</option>
+                  ))}
+                </>
+              )}
+            </select>
           }
         />
 
-        {/* 售卖 - 与业绩/盈利同步 */}
+        {/* 售卖 - 与业绩/盈利同步（带日期下拉） */}
         <StatCard
           icon={<ShoppingCart className="h-5 w-5" />}
           label="售卖"
           value={`${soldQuantity} 件`}
           color="bg-teal-500"
-          extra={
-            <div className="flex flex-col gap-1 mt-1">
-              <div className="flex gap-1 justify-end">
-                <button
-                  onClick={() => setPerfMode("day")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >日度</button>
-                <button
-                  onClick={() => setPerfMode("month")}
-                  className={`px-2 py-0.5 rounded-md border-[2px] border-gray-900 text-[10px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
-                >月度</button>
-              </div>
-              <p className="text-[10px] text-gray-500 font-bold truncate">
-                {perfMode === "day" ? selectedDate || "请选择日期" : selectedPerfMonth || "全部累计"}
-              </p>
+          modeToggle={
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPerfMode("day")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >日度</button>
+              <button
+                onClick={() => setPerfMode("month")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >月度</button>
             </div>
+          }
+          extra={
+            <select
+              value={perfMode === "day" ? selectedDate : selectedPerfMonth}
+              onChange={e => {
+                if (perfMode === "day") setSelectedDate(e.target.value);
+                else setSelectedPerfMonth(e.target.value);
+              }}
+              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+            >
+              {perfMode === "day" ? (
+                availableDates.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))
+              ) : (
+                <>
+                  <option value="">全部累计</option>
+                  {availablePerfMonths.map(m => (
+                    <option key={m.month} value={m.month}>{m.month}（¥{m.amount.toFixed(0)}）</option>
+                  ))}
+                </>
+              )}
+            </select>
           }
         />
       </div>
@@ -700,25 +711,24 @@ export default function DashboardPage() {
 
       {/* 图表区 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {/* 售卖尺码柱状图 */}
+        {/* 售卖尺码柱状图 - 仅当日数据 */}
         <ChartCard
           title="售卖尺码分布"
           extra={
-            <div className="flex gap-1">
-              <button
-                onClick={() => setSizeChartMode("day")}
-                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${sizeChartMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
-              >日度</button>
-              <button
-                onClick={() => setSizeChartMode("month")}
-                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${sizeChartMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
-              >月度</button>
-            </div>
+            <select
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+              className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
+            >
+              {availableDates.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
           }
         >
           {sizeChartData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">
-              {sizeChartMode === "day" ? "该日期无售卖数据" : "该月份无售卖数据"}
+              该日期无售卖数据
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
@@ -943,12 +953,13 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ icon, label, value, color, extra }: { icon: React.ReactNode; label: string; value: string; color: string; extra?: React.ReactNode }) {
+function StatCard({ icon, label, value, color, extra, modeToggle }: { icon: React.ReactNode; label: string; value: string; color: string; extra?: React.ReactNode; modeToggle?: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4">
+    <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4 relative">
       <div className="flex items-center gap-2 mb-2">
         <div className={`${color} text-white p-1.5 rounded-lg`}>{icon}</div>
         <span className="text-xs sm:text-sm text-gray-500 font-bold">{label}</span>
+        {modeToggle && <div className="ml-auto">{modeToggle}</div>}
       </div>
       <p className="text-lg sm:text-2xl font-extrabold text-gray-900">{value}</p>
       {extra && <div className="mt-2">{extra}</div>}
