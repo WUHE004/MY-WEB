@@ -1,6 +1,6 @@
 // Service Worker - 版本化缓存策略
 // 版本号变更后浏览器会自动更新 SW 并清除旧缓存
-const SW_VERSION = "v1.0.0";
+const SW_VERSION = "v1.1.0";
 const STATIC_CACHE = `static-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 
@@ -37,6 +37,28 @@ self.addEventListener("fetch", (event) => {
 
   // API 请求：Network Only（不缓存，保证数据实时性）
   if (url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  // 导航请求（HTML 页面）：Network First，确保用户看到最新页面
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          // 成功响应缓存到 runtime cache
+          if (response.ok && response.type === "basic") {
+            const responseClone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => {
+          // 网络失败时回退到缓存（离线场景）
+          return caches.match(request).then((cached) => {
+            return cached || caches.match("/");
+          });
+        })
+    );
     return;
   }
 

@@ -65,7 +65,7 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js?v=1.0.0').then((reg) => {
+                  navigator.serviceWorker.register('/sw.js?v=1.1.0').then((reg) => {
                     // 检测新版本 SW，自动激活
                     reg.addEventListener('updatefound', () => {
                       const newWorker = reg.installing;
