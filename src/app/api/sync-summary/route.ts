@@ -124,9 +124,22 @@ async function readAllPages(table: string, select: string): Promise<Record<strin
   return allData;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const diagnostics: string[] = [];
+
+    // 检查是否为全量重同步模式（先清空 daily_stats 再重写，用于清理累加脏数据）
+    let fullResync = false;
+    try {
+      const body = await request.json();
+      fullResync = body?.full_resync === true;
+    } catch { /* 无 body 时默认 false */ }
+
+    if (fullResync) {
+      diagnostics.push("全量重同步模式：清空 sales_daily_stats 和 returns_daily_stats");
+      await supabase.from("sales_daily_stats").delete().neq("date", "__never__");
+      await supabase.from("returns_daily_stats").delete().neq("date", "__never__");
+    }
 
     // ---------- 0. 先检查表实际有哪些列 ----------
     const existingCols = await getSalesSummaryColumns();
@@ -573,18 +586,9 @@ export async function POST() {
         }
       }
 
-      // 批量 upsert 日统计（消除 N+1：一次性查询所有已存在日期，内存合并后单次 upsert）
+      // 批量 upsert 日统计（全量重算 → 直接覆盖，不累加，避免重复执行导致数据翻倍）
       const allDates = Array.from(dailyMap.keys());
       if (allDates.length > 0) {
-        const { data: existingStats } = await supabase
-          .from("sales_daily_stats")
-          .select("date, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
-          .in("date", allDates);
-
-        const existingMap = new Map(
-          (existingStats || []).map((s: Record<string, unknown>) => [String(s.date), s])
-        );
-
         const dailyUpsertBatch = allDates.map((date) => {
           const stats = dailyMap.get(date)!;
           // 计算快递费
@@ -597,14 +601,14 @@ export async function POST() {
           // 计算平台抽点
           const platformFee = stats.total_quantity >= 100 ? stats.total_amount * (sPlatformRate / 100) : 0;
 
-          const existing = existingMap.get(date) as Record<string, unknown> | undefined;
+          // 覆盖模式：直接用本次全量聚合结果，不累加已有值
           return {
             date,
-            total_amount: (Number(existing?.total_amount) || 0) + stats.total_amount,
-            total_quantity: (Number(existing?.total_quantity) || 0) + stats.total_quantity,
-            total_profit: (Number(existing?.total_profit) || 0) + stats.total_profit,
-            shipping_fee: (Number(existing?.shipping_fee) || 0) + shippingFee,
-            platform_fee: (Number(existing?.platform_fee) || 0) + platformFee,
+            total_amount: stats.total_amount,
+            total_quantity: stats.total_quantity,
+            total_profit: stats.total_profit,
+            shipping_fee: shippingFee,
+            platform_fee: platformFee,
           };
         });
 
@@ -633,21 +637,12 @@ export async function POST() {
         retDailyMap.set(date, (retDailyMap.get(date) || 0) + (Number(row.quantity) || 0));
       }
 
-      // 批量 upsert 退货日统计（消除 N+1）
+      // 批量 upsert 退货日统计（全量重算 → 直接覆盖，不累加）
       const allReturnDates = Array.from(retDailyMap.keys());
       if (allReturnDates.length > 0) {
-        const { data: existingRetStats } = await supabase
-          .from("returns_daily_stats")
-          .select("date, total_returned")
-          .in("date", allReturnDates);
-
-        const existingRetMap = new Map(
-          (existingRetStats || []).map((s: Record<string, unknown>) => [String(s.date), s])
-        );
-
         const retDailyUpsertBatch = allReturnDates.map((date) => ({
           date,
-          total_returned: (Number(existingRetMap.get(date)?.total_returned) || 0) + (retDailyMap.get(date) || 0),
+          total_returned: retDailyMap.get(date) || 0,
         }));
 
         const { error: retDailyUpsertError } = await supabase

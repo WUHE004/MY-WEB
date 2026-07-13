@@ -244,7 +244,12 @@ export default function FinancePage() {
     setSyncing(true);
     setEditSaveMsg("");
     try {
-      const res = await authFetch("/api/sync-summary", { method: "POST" });
+      // full_resync: 先清空 daily_stats 再全量重写，确保数据准确（修复历史累加脏数据）
+      const res = await authFetch("/api/sync-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_resync: true }),
+      });
       const result = await res.json();
       if (result.error) {
         setEditSaveMsg("同步失败: " + result.error);

@@ -102,28 +102,23 @@ export async function POST() {
     }
 
     let salesSynced = 0;
-    for (const [, stats] of Object.entries(dailyMap)) {
-      const { data: existing } = await supabase
+    const salesUpsertBatch = Object.values(dailyMap).map((stats: any) => ({
+      date: stats.date,
+      total_amount: stats.total_amount,
+      total_quantity: stats.total_quantity,
+      total_profit: stats.total_profit,
+      shipping_fee: stats.shipping_fee,
+      platform_fee: stats.platform_fee,
+    }));
+    if (salesUpsertBatch.length > 0) {
+      const { error: upsertErr } = await supabase
         .from("sales_daily_stats")
-        .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
-        .eq("date", stats.date)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("sales_daily_stats")
-          .update({
-            total_amount: Number(existing.total_amount) + stats.total_amount,
-            total_quantity: Number(existing.total_quantity) + stats.total_quantity,
-            total_profit: Number(existing.total_profit) + stats.total_profit,
-            shipping_fee: Number(existing.shipping_fee || 0) + stats.shipping_fee,
-            platform_fee: Number(existing.platform_fee || 0) + stats.platform_fee,
-          })
-          .eq("id", existing.id);
+        .upsert(salesUpsertBatch, { onConflict: "date" });
+      if (upsertErr) {
+        diagnostics.push(`销售日统计回填失败: ${upsertErr.message}`);
       } else {
-        await supabase.from("sales_daily_stats").insert(stats);
+        salesSynced = salesUpsertBatch.length;
       }
-      salesSynced++;
     }
     diagnostics.push(`销售日统计归档: ${salesSynced} 天`);
 
@@ -153,24 +148,19 @@ export async function POST() {
     }
 
     let returnsSynced = 0;
-    for (const [, stats] of Object.entries(retDailyMap)) {
-      const { data: existing } = await supabase
+    const retUpsertBatch = Object.values(retDailyMap).map((stats: any) => ({
+      date: stats.date,
+      total_returned: stats.total_returned,
+    }));
+    if (retUpsertBatch.length > 0) {
+      const { error: retUpsertErr } = await supabase
         .from("returns_daily_stats")
-        .select("id, total_returned")
-        .eq("date", stats.date)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("returns_daily_stats")
-          .update({
-            total_returned: Number(existing.total_returned) + stats.total_returned,
-          })
-          .eq("id", existing.id);
+        .upsert(retUpsertBatch, { onConflict: "date" });
+      if (retUpsertErr) {
+        diagnostics.push(`退货日统计回填失败: ${retUpsertErr.message}`);
       } else {
-        await supabase.from("returns_daily_stats").insert(stats);
+        returnsSynced = retUpsertBatch.length;
       }
-      returnsSynced++;
     }
     diagnostics.push(`退货日统计归档: ${returnsSynced} 天`);
 
