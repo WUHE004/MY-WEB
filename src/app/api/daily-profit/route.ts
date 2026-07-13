@@ -3,10 +3,10 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    // 从 sales_daily_stats 读取每日盈利
+    // 从 sales_daily_stats 读取每日盈利和快递费
     const { data: dailyData, error: dailyErr } = await supabase
       .from("sales_daily_stats")
-      .select("date, total_amount, total_quantity, total_profit")
+      .select("date, total_amount, total_quantity, total_profit, shipping_fee")
       .order("date", { ascending: true });
 
     if (dailyErr) {
@@ -19,6 +19,7 @@ export async function GET() {
       total_amount: Number(row.total_amount) || 0,
       total_quantity: Number(row.total_quantity) || 0,
       total_profit: Number(row.total_profit) || 0,
+      shipping_fee: Number(row.shipping_fee) || 0,
     }));
 
     return NextResponse.json({ stats });
