@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url);
+  const saleId = searchParams.get("sale_id");
+
+  // 按 sale_id 查询某商品的所有入库记录（用于补录时获取商品详情）
+  if (saleId) {
+    const { data, error } = await supabase
+      .from("inbound_records")
+      .select("*")
+      .eq("sale_id", saleId.toUpperCase())
+      .order("inbound_date", { ascending: false });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data || []);
+  }
+
   // 分页获取所有记录，避免默认1000条限制
   let allData: Record<string, any>[] = [];
   let page = 0;

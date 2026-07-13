@@ -17,6 +17,8 @@ import {
   Upload,
   ChevronDown,
   AlertTriangle,
+  RefreshCw,
+  Search,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -135,6 +137,17 @@ export default function InboundPage() {
   const [transferring, setTransferring] = useState(false);
   // 设置加载状态
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // 补录弹窗
+  const [showRestockDialog, setShowRestockDialog] = useState(false);
+  const [restockSaleId, setRestockSaleId] = useState("");
+  const [restockLoading, setRestockLoading] = useState(false);
+  const [restockError, setRestockError] = useState("");
+  const [restockProduct, setRestockProduct] = useState<Record<string, unknown> | null>(null);
+  const [restockSizes, setRestockSizes] = useState<Record<number, number>>(
+    Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
+  );
+  const [restockSubmitting, setRestockSubmitting] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -927,6 +940,119 @@ export default function InboundPage() {
     ? standardSize
     : Object.values(sizes).reduce((sum, v) => sum + v, 0);
 
+  // ===== 补录功能 =====
+  const handleRestockSearch = async () => {
+    const sid = restockSaleId.trim().toUpperCase();
+    if (!sid) {
+      setRestockError("请输入商品编号");
+      return;
+    }
+    setRestockLoading(true);
+    setRestockError("");
+    setRestockProduct(null);
+    setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    try {
+      const res = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(sid)}`);
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) {
+        setRestockError(`未找到编号 ${sid} 的入库记录`);
+        return;
+      }
+      // 取最新一条记录作为商品基础信息
+      const latest = data[0];
+      // 汇总所有记录的各尺码数量作为"当前入库总量"
+      const sizeTotals: Record<number, number> = Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]));
+      for (const rec of data) {
+        for (const s of SIZE_OPTIONS) {
+          sizeTotals[s] += Number(rec[`size_${s}`]) || 0;
+        }
+      }
+      const productWithTotals = { ...latest, _sizeTotals: sizeTotals, _recordCount: data.length };
+      setRestockProduct(productWithTotals);
+    } catch {
+      setRestockError("查询失败，请重试");
+    } finally {
+      setRestockLoading(false);
+    }
+  };
+
+  const updateRestockSize = (size: number, delta: number) => {
+    setRestockSizes((prev) => ({
+      ...prev,
+      [size]: Math.max(0, (prev[size] || 0) + delta),
+    }));
+  };
+
+  const setRestockSizeValue = (size: number, value: string) => {
+    const num = parseInt(value, 10);
+    setRestockSizes((prev) => ({
+      ...prev,
+      [size]: isNaN(num) ? 0 : Math.max(0, num),
+    }));
+  };
+
+  const handleRestockSubmit = async () => {
+    if (!restockProduct) return;
+    const totalRestock = Object.values(restockSizes).reduce((sum, v) => sum + v, 0);
+    if (totalRestock === 0) {
+      alert("请输入补录数量");
+      return;
+    }
+
+    setRestockSubmitting(true);
+    try {
+      const sid = String(restockProduct.sale_id || "").toUpperCase();
+      const record: Record<string, unknown> = {
+        sale_id: sid,
+        photo: restockProduct.photo || "",
+        name: restockProduct.name || "",
+        manufacturer: restockProduct.manufacturer || "",
+        shelf_no: restockProduct.shelf_no || "",
+        cost_price: Number(restockProduct.cost_price) || 0,
+        sell_price: Number(restockProduct.sell_price) || 0,
+        season: restockProduct.season || "",
+        style_category: restockProduct.style_category || "",
+        notes: `补录入库 ${new Date().toLocaleString("zh-CN")}`,
+        inbound_date: new Date().toISOString(),
+      };
+      for (const s of SIZE_OPTIONS) {
+        record[`size_${s}`] = restockSizes[s] || 0;
+      }
+
+      const res = await fetch("/api/inbound-records", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        alert("补录失败: " + (err.error || "未知错误"));
+        return;
+      }
+
+      alert(`补录成功！共入库 ${totalRestock} 件（${sid}）`);
+      // 重置补录弹窗
+      setShowRestockDialog(false);
+      setRestockSaleId("");
+      setRestockProduct(null);
+      setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+      setRestockError("");
+    } catch {
+      alert("网络错误，请重试");
+    } finally {
+      setRestockSubmitting(false);
+    }
+  };
+
+  const openRestockDialog = () => {
+    setShowRestockDialog(true);
+    setRestockSaleId("");
+    setRestockProduct(null);
+    setRestockError("");
+    setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+  };
+
   return (
     <PageWrapper>
       {/* Header */}
@@ -940,13 +1066,14 @@ export default function InboundPage() {
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-yellow">入库登记</span>
         </h1>
-        <Link
-          href="/data-import"
-          className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
-          title="批量导入"
+        <button
+          onClick={openRestockDialog}
+          className="flex items-center gap-1.5 h-10 px-3 lg:px-4 rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+          title="补录入库"
         >
-          <Upload className="h-5 w-5 text-white" />
-        </Link>
+          <RefreshCw className="h-4 w-4 lg:h-5 lg:w-5 text-white" />
+          <span className="text-xs lg:text-sm font-extrabold text-white">补录</span>
+        </button>
       </div>
 
       <div className="max-w-2xl mx-auto">
@@ -1952,6 +2079,198 @@ export default function InboundPage() {
                 {transferring ? "搬运中..." : "确认搬运"}
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Restock Dialog - 补录入库弹窗 */}
+      {showRestockDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-lg max-h-[90vh] bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 lg:p-5 border-b-[2px] border-gray-200">
+              <h2 className="text-base lg:text-lg font-extrabold flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 lg:h-5 lg:w-5 text-[#7B61FF]" />
+                补录入库
+              </h2>
+              <button
+                onClick={() => setShowRestockDialog(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body - 可滚动 */}
+            <div className="flex-1 overflow-y-auto p-4 lg:p-5 space-y-4">
+              {/* 商品编号输入 */}
+              <div>
+                <label className="text-xs lg:text-sm font-extrabold text-gray-900 mb-1.5 block">
+                  商品编号 <span className="text-red-500">*</span>
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    value={restockSaleId}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+                      setRestockSaleId(val);
+                      setRestockError("");
+                      setRestockProduct(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && handleRestockSearch()}
+                    placeholder="输入商品编号，如 WUHE001"
+                    className="text-sm flex-1"
+                  />
+                  <button
+                    onClick={handleRestockSearch}
+                    disabled={restockLoading || !restockSaleId.trim()}
+                    className="flex items-center gap-1.5 px-3 lg:px-4 rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] text-white font-extrabold text-xs lg:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {restockLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    查询
+                  </button>
+                </div>
+                {restockError && (
+                  <p className="text-xs text-red-500 font-bold mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" /> {restockError}
+                  </p>
+                )}
+              </div>
+
+              {/* 商品详情展示 */}
+              {restockProduct && (
+                <>
+                  {/* 商品基础信息卡片 */}
+                  <div className="rounded-xl border-[3px] border-gray-900 bg-gray-50 p-3 lg:p-4">
+                    <div className="flex gap-3 lg:gap-4">
+                      {/* 商品照片 */}
+                      {restockProduct.photo ? (
+                        <img
+                          src={String(restockProduct.photo)}
+                          alt={String(restockProduct.name || "")}
+                          className="w-16 h-16 lg:w-20 lg:h-20 rounded-lg border-[2px] border-gray-300 object-cover flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 lg:w-20 lg:h-20 rounded-lg border-[2px] border-gray-300 bg-gray-200 flex items-center justify-center flex-shrink-0">
+                          <Image className="h-6 w-6 text-gray-400" />
+                        </div>
+                      )}
+                      {/* 商品信息 */}
+                      <div className="flex-1 min-w-0">
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs lg:text-sm">
+                          <div className="col-span-2">
+                            <span className="text-gray-500 font-bold">编号:</span>
+                            <span className="ml-1 font-extrabold text-gray-900">{String(restockProduct.sale_id || "")}</span>
+                            <span className="ml-2 text-[10px] text-gray-400">({restockProduct._recordCount as number}条记录)</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">名称:</span>
+                            <span className="ml-1 font-bold text-gray-900 truncate">{String(restockProduct.name || "未命名")}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">厂家:</span>
+                            <span className="ml-1 font-bold text-gray-900">{String(restockProduct.manufacturer || "-")}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">进价:</span>
+                            <span className="ml-1 font-bold text-gray-900">¥{Number(restockProduct.cost_price || 0).toFixed(2)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">售价:</span>
+                            <span className="ml-1 font-bold text-[#FF6B6B]">¥{Number(restockProduct.sell_price || 0).toFixed(2)}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">货架号:</span>
+                            <span className="ml-1 font-bold text-gray-900">{String(restockProduct.shelf_no || "-")}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-bold">季节:</span>
+                            <span className="ml-1 font-bold text-gray-900">{String(restockProduct.season || "-")}</span>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-gray-500 font-bold">款式:</span>
+                            <span className="ml-1 font-bold text-gray-900">{String(restockProduct.style_category || "-")}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 尺码补录 */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs lg:text-sm font-extrabold text-gray-900">
+                        补录数量
+                      </label>
+                      <span className="text-xs lg:text-sm font-bold text-[#7B61FF]">
+                        本次补录: {Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 gap-2">
+                      {SIZE_OPTIONS.map((size) => {
+                        const currentQty = (restockProduct._sizeTotals as Record<number, number>)[size] || 0;
+                        const restockQty = restockSizes[size] || 0;
+                        return (
+                          <div
+                            key={size}
+                            className={`rounded-xl border-[3px] p-1.5 lg:p-2 transition-colors ${
+                              restockQty > 0 ? "border-[#7B61FF] bg-purple-50" : "border-gray-900 bg-white"
+                            }`}
+                          >
+                            <div className="text-center mb-1">
+                              <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
+                              <p className="text-[9px] lg:text-[10px] text-gray-500">当前 {currentQty} 件</p>
+                            </div>
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => updateRestockSize(size, -1)}
+                                className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                              >
+                                <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                              </button>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={restockQty}
+                                onChange={(e) => setRestockSizeValue(size, e.target.value)}
+                                className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
+                                  restockQty > 0 ? "text-[#7B61FF]" : "text-gray-300"
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => updateRestockSize(size, 1)}
+                                className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                              >
+                                <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer - 提交按钮 */}
+            {restockProduct && (
+              <div className="p-4 lg:p-5 border-t-[2px] border-gray-200">
+                <button
+                  onClick={handleRestockSubmit}
+                  disabled={restockSubmitting || Object.values(restockSizes).reduce((sum, v) => sum + v, 0) === 0}
+                  className="w-full py-3 text-sm lg:text-base font-extrabold text-white rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {restockSubmitting ? "提交中..." : `确认补录 ${Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件`}
+                </button>
+              </div>
+            )}
           </motion.div>
         </div>
       )}
