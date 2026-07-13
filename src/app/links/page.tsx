@@ -12,6 +12,7 @@ import {
   Banknote,
   TrendingUp,
   Video,
+  Radio,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -231,6 +232,32 @@ export default function LinksPage() {
             </Card>
           </Link>
         </div>
+      </div>
+      )}
+
+      {/* 直播运营操作台 - 仅管理员可见 */}
+      {!isOperator && (
+      <div className="mb-6 lg:mb-8">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
+          <span className="highlight-pink">直播运营操作台</span>
+        </h1>
+        <p className="text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
+          赛道资讯 · 直播数据 · 拍摄脚本
+        </p>
+        <Link href="/live/operations">
+          <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
+            <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+              <div>
+                <p className="text-[10px] lg:text-sm font-bold text-gray-500">直播运营</p>
+                <p className="text-lg lg:text-3xl font-extrabold text-[#FF6B6B]">进入</p>
+                <p className="text-[10px] lg:text-xs text-gray-400 font-medium">赛道资讯/直播资讯/拍摄脚本</p>
+              </div>
+              <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B]">
+                <Radio className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
       )}
     </PageWrapper>

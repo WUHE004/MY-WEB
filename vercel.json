@@ -7,6 +7,10 @@
     {
       "path": "/api/return-records/cleanup",
       "schedule": "0 3 1 * *"
+    },
+    {
+      "path": "/api/live/track-news/cron",
+      "schedule": "0 19 * * *"
     }
   ]
 }

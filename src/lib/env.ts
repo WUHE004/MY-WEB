@@ -28,6 +28,12 @@ const ENV_VARS: EnvVar[] = [
   // 可选 - 阿里云短信
   { key: "ALIYUN_SMS_ACCESS_KEY_ID", required: false, description: "阿里云短信 AccessKeyId" },
   { key: "ALIYUN_SMS_ACCESS_KEY_SECRET", required: false, description: "阿里云短信 AccessKeySecret" },
+  // 可选 - 直播运营操作台
+  { key: "TAVILY_API_KEY", required: false, description: "Tavily AI 搜索 API Key，格式 tvly-dev-xxx（赛道资讯数据源）" },
+  { key: "DOUYIN_CLIENT_KEY", required: false, description: "抖音开放平台应用 Client Key（直播资讯 OAuth）" },
+  { key: "DOUYIN_CLIENT_SECRET", required: false, description: "抖音开放平台应用 Client Secret" },
+  { key: "DOUYIN_REDIRECT_URI", required: false, description: "抖音 OAuth 回调地址，如 https://yourdomain.com/api/live/douyin/callback" },
+  { key: "CRON_SECRET", required: false, description: "Vercel Cron 端点保护密钥（任意随机字符串）" },
 ];
 
 let validated = false;
