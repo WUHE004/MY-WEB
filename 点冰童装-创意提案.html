@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>点冰童装 · AI智能库存管理助手 | TRAE AI 创造力大赛创意提案</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #FFF5F7 0%, #FFE8EC 100%);
+    color: #2D2D2D; line-height: 1.8; min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+  .hero {
+    background: linear-gradient(135deg, #FF6B7A 0%, #FF8E9E 100%);
+    color: #fff; border-radius: 24px; padding: 60px 40px; text-align: center;
+    box-shadow: 0 20px 60px rgba(255,107,122,0.3); margin-bottom: 40px;
+  }
+  .hero h1 { font-size: 2.8em; margin-bottom: 16px; font-weight: 800; letter-spacing: 1px; }
+  .hero .subtitle { font-size: 1.3em; opacity: 0.95; margin-bottom: 24px; }
+  .hero .badges { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero .badge {
+    background: rgba(255,255,255,0.25); backdrop-filter: blur(10px);
+    padding: 8px 18px; border-radius: 999px; font-size: 0.95em;
+    border: 1px solid rgba(255,255,255,0.4);
+  }
+  .section {
+    background: #fff; border-radius: 20px; padding: 40px;
+    margin-bottom: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+  }
+  .section h2 {
+    color: #FF6B7A; font-size: 1.8em; margin-bottom: 24px;
+    padding-bottom: 12px; border-bottom: 3px solid #FFE8EC;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section h2 .num {
+    background: linear-gradient(135deg, #FF6B7A, #FF8E9E);
+    color: #fff; width: 40px; height: 40px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.65em; font-weight: 700;
+  }
+  .pain-list, .value-list { list-style: none; }
+  .pain-list li, .value-list li {
+    padding: 14px 18px; margin-bottom: 12px; border-radius: 12px;
+    border-left: 4px solid; background: #FAFAFA; transition: all 0.3s;
+  }
+  .pain-list li { border-color: #FF6B7A; }
+  .pain-list li:hover { background: #FFF5F7; transform: translateX(4px); }
+  .pain-list li strong { color: #FF6B7A; }
+  .value-list li { border-color: #4ECDC4; }
+  .value-list li:hover { background: #F0FFFE; transform: translateX(4px); }
+  .value-list li strong { color: #4ECDC4; }
+  .feature-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px; margin-top: 16px;
+  }
+  .feature-card {
+    background: linear-gradient(135deg, #FFFFFF 0%, #FFF9FA 100%);
+    border: 2px solid #FFE8EC; border-radius: 16px; padding: 24px;
+    transition: all 0.3s;
+  }
+  .feature-card:hover {
+    transform: translateY(-6px); box-shadow: 0 12px 40px rgba(255,107,122,0.15);
+    border-color: #FF6B7A;
+  }
+  .feature-card .icon { font-size: 2.4em; margin-bottom: 12px; }
+  .feature-card h3 { color: #FF6B7A; margin-bottom: 12px; font-size: 1.2em; }
+  .feature-card p { color: #666; font-size: 0.95em; }
+  .tech-stack { display: flex; flex-wrap: wrap; gap: 12px; }
+  .tech-tag {
+    background: linear-gradient(135deg, #4ECDC4, #44A5A0);
+    color: #fff; padding: 10px 20px; border-radius: 999px;
+    font-size: 0.95em; font-weight: 500;
+  }
+  .tech-tag.alt { background: linear-gradient(135deg, #FF6B7A, #FF8E9E); }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px; margin-top: 20px;
+  }
+  .stat-card {
+    background: linear-gradient(135deg, #FF6B7A, #FF8E9E);
+    color: #fff; padding: 24px; border-radius: 16px; text-align: center;
+  }
+  .stat-card.alt { background: linear-gradient(135deg, #4ECDC4, #44A5A0); }
+  .stat-card .num { font-size: 2.4em; font-weight: 800; display: block; }
+  .stat-card .label { font-size: 0.9em; opacity: 0.95; margin-top: 4px; }
+  .user-flow {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    margin: 20px 0; padding: 20px; background: #FAFAFA; border-radius: 16px;
+  }
+  .flow-step {
+    background: #fff; padding: 12px 20px; border-radius: 12px;
+    border: 2px solid #FFE8EC; font-size: 0.95em; font-weight: 500;
+  }
+  .flow-arrow { color: #FF6B7A; font-size: 1.4em; font-weight: 700; }
+  .footer {
+    text-align: center; padding: 40px 20px; color: #888;
+    border-top: 1px solid #FFE8EC; margin-top: 40px;
+  }
+  .footer .heart { color: #FF6B7A; }
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 1.8em; }
+    .section { padding: 24px; }
+    .section h2 { font-size: 1.4em; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="hero">
+    <h1>点冰童装 · AI智能库存管理助手</h1>
+    <div class="subtitle">让童装电商卖家的库存管理、AI生图、企微运营一站搞定</div>
+    <div class="badges">
+      <span class="badge">TRAE AI 创造力大赛 · 学习工作赛道</span>
+      <span class="badge">已完成 · 可在线体验</span>
+      <span class="badge">PWA · 移动端友好</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">01</span>创意介绍</h2>
+    <p style="font-size:1.05em; margin-bottom:20px;">
+      <strong>点冰童装</strong> 是一款专为童装电商卖家打造的 AI 智能库存管理 PWA 网页应用。它将入库登记、销售管理、退货处理、财务核算、AI模特试穿图生成、企业微信机器人运营、抖店自动上架融为一体，用 AI 重新定义了童装电商的工作流。
+    </p>
+    <p style="font-size:1.05em; margin-bottom:20px;">
+      <strong>想解决的问题：</strong>童装电商卖家面对 13 档尺码 × 多款式 × 多厂家的复杂库存，传统 Excel 已无法应对；商品图拍摄成本高、周期长；多平台运营（企微/抖店/网页下单）数据割裂，财务对账耗时耗力。
+    </p>
+    <p style="font-size:1.05em;">
+      <strong>产品形态：</strong>PWA 网页应用，可"添加到主屏幕"作为原生 App 使用，PC + 移动端双适配，扫码作业友好。
+    </p>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">02</span>目标用户及痛点</h2>
+    <h3 style="color:#666; margin-bottom:16px;">面向用户</h3>
+    <p style="margin-bottom:24px;">童装电商卖家、小型服装批发商、个体服装经营者（团队规模 1-10 人）</p>
+    <h3 style="color:#666; margin-bottom:16px;">使用场景</h3>
+    <p style="margin-bottom:24px;">日常入库登记 · 销售卖货扫码 · 退货处理 · 财务对账 · 商品图生成 · 直播选品 · 企微客户查询 · 抖店批量上架</p>
+    <h3 style="color:#666; margin-bottom:16px;">当前痛点</h3>
+    <ul class="pain-list">
+      <li><strong>尺码管理复杂：</strong>童装有 13 档尺码（80-180），Excel 无法多维度统计每个尺码的入库/销售/退货/剩余</li>
+      <li><strong>商品图成本高：</strong>请模特拍摄一张试穿图 200-500 元，周期 3-7 天；白底商品图需另拍</li>
+      <li><strong>多平台数据割裂：</strong>企微客户询价、抖店上架、网页下单各管各的，库存无法实时同步</li>
+      <li><strong>财务对账痛苦：</strong>销售/退货/利润/运费/平台费分散在多个表，月底对账要 1-2 天</li>
+      <li><strong>货架管理混乱：</strong>三级货架位（A/B/C × 层 × 列）找不到货，打包找货耗时</li>
+      <li><strong>超卖风险：</strong>网页下单时库存校验不准，容易超卖引发客诉</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">03</span>价值与意义</h2>
+    <ul class="value-list">
+      <li><strong>效率提升（核心价值）：</strong>从手工 Excel 升级为自动化系统，入库/销售/退货扫码秒级完成；AI 生图将商品图成本从 300 元/张降到 0 元，周期从 3 天缩到 30 秒；财务对账从 1-2 天降到实时查看</li>
+      <li><strong>商业价值：</strong>降低中小卖家运营成本 80%，让 1 人团队也能拥有大公司的数字化能力；AI 生图 + 抖店自动上架让卖家快速拓展多平台销售</li>
+      <li><strong>社会价值：</strong>赋能小微商家数字化转型，缩小与头部卖家的技术鸿沟，助力个体经济</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">04</span>核心功能 · 5大创新点</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon">🎨</div>
+        <h3>多模型 AI 虚拟试衣引擎</h3>
+        <p>集成 5 个 AI 模型（Agnes / 豆包 Seedream / 通义 Qwen / 阿里 AI试衣 / 自定义），衣服图+模特图一键生成试穿图和白底商品图。8种童模姿势随机切换，prompt工程强制保留袖长领型不变形。503自动重试。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🎬</div>
+        <h3>AI 视频生成</h3>
+        <p>照片 → 1080×1920 竖版视频，让商品图"活过来"。异步任务轮询、临时图自动清理、完成后企微通知。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💬</div>
+        <h3>企业微信加密机器人</h3>
+        <p>自实现 AES-256-CBC 加解密（无第三方依赖）。客户在企微发商品编号 → 秒回库存/销量/利润 → 异步生成AI白底图点对点回推。三模式降级兼容。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🤖</div>
+        <h3>抖店自动上架</h3>
+        <p>Playwright 浏览器自动化批量上架商品到抖店，5分钟超时，登录态检测，省去手动填写重复劳动。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📱</div>
+        <h3>PWA + 扫码作业</h3>
+        <p>自实现版本化 Service Worker，可"添加到主屏幕"作原生App。销售/打包页面调起摄像头扫SN码，移动端仓库作业友好。</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📦</div>
+        <h3>库存全生命周期</h3>
+        <p>入库→售卖→打包→退货→调整五环节齐全，13档尺码+三级货架位，实时库存校验防超卖。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">05</span>完整业务闭环</h2>
+    <div class="user-flow">
+      <span class="flow-step">📷 入库登记</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">🎨 AI生图</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">🛒 网页下单</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">📦 打包发货</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">🚚 物流查询</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">💰 财务核算</span>
+    </div>
+    <div class="user-flow">
+      <span class="flow-step">💬 企微机器人</span>
+      <span class="flow-arrow">↔</span>
+      <span class="flow-step">🤖 抖店上架</span>
+      <span class="flow-arrow">↔</span>
+      <span class="flow-step">📊 直播选品</span>
+      <span class="flow-arrow">↔</span>
+      <span class="flow-step">🎬 AI视频</span>
+    </div>
+    <p style="margin-top:20px; color:#666; font-size:0.95em;">
+      从商品入库到售后财务，全流程数据打通，一处录入，处处同步。
+    </p>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">06</span>技术栈</h2>
+    <div class="tech-stack">
+      <span class="tech-tag alt">Next.js 16</span>
+      <span class="tech-tag alt">React 19</span>
+      <span class="tech-tag alt">TypeScript 5</span>
+      <span class="tech-tag alt">Tailwind CSS 4</span>
+      <span class="tech-tag">Supabase (PostgreSQL)</span>
+      <span class="tech-tag">Vercel 部署</span>
+      <span class="tech-tag">PWA Service Worker</span>
+      <span class="tech-tag">Playwright 自动化</span>
+      <span class="tech-tag">Sharp 图片处理</span>
+      <span class="tech-tag">html5-qrcode 扫码</span>
+      <span class="tech-tag">Recharts 图表</span>
+      <span class="tech-tag">Framer Motion 动效</span>
+    </div>
+    <div style="margin-top:24px; padding:20px; background:#FAFAFA; border-radius:12px;">
+      <strong style="color:#FF6B7A;">工程亮点：</strong>
+      <ul style="margin-left:20px; margin-top:12px; color:#666;">
+        <li>自实现 JWT（HS256）+ scrypt 密码哈希，无 jsonwebtoken/bcrypt 依赖</li>
+        <li>自实现企业微信 AES-256-CBC 加解密 + PKCS7 + CorpID 校验</li>
+        <li>自实现版本化 Service Worker（Cache First / Network Only 分策略）</li>
+        <li>GitHub Actions → Vercel 自动部署（push master 即上线）</li>
+        <li>三级角色权限矩阵（admin/operator/customer）+ timingSafeEqual 防时序攻击</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2><span class="num">07</span>完成度数据</h2>
+    <div class="stat-grid">
+      <div class="stat-card"><span class="num">50+</span><span class="label">API 路由</span></div>
+      <div class="stat-card alt"><span class="num">5</span><span class="label">AI 模型集成</span></div>
+      <div class="stat-card"><span class="num">13</span><span class="label">尺码档位</span></div>
+      <div class="stat-card alt"><span class="num">3</span><span class="label">角色权限</span></div>
+      <div class="stat-card"><span class="num">46</span><span class="label">真实厂家</span></div>
+      <div class="stat-card alt"><span class="num">8</span><span class="label">核心模块</span></div>
+    </div>
+    <p style="margin-top:20px; color:#666;">
+      已部署上线，完整闭环，非 Demo 阶段。包含入库/销售/打包/退货/调整/财务/AI生图/AI视频/企微机器人/抖店上架/直播选品/网页下单/物流查询等全功能。
+    </p>
+  </div>
+
+  <div class="footer">
+    <p>点冰童装 · AI智能库存管理助手</p>
+    <p style="margin-top:8px;">TRAE AI 创造力大赛 · 学习工作赛道 · 2026</p>
+    <p style="margin-top:8px;">用 <span class="heart">♥</span> 与 TRAE Work 共同创造</p>
+  </div>
+
+</div>
+</body>
+</html>

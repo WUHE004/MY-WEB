@@ -112,8 +112,8 @@ export default function ShootScriptPage() {
     <PageWrapper>
       {/* 返回入口 + 标题 */}
       <div className="mb-6">
-        <Link href="/live/operations" className="inline-flex items-center gap-2 text-sm lg:text-base text-gray-600 hover:text-gray-900 mb-3 font-medium">
-          <ArrowLeft className="h-4 w-4" /> 返回直播运营操作台
+        <Link href="/links" className="inline-flex items-center gap-2 text-sm lg:text-base text-gray-600 hover:text-gray-900 mb-3 font-medium">
+          <ArrowLeft className="h-4 w-4" /> 返回操作台
         </Link>
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
           <span className="highlight-yellow">拍摄脚本生成</span>

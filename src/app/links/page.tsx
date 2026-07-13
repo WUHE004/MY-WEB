@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Video,
   Radio,
+  Clapperboard,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
@@ -235,29 +236,53 @@ export default function LinksPage() {
       </div>
       )}
 
-      {/* 直播运营操作台 - 仅管理员可见 */}
+      {/* 运营操作台 - 仅管理员可见 */}
       {!isOperator && (
       <div className="mb-6 lg:mb-8">
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
-          <span className="highlight-pink">直播运营操作台</span>
+          <span className="highlight-pink">运营操作台</span>
         </h1>
-        <p className="text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
+        <p className="hidden lg:block text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
           赛道资讯 · 直播数据 · 拍摄脚本
         </p>
-        <Link href="/live/operations">
-          <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
-            <CardContent className="p-3 lg:p-6 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] lg:text-sm font-bold text-gray-500">直播运营</p>
-                <p className="text-lg lg:text-3xl font-extrabold text-[#FF6B6B]">进入</p>
-                <p className="text-[10px] lg:text-xs text-gray-400 font-medium">赛道资讯/直播资讯/拍摄脚本</p>
-              </div>
-              <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B]">
-                <Radio className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+        <div className="grid grid-cols-3 gap-3 lg:gap-6">
+          <motion.a
+            href="/live/track-news"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#4A90E2]"
+            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
+          >
+            <TrendingUp className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
+            <span className="text-xs lg:text-base font-extrabold text-white">赛道资讯</span>
+            <span className="hidden lg:block text-xs text-white/90 font-medium">童装母婴赛道每日资讯</span>
+          </motion.a>
+          <motion.a
+            href="/live/sessions"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+            className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#9B59B6]"
+            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
+          >
+            <Radio className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
+            <span className="text-xs lg:text-base font-extrabold text-white">直播资讯</span>
+            <span className="hidden lg:block text-xs text-white/90 font-medium">直播间每场数据分析</span>
+          </motion.a>
+          <motion.a
+            href="/live/shoot-script"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+            className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#FFC93C]"
+            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
+          >
+            <Clapperboard className="h-5 w-5 lg:h-10 lg:w-10 text-gray-900" />
+            <span className="text-xs lg:text-base font-extrabold text-gray-900">拍摄脚本</span>
+            <span className="hidden lg:block text-xs text-gray-800/80 font-medium">AI 生成拍摄分镜脚本</span>
+          </motion.a>
+        </div>
       </div>
       )}
     </PageWrapper>

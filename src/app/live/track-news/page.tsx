@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeft, RefreshCw, Download, Loader2, ChevronDown, ChevronUp, Calendar } from "lucide-react";
+import { ArrowLeft, RefreshCw, Download, Loader2, ChevronDown, ChevronUp, Calendar, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
 
 interface HotTopic { topic: string; heat: string; desc?: string; }
-interface TopAnchor { nickname: string; followers: string; live_time: string; category: string; }
+interface TopAnchor { nickname: string; followers: string; live_time: string; category: string; homepage?: string; }
 interface DouyinHashtag { tag: string; usage_count: string; trend: string; }
 
 interface TrackNews {
@@ -18,7 +18,7 @@ interface TrackNews {
   category_insights: string | null;
 }
 
-// 轻量 Markdown 渲染（与 shoot-script 页面一致）
+// 轻量 Markdown 渲染
 function renderMarkdown(md: string): React.ReactNode {
   const lines = md.split("\n");
   const out: React.ReactNode[] = [];
@@ -68,11 +68,6 @@ function renderMarkdown(md: string): React.ReactNode {
   return out;
 }
 
-function csvEscape(v: unknown): string {
-  const s = v == null ? "" : String(v);
-  return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 export default function TrackNewsPage() {
   const [data, setData] = useState<TrackNews | null>(null);
   const [today, setToday] = useState("");
@@ -119,43 +114,6 @@ export default function TrackNewsPage() {
     }
   };
 
-  const exportCSV = () => {
-    if (!data) return;
-    const rows: string[] = [];
-
-    // 热门话题
-    rows.push("【热门话题】");
-    rows.push("话题,热度,简述");
-    for (const t of data.hot_topics || []) {
-      rows.push([csvEscape(t.topic), csvEscape(t.heat), csvEscape(t.desc || "")].join(","));
-    }
-    rows.push("");
-
-    // 前十主播
-    rows.push("【前十主播】");
-    rows.push("昵称,粉丝数,直播时间,主打品类");
-    for (const a of data.top_anchors || []) {
-      rows.push([csvEscape(a.nickname), csvEscape(a.followers), csvEscape(a.live_time), csvEscape(a.category)].join(","));
-    }
-    rows.push("");
-
-    // 抖音话题
-    rows.push("【抖音热门话题标签】");
-    rows.push("标签,使用量,趋势");
-    for (const h of data.douyin_hashtags || []) {
-      rows.push([csvEscape(h.tag), csvEscape(h.usage_count), csvEscape(h.trend)].join(","));
-    }
-
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + rows.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `赛道资讯_${data.date || today}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const exportMarkdown = () => {
     if (!data?.category_insights) return;
     const bom = "\uFEFF";
@@ -176,47 +134,39 @@ export default function TrackNewsPage() {
     <PageWrapper>
       {/* 返回入口 + 标题 */}
       <div className="mb-6">
-        <Link href="/live/operations" className="inline-flex items-center gap-2 text-sm lg:text-base text-gray-600 hover:text-gray-900 mb-3 font-medium">
-          <ArrowLeft className="h-4 w-4" /> 返回直播运营操作台
+        <Link href="/links" className="inline-flex items-center gap-2 text-sm lg:text-base text-gray-600 hover:text-gray-900 mb-3 font-medium">
+          <ArrowLeft className="h-4 w-4" /> 返回操作台
         </Link>
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-2">
             <span className="highlight-blue">赛道资讯</span>
           </h1>
           {data?.date && (
-            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-gray-600 bg-gray-100 px-3 py-1 rounded-full border-2 border-gray-300">
+            <span className="inline-flex items-center gap-1.5 text-xs lg:text-sm font-bold text-gray-600 bg-gray-100 px-2.5 lg:px-3 py-1 rounded-full border-2 border-gray-300">
               <Calendar className="h-3.5 w-3.5" /> {data.date}
             </span>
           )}
         </div>
-        <p className="text-sm lg:text-lg text-gray-600 font-medium">
+        <p className="hidden lg:block text-lg text-gray-600 font-medium">
           童装母婴赛道每日热门话题 · 前十主播 · 抖音话题 · 运营参考
         </p>
       </div>
 
-      {/* 操作栏 */}
-      <div className="flex flex-wrap gap-3 mb-6">
+      {/* 操作栏：移动端两按钮并排 */}
+      <div className="grid grid-cols-2 lg:flex lg:flex-wrap gap-2 lg:gap-3 mb-6">
         <button
           onClick={refresh}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 bg-[#4A90E2] text-white font-extrabold py-2 px-4 rounded-lg border-2 border-gray-900 hover:-translate-y-0.5 transition-all disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-1.5 lg:gap-2 bg-[#4A90E2] text-white font-extrabold py-2 px-3 lg:px-4 rounded-lg border-2 border-gray-900 hover:-translate-y-0.5 transition-all disabled:opacity-60 text-sm lg:text-base"
           style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
         >
           {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           {refreshing ? "生成中..." : "刷新数据"}
         </button>
         <button
-          onClick={exportCSV}
-          disabled={!data}
-          className="inline-flex items-center gap-2 bg-[#4CD964] text-white font-extrabold py-2 px-4 rounded-lg border-2 border-gray-900 hover:-translate-y-0.5 transition-all disabled:opacity-60"
-          style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
-        >
-          <Download className="h-4 w-4" /> 导出 CSV
-        </button>
-        <button
           onClick={exportMarkdown}
           disabled={!data?.category_insights}
-          className="inline-flex items-center gap-2 bg-[#FFC93C] text-gray-900 font-extrabold py-2 px-4 rounded-lg border-2 border-gray-900 hover:-translate-y-0.5 transition-all disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-1.5 lg:gap-2 bg-[#FFC93C] text-gray-900 font-extrabold py-2 px-3 lg:px-4 rounded-lg border-2 border-gray-900 hover:-translate-y-0.5 transition-all disabled:opacity-60 text-sm lg:text-base"
           style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
         >
           <Download className="h-4 w-4" /> 导出报告
@@ -250,7 +200,7 @@ export default function TrackNewsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* 热门话题 */}
+          {/* 热门话题 - 移动端卡片式排版 */}
           <SectionCard
             title="热门话题"
             color="bg-[#4A90E2]"
@@ -259,22 +209,39 @@ export default function TrackNewsPage() {
             count={data.hot_topics?.length || 0}
           >
             {data.hot_topics && data.hot_topics.length > 0 ? (
-              <table className="w-full text-sm">
-                <thead><tr className="border-b-2 border-gray-300"><th className="text-left py-2 px-2">话题</th><th className="text-left py-2 px-2">热度</th><th className="text-left py-2 px-2">简述</th></tr></thead>
-                <tbody>
+              <>
+                {/* 移动端：卡片式 */}
+                <div className="lg:hidden space-y-2">
                   {data.hot_topics.map((t, i) => (
-                    <tr key={i} className="border-b border-gray-200">
-                      <td className="py-2 px-2 font-bold text-gray-900">{t.topic}</td>
-                      <td className="py-2 px-2 text-[#4A90E2] font-bold">{t.heat}</td>
-                      <td className="py-2 px-2 text-gray-600">{t.desc || "-"}</td>
-                    </tr>
+                    <div key={i} className="border-2 border-gray-200 rounded-lg p-2.5 bg-gray-50">
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
+                        <span className="text-xs font-bold text-[#4A90E2] bg-blue-50 px-2 py-0.5 rounded-full">{t.heat}</span>
+                      </div>
+                      <p className="font-bold text-gray-900 text-sm mb-1">{t.topic}</p>
+                      {t.desc && <p className="text-xs text-gray-600 leading-snug">{t.desc}</p>}
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                {/* 桌面端：表格 */}
+                <table className="hidden lg:table w-full text-sm">
+                  <thead><tr className="border-b-2 border-gray-300"><th className="text-left py-2 px-2">#</th><th className="text-left py-2 px-2">话题</th><th className="text-left py-2 px-2">热度</th><th className="text-left py-2 px-2">简述</th></tr></thead>
+                  <tbody>
+                    {data.hot_topics.map((t, i) => (
+                      <tr key={i} className="border-b border-gray-200">
+                        <td className="py-2 px-2 text-gray-400 font-bold">{i + 1}</td>
+                        <td className="py-2 px-2 font-bold text-gray-900">{t.topic}</td>
+                        <td className="py-2 px-2 text-[#4A90E2] font-bold">{t.heat}</td>
+                        <td className="py-2 px-2 text-gray-600">{t.desc || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
             ) : <EmptyData />}
           </SectionCard>
 
-          {/* 前十主播 */}
+          {/* 前十主播 - 移动端卡片式 + 跳转按钮 */}
           <SectionCard
             title="前十抖音主播"
             color="bg-[#9B59B6]"
@@ -283,19 +250,65 @@ export default function TrackNewsPage() {
             count={data.top_anchors?.length || 0}
           >
             {data.top_anchors && data.top_anchors.length > 0 ? (
-              <table className="w-full text-sm">
-                <thead><tr className="border-b-2 border-gray-300"><th className="text-left py-2 px-2">昵称</th><th className="text-left py-2 px-2">粉丝数</th><th className="text-left py-2 px-2">直播时间</th><th className="text-left py-2 px-2">主打品类</th></tr></thead>
-                <tbody>
-                  {data.top_anchors.map((a, i) => (
-                    <tr key={i} className="border-b border-gray-200">
-                      <td className="py-2 px-2 font-bold text-gray-900">{a.nickname}</td>
-                      <td className="py-2 px-2 text-gray-700">{a.followers}</td>
-                      <td className="py-2 px-2 text-gray-700">{a.live_time}</td>
-                      <td className="py-2 px-2 text-gray-600">{a.category}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                {/* 移动端：卡片式 */}
+                <div className="lg:hidden space-y-2">
+                  {data.top_anchors.map((a, i) => {
+                    const homepage = a.homepage || `https://www.douyin.com/search/${encodeURIComponent(a.nickname)}`;
+                    return (
+                      <div key={i} className="border-2 border-gray-200 rounded-lg p-2.5 bg-gray-50">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
+                            <p className="font-bold text-gray-900 text-sm truncate">{a.nickname}</p>
+                          </div>
+                          <a
+                            href={homepage}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 bg-[#9B59B6] text-white text-xs font-bold px-2 py-1 rounded-md border border-gray-900 flex-shrink-0"
+                          >
+                            <ExternalLink className="h-3 w-3" /> 跳转
+                          </a>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-xs text-gray-600">
+                          <p>粉丝: <span className="font-bold text-gray-800">{a.followers}</span></p>
+                          <p>品类: <span className="font-bold text-gray-800">{a.category}</span></p>
+                          <p className="col-span-2">直播时间: <span className="font-bold text-gray-800">{a.live_time}</span></p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* 桌面端：表格 + 跳转按钮 */}
+                <table className="hidden lg:table w-full text-sm">
+                  <thead><tr className="border-b-2 border-gray-300"><th className="text-left py-2 px-2">#</th><th className="text-left py-2 px-2">昵称</th><th className="text-left py-2 px-2">粉丝数</th><th className="text-left py-2 px-2">直播时间</th><th className="text-left py-2 px-2">主打品类</th><th className="text-left py-2 px-2">操作</th></tr></thead>
+                  <tbody>
+                    {data.top_anchors.map((a, i) => {
+                      const homepage = a.homepage || `https://www.douyin.com/search/${encodeURIComponent(a.nickname)}`;
+                      return (
+                        <tr key={i} className="border-b border-gray-200">
+                          <td className="py-2 px-2 text-gray-400 font-bold">{i + 1}</td>
+                          <td className="py-2 px-2 font-bold text-gray-900">{a.nickname}</td>
+                          <td className="py-2 px-2 text-gray-700">{a.followers}</td>
+                          <td className="py-2 px-2 text-gray-700">{a.live_time}</td>
+                          <td className="py-2 px-2 text-gray-600">{a.category}</td>
+                          <td className="py-2 px-2">
+                            <a
+                              href={homepage}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 bg-[#9B59B6] text-white text-xs font-bold px-2 py-1 rounded-md border border-gray-900 hover:-translate-y-0.5 transition-all"
+                            >
+                              <ExternalLink className="h-3 w-3" /> 主页
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </>
             ) : <EmptyData />}
           </SectionCard>
 
@@ -345,18 +358,18 @@ function SectionCard({
     <div className="neo-card bg-white overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between p-3 lg:p-4 hover:bg-gray-50 transition-colors"
       >
-        <div className="flex items-center gap-3">
-          <span className={`inline-block w-3 h-8 rounded ${color}`} />
-          <span className="font-extrabold text-gray-900 text-base lg:text-lg">{title}</span>
+        <div className="flex items-center gap-2 lg:gap-3">
+          <span className={`inline-block w-2.5 lg:w-3 h-6 lg:h-8 rounded ${color}`} />
+          <span className="font-extrabold text-gray-900 text-sm lg:text-lg">{title}</span>
           {count !== undefined && count > 0 && (
             <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-bold">{count}</span>
           )}
         </div>
         {expanded ? <ChevronUp className="h-5 w-5 text-gray-500" /> : <ChevronDown className="h-5 w-5 text-gray-500" />}
       </button>
-      {expanded && <div className="px-4 pb-4 overflow-x-auto">{children}</div>}
+      {expanded && <div className="px-3 lg:px-4 pb-3 lg:pb-4 overflow-x-auto">{children}</div>}
     </div>
   );
 }
