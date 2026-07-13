@@ -26,7 +26,7 @@ export async function GET() {
     }
 
     // 按日期聚合各尺码数量
-    const dailyMap: Record<string, Record<string, number>> = {};
+    const dailyMap: Record<string, Record<string, number | string>> = {};
     for (const rec of allRecords) {
       const ot = String(rec.order_time || "");
       if (!ot) continue;
@@ -39,7 +39,7 @@ export async function GET() {
       const qty = Number(rec.quantity) || 0;
       const sizeKey = `size_${sz}`;
       if (sizeKey in dailyMap[date]) {
-        dailyMap[date][sizeKey] += qty;
+        dailyMap[date][sizeKey] = (Number(dailyMap[date][sizeKey]) || 0) + qty;
       }
     }
 
