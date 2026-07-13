@@ -66,7 +66,7 @@ export async function GET() {
     }
 
     // 5. 按厂家聚合各尺码剩余
-    const mfrMap: Record<string, Record<string, number>> = {};
+    const mfrMap: Record<string, Record<string, number | string>> = {};
     for (const ib of inboundData) {
       const mfr = String(ib.manufacturer || "未知").trim() || "未知";
       const sid = String(ib.sale_id || "").toUpperCase();
@@ -79,7 +79,7 @@ export async function GET() {
         const sold = salesMap[sid]?.[`size_${sz}`] || 0;
         const returned = returnsMap[sid]?.[`size_${sz}`] || 0;
         const remaining = inbound - sold + returned;
-        mfrMap[mfr][`size_${sz}`] += Math.max(0, remaining);
+        mfrMap[mfr][`size_${sz}`] = (Number(mfrMap[mfr][`size_${sz}`]) || 0) + Math.max(0, remaining);
       }
     }
 
