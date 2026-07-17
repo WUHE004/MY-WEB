@@ -199,6 +199,9 @@ export default function FinancePage() {
   const [returnsDates, setReturnsDates] = useState<string[]>([]);
   const [salesDateIds, setSalesDateIds] = useState<Set<string>>(new Set());
   const [returnsDateIds, setReturnsDateIds] = useState<Set<string>>(new Set());
+  // 日期筛选时该日期的聚合数据（按 sale_id 索引，用于覆盖总数量为当日数量）
+  const [salesDateRecords, setSalesDateRecords] = useState<Record<string, Record<string, unknown>>>({});
+  const [returnsDateRecords, setReturnsDateRecords] = useState<Record<string, Record<string, unknown>>>({});
 
   // 导出
   const [exportModal, setExportModal] = useState(false);
@@ -250,21 +253,41 @@ export default function FinancePage() {
   // 切换视图/筛选时重置分页
   useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, returnsDateFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
 
-  // 日期筛选时获取对应 sale_ids
+  // 日期筛选时获取对应 sale_ids 及该日期的聚合数据
   useEffect(() => {
-    if (!salesDateFilter) { setSalesDateIds(new Set()); return; }
+    if (!salesDateFilter) {
+      setSalesDateIds(new Set());
+      setSalesDateRecords({});
+      return;
+    }
     fetch(`/api/sales-dates?type=sales&date=${salesDateFilter}`)
       .then(r => r.json())
-      .then(data => setSalesDateIds(new Set(data.sale_ids || [])))
-      .catch(() => setSalesDateIds(new Set()));
+      .then(data => {
+        setSalesDateIds(new Set(data.sale_ids || []));
+        setSalesDateRecords(data.records || {});
+      })
+      .catch(() => {
+        setSalesDateIds(new Set());
+        setSalesDateRecords({});
+      });
   }, [salesDateFilter]);
 
   useEffect(() => {
-    if (!returnsDateFilter) { setReturnsDateIds(new Set()); return; }
+    if (!returnsDateFilter) {
+      setReturnsDateIds(new Set());
+      setReturnsDateRecords({});
+      return;
+    }
     fetch(`/api/sales-dates?type=returns&date=${returnsDateFilter}`)
       .then(r => r.json())
-      .then(data => setReturnsDateIds(new Set(data.sale_ids || [])))
-      .catch(() => setReturnsDateIds(new Set()));
+      .then(data => {
+        setReturnsDateIds(new Set(data.sale_ids || []));
+        setReturnsDateRecords(data.records || {});
+      })
+      .catch(() => {
+        setReturnsDateIds(new Set());
+        setReturnsDateRecords({});
+      });
   }, [returnsDateFilter]);
 
   // 生成所有货架号选项
@@ -715,7 +738,28 @@ export default function FinancePage() {
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
     }
     if (salesDateFilter && salesDateIds.size > 0) {
-      result = result.filter((r) => salesDateIds.has(r.sale_id));
+      // 用当日聚合数据覆盖总数量/各尺码/售价信息，使筛选日期显示当日数量而非累计总数
+      result = result
+        .filter((r) => salesDateIds.has(r.sale_id))
+        .map((r) => {
+          const day = salesDateRecords[r.sale_id];
+          if (!day) return r;
+          const merged: AggRow = { ...r };
+          merged.total = Number(day.total) || 0;
+          merged.total_revenue = Number(day.total_revenue) || 0;
+          merged.sales_count = Number(day.sales_count) || 0;
+          for (const s of ALL_SIZES) {
+            merged[`size_${s}`] = Number(day[`size_${s}`]) || 0;
+          }
+          merged.sell_price_info = day.sell_price_info || {};
+          // 售价取当日最低价
+          const info = day.sell_price_info as Record<string, string> | undefined;
+          if (info) {
+            const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+            if (prices.length > 0) merged.sell_price = prices[0];
+          }
+          return merged;
+        });
     }
     // 未入库筛选：售出总表中存在但入库表中不存在的记录
     if (uninboundFilter) {
@@ -723,7 +767,7 @@ export default function FinancePage() {
       result = result.filter((r) => !inboundIds.has(r.sale_id.toUpperCase()));
     }
     return result;
-  }, [salesData, debouncedSearch, salesDateFilter, salesDateIds, uninboundFilter, inboundData]);
+  }, [salesData, debouncedSearch, salesDateFilter, salesDateIds, salesDateRecords, uninboundFilter, inboundData]);
 
   const filteredReturns = useMemo(() => {
     let result = returnData;
@@ -732,10 +776,29 @@ export default function FinancePage() {
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q));
     }
     if (returnsDateFilter && returnsDateIds.size > 0) {
-      result = result.filter((r) => returnsDateIds.has(r.sale_id));
+      // 用当日聚合数据覆盖总退货量/各尺码/退货价信息
+      result = result
+        .filter((r) => returnsDateIds.has(r.sale_id))
+        .map((r) => {
+          const day = returnsDateRecords[r.sale_id];
+          if (!day) return r;
+          const merged: AggRow = { ...r };
+          merged.total = Number(day.total) || 0;
+          merged.total_return_amount = Number(day.total_return_amount) || 0;
+          for (const s of ALL_SIZES) {
+            merged[`size_${s}`] = Number(day[`size_${s}`]) || 0;
+          }
+          merged.return_price_info = day.return_price_info || {};
+          const info = day.return_price_info as Record<string, string> | undefined;
+          if (info) {
+            const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+            if (prices.length > 0) merged.return_price = prices[0];
+          }
+          return merged;
+        });
     }
     return result;
-  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds]);
+  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds, returnsDateRecords]);
 
   const filteredInbound = useMemo(() => {
     let result = inboundData;
