@@ -417,15 +417,58 @@ export default function DataImportPage() {
     const allErrors: string[] = [];
 
     try {
-      // 1. 获取 Supabase 中已存在的照片文件名
+      // 1. 获取 Supabase 中已存在的照片文件名 + 待匹配的入库记录（本地预匹配，避免每次 POST 全表扫描超时）
       let existingNames = new Set<string>();
+      // 文件名(去扩展名) → 记录ID列表（POST 时随 formData 传给后端）
+      let matchIndex: Record<string, number[]> = {};
       try {
         const checkRes = await fetch("/api/import/supplement-photos");
         const checkData = await checkRes.json();
         if (checkData.existingNames) {
           existingNames = new Set(checkData.existingNames.map((n: string) => n.toUpperCase()));
         }
-      } catch { /* 忽略检查失败 */ }
+        if (Array.isArray(checkData.pendingRecords)) {
+          // 与后端匹配规则一致：完整文件名、去扩展名、大小写不敏感
+          const filenameToIds: Record<string, number[]> = {};
+          const ciIndex: Record<string, string[]> = {};
+          for (const rec of checkData.pendingRecords) {
+            const photoVal = String(rec.photo || "").trim();
+            if (!photoVal || photoVal.startsWith("http://") || photoVal.startsWith("https://")) continue;
+            const fileName = photoVal.replace(/^.*[\\/]/, "").trim();
+            if (!fileName) continue;
+            const baseName = fileName.replace(/\.[^.]+$/, "").trim();
+            const keys = new Set([fileName, baseName].filter(Boolean));
+            for (const k of keys) {
+              if (!filenameToIds[k]) filenameToIds[k] = [];
+              if (!filenameToIds[k].includes(rec.id)) filenameToIds[k].push(rec.id);
+              const lower = k.toLowerCase();
+              if (!ciIndex[lower]) ciIndex[lower] = [];
+              if (!ciIndex[lower].includes(k)) ciIndex[lower].push(k);
+            }
+          }
+          const findIds = (name: string): number[] => {
+            const full = name.trim();
+            const noExt = full.replace(/\.[^.]+$/, "").trim();
+            let ids = filenameToIds[full] || filenameToIds[noExt];
+            if (!ids || ids.length === 0) {
+              const ciKeys = ciIndex[full.toLowerCase()] || ciIndex[noExt.toLowerCase()];
+              if (ciKeys) {
+                for (const k of ciKeys) {
+                  const r = filenameToIds[k];
+                  if (r && r.length > 0) { ids = r; break; }
+                }
+              }
+            }
+            return ids || [];
+          };
+          // 为每张待上传照片建立映射（key 用去扩展名，兼容客户端压缩改名 .webp）
+          for (const f of supplementFiles) {
+            const noExt = f.name.replace(/\.[^.]+$/, "").trim();
+            const ids = findIds(f.name);
+            if (ids.length > 0) matchIndex[noExt] = ids;
+          }
+        }
+      } catch { /* 忽略检查失败，回退后端全表匹配 */ }
 
       // 2. 过滤掉已存在的照片
       const filesToUpload = supplementFiles.filter((f) => {
@@ -486,12 +529,27 @@ export default function DataImportPage() {
         const formData = new FormData();
         compressedFiles.forEach((f) => formData.append("photos", f));
 
+        // 附带预匹配结果（key 为去扩展名文件名），后端跳过全表扫描避免超时
+        const batchMatches: Record<string, number[]> = {};
+        batch.forEach((f) => {
+          const noExt = f.name.replace(/\.[^.]+$/, "").trim();
+          const ids = matchIndex[noExt];
+          if (ids && ids.length > 0) batchMatches[noExt] = ids;
+        });
+        formData.append("matches", JSON.stringify(batchMatches));
+
         const res = await fetch("/api/import/supplement-photos", {
           method: "POST",
           body: formData,
         });
 
-        const data = await res.json();
+        // 防御：响应不是 JSON（如网关错误页）时给出清晰提示
+        let data: { error?: string; matched?: number; uploaded?: number; updated?: number; errors?: string[] };
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(`服务器响应异常 (HTTP ${res.status})，照片可能过大或服务器繁忙，请稍后重试`);
+        }
 
         if (data.error) {
           allErrors.push(`批次 ${Math.floor(i / BATCH_SIZE) + 1}: ${data.error}`);

@@ -8,6 +8,7 @@ const MAX_FILE_SIZE = 15 * 1024 * 1024;
 const SUPABASE_PAGE_SIZE = 1000; // Supabase 默认每页 1000 行
 
 // GET: 获取 Supabase Storage 中已存在的照片文件名列表（用于前端去重）
+// 以及 photo 字段仍为文件名（非URL）的入库记录（供前端本地匹配，避免每次 POST 全表扫描超时）
 export async function GET() {
   try {
     const { data, error } = await supabase.storage
@@ -25,7 +26,36 @@ export async function GET() {
       if (baseName) existingNames.add(baseName);
     }
 
-    return NextResponse.json({ existingNames: Array.from(existingNames) });
+    // 查询 photo 字段为文件名（非URL）的入库记录（neq 空串同时排除 null）
+    const pendingRecords: { id: number; sale_id: string; photo: string }[] = [];
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data: recs, error: fetchError } = await supabase
+        .from("inbound_records")
+        .select("id, sale_id, photo")
+        .neq("photo", "")
+        .range(page * SUPABASE_PAGE_SIZE, (page + 1) * SUPABASE_PAGE_SIZE - 1)
+        .order("id", { ascending: true });
+
+      if (fetchError) {
+        return NextResponse.json({ error: `查询入库记录失败: ${fetchError.message}` }, { status: 500 });
+      }
+
+      if (recs && recs.length > 0) {
+        for (const rec of recs) {
+          const photoVal = String(rec.photo || "").trim();
+          if (!photoVal) continue;
+          if (photoVal.startsWith("http://") || photoVal.startsWith("https://")) continue;
+          pendingRecords.push(rec);
+        }
+        page++;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return NextResponse.json({ existingNames: Array.from(existingNames), pendingRecords });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -41,57 +71,75 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "未提供照片文件" }, { status: 400 });
     }
 
-    // 分页查询所有入库记录中 photo 字段为文件名（非 URL）的记录
-    // 突破 Supabase 默认 1000 行限制
-    let allRecords: { id: number; sale_id: string; photo: string | null }[] = [];
-    let page = 0;
-    let hasMore = true;
-    while (hasMore) {
-      const { data, error: fetchError } = await supabase
-        .from("inbound_records")
-        .select("id, sale_id, photo")
-        .range(page * SUPABASE_PAGE_SIZE, (page + 1) * SUPABASE_PAGE_SIZE - 1)
-        .order("id", { ascending: true });
-
-      if (fetchError) {
-        return NextResponse.json({ error: `查询入库记录失败: ${fetchError.message}` }, { status: 500 });
-      }
-
-      if (data && data.length > 0) {
-        allRecords = allRecords.concat(data);
-        page++;
-      } else {
-        hasMore = false;
+    // 解析前端预匹配的映射（文件名 → 记录ID列表），避免每次 POST 全表扫描导致 Vercel 函数超时
+    const matchesRaw = formData.get("matches");
+    let preMatches: Record<string, number[]> | null = null;
+    if (typeof matchesRaw === "string" && matchesRaw) {
+      try {
+        const parsed = JSON.parse(matchesRaw);
+        if (parsed && typeof parsed === "object") preMatches = parsed;
+      } catch {
+        preMatches = null; // 解析失败回退全表查询
       }
     }
-    console.log(`[补充照片] 共查询到 ${allRecords.length} 条入库记录`);
 
     // 构建文件名到记录ID的映射（photo 字段为文件名，非 URL）
     // 同时支持多级匹配：精确匹配、去扩展名匹配、大小写不敏感匹配
     const filenameToRecords: Record<string, { id: number; sale_id: string }[]> = {};
     const caseInsensitiveIndex: Record<string, string[]> = {}; // 小写key → 原始key列表
-    for (const rec of allRecords || []) {
-      const photoVal = (rec.photo || "").trim();
-      if (!photoVal) continue;
-      // 跳过已经是 URL 的
-      if (photoVal.startsWith("http://") || photoVal.startsWith("https://")) continue;
-      // 提取文件名（去路径）
-      const fileName = photoVal.replace(/^.*[\\/]/, "").trim();
-      if (!fileName) continue;
-      // 生成多个匹配键：完整文件名、去扩展名
-      const baseName = fileName.replace(/\.[^.]+$/, "").trim();
-      const keys = new Set<string>([fileName, baseName]);
-      for (const k of keys) {
-        if (!k) continue;
-        if (!filenameToRecords[k]) filenameToRecords[k] = [];
-        filenameToRecords[k].push({ id: rec.id, sale_id: rec.sale_id });
-        // 大小写不敏感索引
-        const lower = k.toLowerCase();
-        if (!caseInsensitiveIndex[lower]) caseInsensitiveIndex[lower] = [];
-        if (!caseInsensitiveIndex[lower].includes(k)) caseInsensitiveIndex[lower].push(k);
+
+    if (preMatches) {
+      // 快速路径：直接使用前端 GET 时建立的匹配结果，跳过全表查询
+      console.log(`[补充照片] 使用前端预匹配结果，共 ${Object.keys(preMatches).length} 个文件`);
+    } else {
+      // 回退路径：分页查询所有入库记录中 photo 字段为文件名（非 URL）的记录
+      // 突破 Supabase 默认 1000 行限制
+      let allRecords: { id: number; sale_id: string; photo: string | null }[] = [];
+      let page = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error: fetchError } = await supabase
+          .from("inbound_records")
+          .select("id, sale_id, photo")
+          .range(page * SUPABASE_PAGE_SIZE, (page + 1) * SUPABASE_PAGE_SIZE - 1)
+          .order("id", { ascending: true });
+
+        if (fetchError) {
+          return NextResponse.json({ error: `查询入库记录失败: ${fetchError.message}` }, { status: 500 });
+        }
+
+        if (data && data.length > 0) {
+          allRecords = allRecords.concat(data);
+          page++;
+        } else {
+          hasMore = false;
+        }
       }
+      console.log(`[补充照片] 共查询到 ${allRecords.length} 条入库记录`);
+
+      for (const rec of allRecords || []) {
+        const photoVal = (rec.photo || "").trim();
+        if (!photoVal) continue;
+        // 跳过已经是 URL 的
+        if (photoVal.startsWith("http://") || photoVal.startsWith("https://")) continue;
+        // 提取文件名（去路径）
+        const fileName = photoVal.replace(/^.*[\\/]/, "").trim();
+        if (!fileName) continue;
+        // 生成多个匹配键：完整文件名、去扩展名
+        const baseName = fileName.replace(/\.[^.]+$/, "").trim();
+        const keys = new Set<string>([fileName, baseName]);
+        for (const k of keys) {
+          if (!k) continue;
+          if (!filenameToRecords[k]) filenameToRecords[k] = [];
+          filenameToRecords[k].push({ id: rec.id, sale_id: rec.sale_id });
+          // 大小写不敏感索引
+          const lower = k.toLowerCase();
+          if (!caseInsensitiveIndex[lower]) caseInsensitiveIndex[lower] = [];
+          if (!caseInsensitiveIndex[lower].includes(k)) caseInsensitiveIndex[lower].push(k);
+        }
+      }
+      console.log(`[补充照片] 建立了 ${Object.keys(filenameToRecords).length} 个匹配键，${Object.keys(caseInsensitiveIndex).length} 个大小写索引`);
     }
-    console.log(`[补充照片] 建立了 ${Object.keys(filenameToRecords).length} 个匹配键，${Object.keys(caseInsensitiveIndex).length} 个大小写索引`);
 
     let processed = 0;
     let matched = 0;
@@ -106,22 +154,31 @@ export async function POST(request: NextRequest) {
       const fileNameWithoutExt = file.name.replace(/\.[^.]+$/, "").trim();
       const fileNameFull = file.name.trim();
 
-      // 多级匹配：完整文件名 → 去扩展名 → 大小写不敏感
-      let matchingRecords = filenameToRecords[fileNameFull];
-      if (!matchingRecords || matchingRecords.length === 0) {
-        matchingRecords = filenameToRecords[fileNameWithoutExt];
-      }
-      if (!matchingRecords || matchingRecords.length === 0) {
-        // 大小写不敏感匹配
-        const lowerFull = fileNameFull.toLowerCase();
-        const lowerNoExt = fileNameWithoutExt.toLowerCase();
-        const ciKeys = caseInsensitiveIndex[lowerFull] || caseInsensitiveIndex[lowerNoExt];
-        if (ciKeys) {
-          for (const ciKey of ciKeys) {
-            const records = filenameToRecords[ciKey];
-            if (records && records.length > 0) {
-              matchingRecords = records;
-              break;
+      // 匹配：优先使用前端预匹配结果（快速路径），否则走多级匹配（回退路径）
+      let matchingRecords: { id: number; sale_id: string }[] | undefined;
+      if (preMatches) {
+        const ids = preMatches[fileNameFull] || preMatches[fileNameWithoutExt];
+        if (ids && ids.length > 0) {
+          matchingRecords = ids.map((id) => ({ id, sale_id: `#${id}` }));
+        }
+      } else {
+        // 多级匹配：完整文件名 → 去扩展名 → 大小写不敏感
+        matchingRecords = filenameToRecords[fileNameFull];
+        if (!matchingRecords || matchingRecords.length === 0) {
+          matchingRecords = filenameToRecords[fileNameWithoutExt];
+        }
+        if (!matchingRecords || matchingRecords.length === 0) {
+          // 大小写不敏感匹配
+          const lowerFull = fileNameFull.toLowerCase();
+          const lowerNoExt = fileNameWithoutExt.toLowerCase();
+          const ciKeys = caseInsensitiveIndex[lowerFull] || caseInsensitiveIndex[lowerNoExt];
+          if (ciKeys) {
+            for (const ciKey of ciKeys) {
+              const records = filenameToRecords[ciKey];
+              if (records && records.length > 0) {
+                matchingRecords = records;
+                break;
+              }
             }
           }
         }
