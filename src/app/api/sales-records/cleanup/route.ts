@@ -36,7 +36,7 @@ export async function GET() {
 
     const costMap: Record<string, number> = {};
     for (const row of allInbound) {
-      costMap[row.sale_id as string] = Number(row.cost_price) || 0;
+      costMap[String(row.sale_id || "").toUpperCase()] = Number(row.cost_price) || 0;
     }
 
     // 读取快递费率和平台抽点率
@@ -74,7 +74,7 @@ export async function GET() {
       if (!dailyMap[date]) dailyMap[date] = { date, total_amount: 0, total_quantity: 0, total_profit: 0, shipping_fee: 0, platform_fee: 0, trackingMap: new Map() };
       const price = Number(row.sell_price) || 0;
       const qty = Number(row.quantity) || 0;
-      const cost = costMap[row.sale_id as string] || 0;
+      const cost = costMap[String(row.sale_id || "").toUpperCase()] || 0;
       dailyMap[date].total_amount += price * qty;
       dailyMap[date].total_quantity += qty;
       dailyMap[date].total_profit += (price - cost) * qty;
@@ -99,27 +99,22 @@ export async function GET() {
       delete (stats as any).trackingMap;
     }
 
-    // 2. Upsert 到 sales_daily_stats（累加）
-    for (const [, stats] of Object.entries(dailyMap)) {
-      const { data: existing } = await supabase
+    // 2. Upsert 到 sales_daily_stats（按日期覆盖，幂等：重复执行不会重复累计）
+    const upsertBatch = Object.values(dailyMap).map((stats) => ({
+      date: stats.date,
+      total_amount: stats.total_amount,
+      total_quantity: stats.total_quantity,
+      total_profit: stats.total_profit,
+      shipping_fee: stats.shipping_fee,
+      platform_fee: stats.platform_fee,
+    }));
+    if (upsertBatch.length > 0) {
+      const { error: upsertErr } = await supabase
         .from("sales_daily_stats")
-        .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
-        .eq("date", stats.date)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("sales_daily_stats")
-          .update({
-            total_amount: Number(existing.total_amount) + stats.total_amount,
-            total_quantity: Number(existing.total_quantity) + stats.total_quantity,
-            total_profit: Number(existing.total_profit) + stats.total_profit,
-            shipping_fee: Number(existing.shipping_fee || 0) + stats.shipping_fee,
-            platform_fee: Number(existing.platform_fee || 0) + stats.platform_fee,
-          })
-          .eq("id", existing.id);
-      } else {
-        await supabase.from("sales_daily_stats").insert(stats);
+        .upsert(upsertBatch, { onConflict: "date" });
+      if (upsertErr) {
+        await sendAlert(`归档 sales_daily_stats 失败: ${upsertErr.message}\n已读取 ${allRecords.length} 条记录但归档失败，未清空原表！`);
+        return NextResponse.json({ error: upsertErr.message }, { status: 500 });
       }
     }
 
