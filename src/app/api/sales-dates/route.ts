@@ -120,28 +120,55 @@ export async function GET(request: NextRequest) {
     // 无参数：返回两类日期列表
 
     // 销售日期列表（从 sales_records 原始记录表读取，确保只显示实际有数据的日期）
-    const { data: salesRecords, error: salesErr } = await supabase
-      .from("sales_records")
-      .select("order_time");
-    if (salesErr) console.error("sales_records 查询失败:", salesErr.message);
-
+    // 注意：Supabase 默认最多返回 1000 行，必须分页读取全表，否则日期列表被截断
     const salesDateSet = new Set<string>();
-    for (const r of (salesRecords || []) as any[]) {
-      const ot = String(r.order_time || "");
-      if (ot) salesDateSet.add(ot.slice(0, 10));
+    {
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: chunk, error: salesErr } = await supabase
+          .from("sales_records")
+          .select("order_time")
+          .order("id", { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (salesErr) {
+          console.error("sales_records 查询失败:", salesErr.message);
+          break;
+        }
+        if (!chunk || chunk.length === 0) break;
+        for (const r of chunk as any[]) {
+          const ot = String(r.order_time || "");
+          if (ot) salesDateSet.add(ot.slice(0, 10));
+        }
+        if (chunk.length < pageSize) break;
+        page++;
+      }
     }
     const salesDates = Array.from(salesDateSet).sort().reverse();
 
-    // 退货日期列表
-    const { data: returnRecords, error: returnsErr } = await supabase
-      .from("return_records")
-      .select("return_time, created_at");
-    if (returnsErr) console.error("return_records 查询失败:", returnsErr.message);
-
+    // 退货日期列表（同样分页读取，避免超过 1000 行被截断）
     const returnDateSet = new Set<string>();
-    for (const r of (returnRecords || []) as any[]) {
-      const rt = String(r.return_time || r.created_at || "");
-      if (rt) returnDateSet.add(rt.slice(0, 10));
+    {
+      let page = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data: chunk, error: returnsErr } = await supabase
+          .from("return_records")
+          .select("return_time, created_at")
+          .order("id", { ascending: true })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        if (returnsErr) {
+          console.error("return_records 查询失败:", returnsErr.message);
+          break;
+        }
+        if (!chunk || chunk.length === 0) break;
+        for (const r of chunk as any[]) {
+          const rt = String(r.return_time || r.created_at || "");
+          if (rt) returnDateSet.add(rt.slice(0, 10));
+        }
+        if (chunk.length < pageSize) break;
+        page++;
+      }
     }
     const returnDates = Array.from(returnDateSet).sort().reverse();
 
