@@ -230,6 +230,37 @@ export default function DataImportPage() {
     try { localStorage.removeItem("supplement_progress"); } catch { /* ignore */ }
   };
 
+  // 接收数据清洗页传递过来的售出清单 CSV：自动选中售出导入并预填数据/列映射
+  useEffect(() => {
+    let csvText = "";
+    try {
+      csvText = sessionStorage.getItem("cleaned_sales_csv") || "";
+      if (csvText) sessionStorage.removeItem("cleaned_sales_csv");
+    } catch { /* ignore */ }
+    if (!csvText.trim()) return;
+
+    setImportType("sales");
+    setCsvContent(csvText);
+    const { headers, rows } = parseCSV(csvText);
+    setCsvHeaders(headers);
+    setCsvPreview(rows.slice(0, 5));
+    setAllRows(rows);
+
+    // 自动映射列（与文件上传相同的匹配逻辑，表头即导入模板中文名，可精确命中）
+    const fields = ALL_FIELDS_BY_TYPE["sales"];
+    const autoMap: Record<string, string> = {};
+    for (const field of fields) {
+      const label = FIELD_LABELS[field];
+      if (headers.includes(label)) autoMap[field] = label;
+      else if (headers.includes(field)) autoMap[field] = field;
+      else {
+        const match = headers.find((h) => h.toLowerCase().includes(field.replace("_", "").toLowerCase()));
+        if (match) autoMap[field] = match;
+      }
+    }
+    setColumnMap(autoMap);
+  }, []);
+
   const ALL_FIELDS = ALL_FIELDS_BY_TYPE[importType];
   const SIZE_FIELDS = SIZE_FIELDS_BY_TYPE[importType];
 

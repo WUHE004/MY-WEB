@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
 
 // 有效尺码（有且仅有）
@@ -298,17 +299,32 @@ function rowBg(row: CleanRow, idx: number, selected: boolean): string {
   return idx % 2 === 1 ? "bg-gray-50" : "bg-white";
 }
 
-/** 能转数字则转数字, 否则原样返回 */
-function asNum(v: string): string | number {
-  const s = String(v).trim();
-  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
-  if (/^-?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
-  return s;
+// 售出清单导入格式的表头（与 /data-import 售出模板一致）
+const IMPORT_SALES_HEADERS = ["售卖编号", "尺码", "数量", "售价", "厂家", "备注", "下单时间", "面单号"];
+
+/** CSV 单元格转义: 含逗号/引号/换行时用引号包裹 */
+function csvEscape(v: string | number): string {
+  const s = String(v ?? "");
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * 将清洗结果转为售出清单导入格式的 CSV 文本
+ * CleanRow = [尺码, 售卖数量, 售价, 售卖编号, 下单时间, 面单号]
+ */
+function buildImportCsv(cleanRows: CleanRow[]): string {
+  const lines = [IMPORT_SALES_HEADERS.join(",")];
+  for (const r of cleanRows) {
+    const cols = [r[3], r[0], r[1], r[2], "", "", r[4], r[5]];
+    lines.push(cols.map(csvEscape).join(","));
+  }
+  return lines.join("\n");
 }
 
 // ---------------- 页面 ----------------
 
 export default function DataCleanPage() {
+  const router = useRouter();
   const [origData, setOrigData] = useState<OrigRow[]>([]);
   const [cleanData, setCleanData] = useState<CleanRow[]>([]);
   const [sourceDisplay, setSourceDisplay] = useState("");
@@ -469,23 +485,23 @@ export default function DataCleanPage() {
     const pad = (n: number) => String(n).padStart(2, "0");
     const dateStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
-    const aoa: (string | number)[][] = [
-      CLEAN_HEADERS,
-      ...cleanData.map((r) => [
-        // 尺码/数量/售价写为数字; 编号/时间/面单号始终写为文本(避免长数字丢精度)
-        asNum(r[0]),
-        asNum(r[1]),
-        asNum(r[2]),
-        String(r[3]),
-        String(r[4]),
-        String(r[5]),
-      ]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!cols"] = [{ wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 18 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "售出导入");
-    XLSX.writeFile(wb, `售出导入-${dateStr}.xlsx`);
+    // 生成售出清单导入格式的 CSV
+    const csvText = buildImportCsv(cleanData);
+
+    // 下载 CSV 留档（带 BOM 保证 Excel/WPS 打开中文不乱码）
+    const blob = new Blob(["\uFEFF" + csvText], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `售出导入-${dateStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    // 通过 sessionStorage 传递给导入页，自动跳转并预填售出清单导入
+    try {
+      sessionStorage.setItem("cleaned_sales_csv", csvText);
+    } catch { /* 存储失败时仍可手动上传刚下载的 CSV */ }
+    router.push("/data-import");
   };
 
   // ---------- 状态栏文本 ----------
@@ -583,9 +599,10 @@ export default function DataCleanPage() {
             <button
               onClick={handleExport}
               disabled={!hasData || loading}
+              title="转为售出清单导入格式，下载留档并自动跳转到导入页"
               className="h-9 inline-flex items-center gap-1.5 px-4 ml-auto rounded-lg border-[2px] border-[#4A90E2] bg-[#4A90E2] text-xs font-extrabold text-white hover:bg-[#3a7bc2] transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Download className="h-3.5 w-3.5" />导出表格
+              <Download className="h-3.5 w-3.5" />导出并去导入
             </button>
           </div>
 
