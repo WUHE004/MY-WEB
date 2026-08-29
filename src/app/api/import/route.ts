@@ -76,6 +76,17 @@ const TABLES: Record<string, string> = {
   returns: "return_records",
 };
 
+// 时间字段规范化：兼容 "2026/08/20"、"2026-08-24 22:53:45"、ISO 等格式，
+// 无法解析时返回 null（由调用方决定兜底策略），避免 Postgres 报
+// invalid input syntax for type timestamp 导致整批插入失败
+function normalizeTimestamp(raw: unknown): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s || s === "0") return null;
+  const normalized = s.replace(/\//g, "-").replace(" ", "T");
+  const d = new Date(normalized);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 const COLUMNS_BY_TYPE: Record<string, string[]> = {
   inbound: INBOUND_COLUMNS,
   sales: SALES_COLUMNS,
@@ -203,7 +214,16 @@ export async function POST(request: NextRequest) {
           if (!record.season) record.season = "";
           if (!record.style_category) record.style_category = "";
           if (!record.notes) record.notes = "";
-          if (!record.inbound_date) record.inbound_date = new Date().toISOString();
+          // 入库日期规范化：无法解析的脏值用当前日期兜底并提示行号
+          const normalizedInboundDate = normalizeTimestamp(record.inbound_date);
+          if (!normalizedInboundDate) {
+            if (record.inbound_date !== undefined && String(record.inbound_date).trim() !== "" && record.inbound_date !== "0") {
+              errors.push(`第 ${r + 2} 行入库日期无法识别（"${String(record.inbound_date).trim()}"），已用当前日期代替`);
+            }
+            record.inbound_date = new Date().toISOString();
+          } else {
+            record.inbound_date = normalizedInboundDate;
+          }
           if (record.cost_price === undefined) record.cost_price = 0;
 
           // 确保所有尺码字段默认值为 0
@@ -244,7 +264,16 @@ export async function POST(request: NextRequest) {
           if (record.quantity === undefined) record.quantity = 0;
           if (record.sell_price === undefined) record.sell_price = 0;
           if (record.cost_price === undefined) record.cost_price = 0;
-          if (!record.order_time || record.order_time === "0") record.order_time = new Date().toISOString();
+          // 下单时间规范化：无法解析的脏值（如 "5"）用当前时间兜底并提示行号
+          const normalizedOrderTime = normalizeTimestamp(record.order_time);
+          if (!normalizedOrderTime) {
+            if (record.order_time !== undefined && String(record.order_time).trim() !== "" && record.order_time !== "0") {
+              errors.push(`第 ${r + 2} 行下单时间无法识别（"${String(record.order_time).trim()}"），已用当前时间代替`);
+            }
+            record.order_time = new Date().toISOString();
+          } else {
+            record.order_time = normalizedOrderTime;
+          }
 
           const sellPrice = Number(record.sell_price) || 0;
           const cp = Number(record.cost_price) || 0;
@@ -261,7 +290,16 @@ export async function POST(request: NextRequest) {
           if (record.size === undefined) record.size = 0;
           if (record.quantity === undefined) record.quantity = 0;
           if (record.return_price === undefined) record.return_price = 0;
-          if (!record.return_time || record.return_time === "0") record.return_time = new Date().toISOString();
+          // 退货时间规范化：无法解析的脏值用当前时间兜底并提示行号
+          const normalizedReturnTime = normalizeTimestamp(record.return_time);
+          if (!normalizedReturnTime) {
+            if (record.return_time !== undefined && String(record.return_time).trim() !== "" && record.return_time !== "0") {
+              errors.push(`第 ${r + 2} 行退货时间无法识别（"${String(record.return_time).trim()}"），已用当前时间代替`);
+            }
+            record.return_time = new Date().toISOString();
+          } else {
+            record.return_time = normalizedReturnTime;
+          }
         }
 
         batch.push(record);
