@@ -750,52 +750,10 @@ export default function InboundPage() {
 
           const sizeMap: Record<number, number> = {};
           SIZE_OPTIONS.forEach((s) => { sizeMap[s] = parseInt(String(record[`${s}码`] || record[`size_${s}`] || "0"), 10) || 0; });
-          const totalQty = Object.values(sizeMap).reduce((sum, v) => sum + v, 0);
 
-          const product = {
-            id: sid,
-            sale_id: sid,
-            manufacturer: mfr,
-            photo: photoUrl,
-            name: pname,
-            total_stock: totalQty,
-            sold_qty: 0,
-            remaining_stock: totalQty,
-            shelf_no: sn,
-            size_80: sizeMap[80] || 0,
-            size_90: sizeMap[90] || 0,
-            size_95: sizeMap[95] || 0,
-            size_100: sizeMap[100] || 0,
-            size_105: sizeMap[105] || 0,
-            size_110: sizeMap[110] || 0,
-            size_120: sizeMap[120] || 0,
-            size_130: sizeMap[130] || 0,
-            size_140: sizeMap[140] || 0,
-            size_150: sizeMap[150] || 0,
-            size_160: sizeMap[160] || 0,
-            size_170: sizeMap[170] || 0,
-            size_180: sizeMap[180] || 0,
-            stock_warning: 10,
-            cost_price: cost,
-            sell_price: 0,
-            profit: 0,
-            return_qty: 0,
-            return_rate: 0,
-            inventory_value: totalQty * cost,
-            last_order_time: new Date().toISOString().split("T")[0],
-            status: "active",
-            notes: nts,
-            season: seas,
-            style_category: st,
-          };
-
-          const productRes = await fetch("/api/products", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(product),
-          });
-          if (!productRes.ok) throw new Error("商品入库失败");
-
+          // 注意：与手动入库登记相同，CSV 导入只写入一次 inbound_records。
+          // 历史bug：此前先调 /api/products 再调 /api/inbound-records，
+          // 两者都向 inbound_records 表插入数据，导致同编号出现两条记录、库存翻倍。
           const inboundRecord = {
             sale_id: sid,
             photo: photoUrl,
