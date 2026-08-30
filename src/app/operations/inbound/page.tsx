@@ -365,11 +365,13 @@ export default function InboundPage() {
     }
   };
 
-  // 前端 canvas 压缩图片
+  // 前端 canvas 压缩图片（目标 ≤300KB：逐级降低质量，仍超标则缩小尺寸再压）
   const compressImage = (file: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      // 小于 200KB 的图片不压缩
-      if (file.size < 200 * 1024) {
+    const TARGET = 300 * 1024;
+
+    return new Promise((resolve) => {
+      // 小于目标大小的图片不压缩
+      if (file.size <= TARGET) {
         resolve(file);
         return;
       }
@@ -377,49 +379,68 @@ export default function InboundPage() {
       const img = new window.Image();
       const url = URL.createObjectURL(file);
 
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(file); // 加载失败，使用原文件
+      };
+
       img.onload = () => {
         URL.revokeObjectURL(url);
 
-        const MAX_WIDTH = 1280;
-        let { width, height } = img;
-
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
-        }
-
         const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-
         const ctx = canvas.getContext("2d");
         if (!ctx) {
-          // canvas 不可用，直接上传原文件
-          resolve(file);
+          resolve(file); // canvas 不可用，直接上传原文件
           return;
         }
 
-        ctx.drawImage(img, 0, 0, width, height);
+        const draw = (scale: number) => {
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        };
 
-        canvas.toBlob(
-          (blob) => {
-            if (blob && blob.size > 0) {
-              console.log(`[压缩] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB`);
-              resolve(blob);
-            } else {
-              // 压缩失败，使用原文件
-              resolve(file);
-            }
-          },
-          "image/jpeg",
-          0.85
-        );
-      };
+        // 逐级压缩：先固定尺寸降质量，再逐步缩小尺寸
+        const steps: Array<{ scale: number; quality: number }> = [
+          { scale: 1, quality: 0.8 },
+          { scale: 1, quality: 0.6 },
+          { scale: 0.8, quality: 0.7 },
+          { scale: 0.6, quality: 0.7 },
+          { scale: 0.5, quality: 0.6 },
+        ];
 
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        // 图片加载失败，使用原文件
-        resolve(file);
+        let attempt = 0;
+        const tryCompress = () => {
+          if (attempt >= steps.length) {
+            resolve(file); // 所有级别压不到目标，使用最后结果或原文件
+            return;
+          }
+          const { scale, quality } = steps[attempt++];
+          draw(scale);
+          canvas.toBlob(
+            (blob) => {
+              if (blob && blob.size > 0 && blob.size <= TARGET) {
+                console.log(`[压缩] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB (scale=${scale}, q=${quality})`);
+                resolve(blob);
+              } else if (blob && blob.size > 0 && attempt >= steps.length) {
+                // 最后一级仍超标，接受该结果（已比原图小）
+                console.log(`[压缩-兜底] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB`);
+                resolve(blob);
+              } else {
+                tryCompress();
+              }
+            },
+            "image/jpeg",
+            quality
+          );
+        };
+
+        // 初始先限制最大宽度 1280
+        const initialScale = img.width > 1280 ? 1280 / img.width : 1;
+        if (initialScale < 1) {
+          draw(initialScale);
+        }
+        tryCompress();
       };
 
       img.src = url;
@@ -854,60 +875,10 @@ export default function InboundPage() {
 
     setSubmitting(true);
 
-    const totalQty = isNoSizeStyle
-      ? standardSize
-      : Object.values(sizes).reduce((sum, v) => sum + v, 0);
-
-    const product = {
-      id: saleId.trim(),
-      sale_id: saleId.trim(),
-      manufacturer,
-      photo: photo || "",
-      name: name.trim(),
-      total_stock: totalQty,
-      sold_qty: 0,
-      remaining_stock: totalQty,
-      shelf_no: getShelfNo(),
-      size_80: isNoSizeStyle ? standardSize : (sizes[80] || 0),
-      size_90: sizes[90] || 0,
-      size_95: sizes[95] || 0,
-      size_100: sizes[100] || 0,
-      size_105: sizes[105] || 0,
-      size_110: sizes[110] || 0,
-      size_120: sizes[120] || 0,
-      size_130: sizes[130] || 0,
-      size_140: sizes[140] || 0,
-      size_150: sizes[150] || 0,
-      size_160: sizes[160] || 0,
-      size_170: sizes[170] || 0,
-      size_180: sizes[180] || 0,
-      stock_warning: 10,
-      cost_price: Number(costPrice),
-      sell_price: 0,
-      profit: 0,
-      return_qty: 0,
-      return_rate: 0,
-      inventory_value: totalQty * Number(costPrice),
-      last_order_time: new Date().toISOString().split("T")[0],
-      status: "active",
-      notes: notes.trim(),
-      season: season,
-      style_category: style,
-    };
-
     try {
-      const productRes = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(product),
-      });
-
-      if (!productRes.ok) {
-        const err = await productRes.json();
-        alert("商品入库失败: " + (err.error || "未知错误"));
-        return;
-      }
-
+      // 注意：入库登记只需写入一次 inbound_records。
+      // 历史bug：此前先调 /api/products 再调 /api/inbound-records，
+      // 两者都向 inbound_records 表插入数据，导致同编号出现两条记录、库存翻倍。
       const inboundRecord = {
         sale_id: saleId.trim(),
         photo: photo || "",
