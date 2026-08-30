@@ -63,7 +63,7 @@ function hasValidPhoto(photo: string | null | undefined): boolean {
   return String(photo).trim().startsWith("https://");
 }
 
-// 图片压缩：限制最大宽度 800px，JPEG 质量 0.7
+// 图片压缩：限制最大宽度 800px，WebP 质量 0.75（同画质比 JPEG 小 25-35%）
 function compressImage(file: File): Promise<File> {
   return new Promise((resolve, reject) => {
     const img = new window.Image();
@@ -86,11 +86,11 @@ function compressImage(file: File): Promise<File> {
       canvas.toBlob(
         (blob) => {
           if (!blob) { resolve(file); return; }
-          const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+          const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" });
           resolve(compressed);
         },
-        "image/jpeg",
-        0.7
+        "image/webp",
+        0.75
       );
     };
     img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };

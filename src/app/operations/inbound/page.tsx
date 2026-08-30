@@ -332,12 +332,12 @@ export default function InboundPage() {
       });
       setPhoto(preview);
 
-      // 前端 canvas 压缩图片
-      const compressedBlob = await compressImage(file);
+      // 前端 canvas 压缩图片（WebP），返回的 File 已带 .webp 扩展名
+      const compressedFile = await compressImage(file);
 
       // 上传到后端
       const formData = new FormData();
-      formData.append("file", compressedBlob, file.name);
+      formData.append("file", compressedFile, compressedFile.name);
       formData.append("folder", "products");
 
       const res = await fetch("/api/upload", {
@@ -365,12 +365,14 @@ export default function InboundPage() {
     }
   };
 
-  // 前端 canvas 压缩图片（目标 ≤300KB：逐级降低质量，仍超标则缩小尺寸再压）
-  const compressImage = (file: File): Promise<Blob> => {
-    const TARGET = 300 * 1024;
+  // 前端 canvas 压缩图片：WebP 格式 + 限宽 800px + 逐级压缩至 ≤100KB
+  // WebP 同画质比 JPEG 小 25-35%，800px 足够缩略展示，典型产出 40-80KB
+  const compressImage = (file: File): Promise<File> => {
+    const TARGET = 100 * 1024;
+    const MAX_WIDTH = 800;
 
     return new Promise((resolve) => {
-      // 小于目标大小的图片不压缩
+      // 小于目标大小的图片不压缩，直接使用原文件
       if (file.size <= TARGET) {
         resolve(file);
         return;
@@ -394,52 +396,53 @@ export default function InboundPage() {
           return;
         }
 
+        // 基准缩放：先限制最大宽度 800
+        const baseScale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
+
         const draw = (scale: number) => {
           canvas.width = Math.max(1, Math.round(img.width * scale));
           canvas.height = Math.max(1, Math.round(img.height * scale));
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         };
 
-        // 逐级压缩：先固定尺寸降质量，再逐步缩小尺寸
+        // 逐级压缩：先固定尺寸降质量，仍超标则逐步缩小尺寸
         const steps: Array<{ scale: number; quality: number }> = [
           { scale: 1, quality: 0.8 },
           { scale: 1, quality: 0.6 },
-          { scale: 0.8, quality: 0.7 },
-          { scale: 0.6, quality: 0.7 },
-          { scale: 0.5, quality: 0.6 },
+          { scale: 0.8, quality: 0.65 },
+          { scale: 0.6, quality: 0.6 },
         ];
 
+        let lastBlob: Blob | null = null;
         let attempt = 0;
         const tryCompress = () => {
           if (attempt >= steps.length) {
-            resolve(file); // 所有级别压不到目标，使用最后结果或原文件
+            // 所有级别压不到目标：用最后结果（已远比原图小），否则原文件
+            if (lastBlob && lastBlob.size > 0 && lastBlob.size < file.size) {
+              console.log(`[压缩-兜底] ${(file.size / 1024).toFixed(1)}KB → ${(lastBlob.size / 1024).toFixed(1)}KB`);
+              resolve(new File([lastBlob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" }));
+            } else {
+              resolve(file);
+            }
             return;
           }
           const { scale, quality } = steps[attempt++];
-          draw(scale);
+          draw(baseScale * scale);
           canvas.toBlob(
             (blob) => {
+              lastBlob = blob;
               if (blob && blob.size > 0 && blob.size <= TARGET) {
                 console.log(`[压缩] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB (scale=${scale}, q=${quality})`);
-                resolve(blob);
-              } else if (blob && blob.size > 0 && attempt >= steps.length) {
-                // 最后一级仍超标，接受该结果（已比原图小）
-                console.log(`[压缩-兜底] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB`);
-                resolve(blob);
+                resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" }));
               } else {
                 tryCompress();
               }
             },
-            "image/jpeg",
+            "image/webp",
             quality
           );
         };
 
-        // 初始先限制最大宽度 1280
-        const initialScale = img.width > 1280 ? 1280 / img.width : 1;
-        if (initialScale < 1) {
-          draw(initialScale);
-        }
         tryCompress();
       };
 
