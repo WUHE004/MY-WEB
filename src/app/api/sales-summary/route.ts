@@ -43,9 +43,10 @@ export async function upsertSalesSummary(saleId: string) {
   }
 
   // 2. 从入库表获取照片/货架号/厂家
+  // 注意: inbound_records 表没有 sell_price 列, 查询包含不存在列会整条报错导致取不到照片
   const { data: inboundData, error: inboundError } = await supabase
     .from("inbound_records")
-    .select("photo, shelf_no, manufacturer, name, cost_price, sell_price")
+    .select("photo, shelf_no, manufacturer, name, cost_price")
     .ilike("sale_id", sid)
     .limit(1);
 
@@ -57,13 +58,11 @@ export async function upsertSalesSummary(saleId: string) {
   console.log(`upsertSalesSummary: ${sid} inbound found=${!!inbound}`);
 
   // 如果入库表找不到，尝试从第一条售出记录获取基础信息
-  let fallbackCostPrice = 0;
   let fallbackName = "";
   let fallbackManufacturer = "";
   let fallbackShelfNo = "";
   if (!inbound && allRecords.length > 0) {
     const first = allRecords[0];
-    fallbackCostPrice = Number(first.cost_price) || 0;
     fallbackName = String(first.product_name || "");
     fallbackManufacturer = String(first.manufacturer || "");
     fallbackShelfNo = String(first.shelf_no || "");
@@ -111,19 +110,19 @@ export async function upsertSalesSummary(saleId: string) {
   }
 
   // 5. 从售出记录中获取最高售价
-  let highestSellPrice = inbound?.sell_price || 0;
+  let highestSellPrice = 0;
   if (priceMap.size > 0) {
     highestSellPrice = Math.max(...priceMap.keys());
   }
 
   // 5. Upsert 到 sales_summary 表
+  // 注意: sales_summary 表实际没有 cost_price 列, 写入不存在列会导致整个 upsert 失败
   const row: Record<string, unknown> = {
     sale_id: sid,
     photo: inbound?.photo || "",
     name: inbound?.name || fallbackName,
     shelf_no: inbound?.shelf_no || fallbackShelfNo,
     manufacturer: inbound?.manufacturer || fallbackManufacturer,
-    cost_price: inbound?.cost_price || fallbackCostPrice,
     sell_price: highestSellPrice,
     ...sizeTotals,
     total_sold: totalSold,
