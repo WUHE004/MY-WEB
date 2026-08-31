@@ -5,6 +5,8 @@ import { ReactNode, useState, useEffect } from "react";
 
 interface PageWrapperProps {
   children: ReactNode;
+  /** 宽屏模式: 桌面端容器放宽到 1920px(默认 1600px) */
+  wide?: boolean;
 }
 
 interface Toast {
@@ -22,7 +24,7 @@ export function showToast(message: string, type: "success" | "error" | "info" = 
   }
 }
 
-export function PageWrapper({ children }: PageWrapperProps) {
+export function PageWrapper({ children, wide = false }: PageWrapperProps) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
@@ -51,7 +53,7 @@ export function PageWrapper({ children }: PageWrapperProps) {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -20 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
-        className="px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-8 max-w-[1600px] mx-auto"
+        className={`px-4 sm:px-6 lg:px-8 xl:px-10 py-4 sm:py-6 lg:py-8 mx-auto ${wide ? "max-w-[1920px]" : "max-w-[1600px]"}`}
       >
         {children}
       </motion.div>
