@@ -20,7 +20,12 @@ export async function GET(request: NextRequest) {
       .order("registration_date", { ascending: false });
 
     if (trackingNumber) {
-      query = query.eq("tracking_number", trackingNumber);
+      // 短输入(≤5位)按后缀模糊匹配面单号，长输入精确匹配
+      if (trackingNumber.length <= 5) {
+        query = query.ilike("tracking_number", `%${trackingNumber}`);
+      } else {
+        query = query.eq("tracking_number", trackingNumber);
+      }
     }
     if (saleId) {
       query = query.eq("sale_id", saleId);

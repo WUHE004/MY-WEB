@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { ArrowLeft, Camera, X, Search, Package, CheckCircle, PauseCircle, Truck, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
-import { Html5Qrcode } from "html5-qrcode";
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 interface SalesRecord {
   id: number;
@@ -17,6 +17,7 @@ interface SalesRecord {
   shelf_no: string;
   order_time: string;
   manufacturer: string;
+  tracking_number?: string;
 }
 
 interface PackRecord {
@@ -61,19 +62,35 @@ export default function PackPage() {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  // 后五位匹配到多个面单号时的候选列表
+  const [matchedTrackingNumbers, setMatchedTrackingNumbers] = useState<string[]>([]);
 
   useEffect(() => { fetchPackRecords(); }, []);
 
   const doSearch = useCallback(async (query: string) => {
-    if (!query.trim()) return;
+    const q = query.trim();
+    if (!q) return;
     setSearching(true);
     setSearched(false);
     setNotFound(false);
     setSearchResults([]);
+    setMatchedTrackingNumbers([]);
     try {
-      const res = await fetch(`/api/sales-records?tracking_number=${encodeURIComponent(query.trim())}`);
+      const res = await fetch(`/api/sales-records?tracking_number=${encodeURIComponent(q)}`);
       const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) { setSearchResults(data); setSearched(true); }
+      if (Array.isArray(data) && data.length > 0) {
+        setSearchResults(data);
+        setSearched(true);
+        // 短输入(≤5位)后缀匹配: 唯一命中时自动补全完整面单号
+        if (q.length <= 5) {
+          const distinct = Array.from(new Set(data.map((d: SalesRecord) => (d.tracking_number || "").trim()).filter(Boolean)));
+          if (distinct.length === 1) {
+            setTrackingNumber(distinct[0]);
+          } else if (distinct.length > 1) {
+            setMatchedTrackingNumbers(distinct);
+          }
+        }
+      }
       else { setNotFound(true); setSearched(true); }
     } catch { setNotFound(true); setSearched(true); }
     finally { setSearching(false); }
@@ -87,11 +104,27 @@ export default function PackPage() {
       try {
         await new Promise((r) => setTimeout(r, 300));
         if (cancelled) return;
-        const scanner = new Html5Qrcode("pack-scanner-reader");
+        const scanner = new Html5Qrcode("pack-scanner-reader", {
+          verbose: false,
+          // 限定一维条码格式(快递面单),减少误识别
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.CODE_93,
+            Html5QrcodeSupportedFormats.CODABAR,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.ITF,
+          ],
+          // 优先使用浏览器原生 BarcodeDetector,一维条码识别率大幅提升
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        });
         scannerRef.current = scanner;
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 150 } },
+          { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 },
           (decodedText) => {
             if (cancelled) return;
             const cleaned = decodedText.trim();
@@ -240,9 +273,9 @@ export default function PackPage() {
                 <input
                   type="text"
                   value={trackingNumber}
-                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  onChange={(e) => { setTrackingNumber(e.target.value); setMatchedTrackingNumbers([]); }}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder="面单号"
+                  placeholder="面单号 / 后五位"
                   className="neo-input w-full text-sm pl-10"
                 />
               </div>
@@ -265,6 +298,26 @@ export default function PackPage() {
           {searched && notFound && (
             <div className="p-4 sm:p-6 rounded-xl border-[3px] border-red-400 bg-red-50 text-center">
               <p className="text-sm font-extrabold text-red-600">未找到面单号 "{trackingNumber}" 对应的售卖记录</p>
+            </div>
+          )}
+
+          {/* 后五位匹配到多个面单号: 点击选择具体面单 */}
+          {matchedTrackingNumbers.length > 1 && (
+            <div className="mb-4 p-3 sm:p-4 rounded-xl border-[3px] border-yellow-400 bg-yellow-50">
+              <p className="text-xs sm:text-sm font-extrabold text-yellow-700 mb-2">
+                后五位匹配到 {matchedTrackingNumbers.length} 个面单号，请点击选择：
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {matchedTrackingNumbers.map((tn) => (
+                  <button
+                    key={tn}
+                    onClick={() => { setTrackingNumber(tn); doSearch(tn); }}
+                    className="px-3 py-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all"
+                  >
+                    {tn}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -295,10 +348,10 @@ export default function PackPage() {
                 ))}
               </div>
               <div className="flex gap-3 sm:gap-4">
-                <button onClick={() => handleSubmitFind("found")} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all">
+                <button onClick={() => handleSubmitFind("found")} disabled={matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
                   <CheckCircle className="h-4 w-4" /><span>货已找齐</span>
                 </button>
-                <button onClick={() => handleSubmitFind("suspended")} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all">
+                <button onClick={() => handleSubmitFind("suspended")} disabled={matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
                   <PauseCircle className="h-4 w-4" /><span>挂起</span>
                 </button>
               </div>
