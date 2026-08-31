@@ -381,6 +381,7 @@ export default function AdjustPage() {
       setPhotoFile(null);
       setPhotoPreview(null);
       fetchProducts();
+      refreshSalesSummary(selectedId);
     } catch (err) {
       setSaveMsg("保存失败: " + (err instanceof Error ? err.message : ""));
     } finally {
@@ -404,6 +405,7 @@ export default function AdjustPage() {
       setSaveMsg("货架号保存成功");
       setShelfLevel1(""); setShelfLevel2(""); setShelfLevel3("");
       fetchProducts();
+      refreshSalesSummary(selectedId);
     } catch (err) {
       setSaveMsg("保存失败: " + (err instanceof Error ? err.message : ""));
     } finally {
@@ -453,11 +455,24 @@ export default function AdjustPage() {
       setSaveMsg("名称保存成功");
       setNewName("");
       fetchProducts();
+      refreshSalesSummary(selectedId);
     } catch (err) {
       setSaveMsg("保存失败: " + (err instanceof Error ? err.message : ""));
     } finally {
       setNameSaving(false);
     }
+  };
+
+  // 同步刷新 sales_summary 汇总缓存: 售出视图的照片/名称/厂家/货架号来自该缓存表,
+  // 只更新 inbound_records 不刷新汇总会导致管理栏售出视图显示旧数据(如补录的图片不生效)
+  const refreshSalesSummary = async (saleId: string) => {
+    try {
+      await fetch("/api/sales-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: saleId }),
+      });
+    } catch { /* 静默失败,不影响保存结果 */ }
   };
 
   // 商品缩略图组件
