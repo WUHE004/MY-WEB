@@ -3,6 +3,55 @@ import { supabase } from "@/lib/supabase";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
+// 模块级缓存: sales_summary 实际存在的列。
+// 生产表结构与代码定义可能不一致(如缺 sell_price/cost_price 列),
+// 写入不存在的列会导致整个 upsert 静默失败(售出视图图片/数据不更新)。
+let cachedSummaryCols: string[] | null = null;
+
+async function detectSummaryColumns(): Promise<string[]> {
+  if (cachedSummaryCols) return cachedSummaryCols;
+
+  async function probe(cols: string[]): Promise<string[]> {
+    const testRow: Record<string, unknown> = { sale_id: "__column_probe__" };
+    for (const c of cols) {
+      if (c === "sale_id") continue;
+      if (c.startsWith("size_")) testRow[c] = 0;
+      else if (c === "sell_price_info") testRow[c] = {};
+      else if (c === "updated_at") testRow[c] = new Date().toISOString();
+      else if (["sell_price", "total_sold", "total_revenue", "sales_count"].includes(c)) testRow[c] = 0;
+      else testRow[c] = "";
+    }
+    try {
+      const { error } = await supabase
+        .from("sales_summary")
+        .upsert(testRow, { onConflict: "sale_id" });
+      if (!error) {
+        await supabase.from("sales_summary").delete().eq("sale_id", "__column_probe__");
+        return cols;
+      }
+      // 错误格式: "Could not find the 'xxx' column of 'sales_summary' in the schema cache"
+      const match = (error.message || "").match(/Could not find the '([^']+)' column/);
+      if (match) {
+        return await probe(cols.filter((c) => c !== match[1]));
+      }
+      console.error("detectSummaryColumns unexpected error:", error.message);
+      return cols;
+    } catch (e) {
+      console.error("detectSummaryColumns catch:", e);
+      return cols;
+    }
+  }
+
+  const allCols = [
+    "sale_id", "photo", "name", "shelf_no", "manufacturer", "sell_price",
+    "total_sold", "total_revenue", "sell_price_info", "sales_count", "updated_at",
+    ...ALL_SIZES.map((s) => `size_${s}`),
+  ];
+  cachedSummaryCols = await probe(allCols);
+  console.log(`detectSummaryColumns: sales_summary 实际列 = ${cachedSummaryCols.join(",")}`);
+  return cachedSummaryCols;
+}
+
 // 汇总单个 sale_id 的售出数据并 upsert 到 sales_summary 表
 export async function upsertSalesSummary(saleId: string) {
   if (!saleId) {
@@ -134,9 +183,16 @@ export async function upsertSalesSummary(saleId: string) {
 
   console.log(`upsertSalesSummary: ${sid} total_sold=${totalSold} total_revenue=${totalRevenue}`);
 
+  // 只写入表中实际存在的列, 避免因列缺失导致整个 upsert 失败
+  const existingCols = await detectSummaryColumns();
+  const filteredRow: Record<string, unknown> = {};
+  for (const col of existingCols) {
+    if (col in row) filteredRow[col] = row[col];
+  }
+
   const { error } = await supabase
     .from("sales_summary")
-    .upsert(row, { onConflict: "sale_id" });
+    .upsert(filteredRow, { onConflict: "sale_id" });
 
   if (error) {
     console.error("upsertSalesSummary: upsert error:", error.message);
