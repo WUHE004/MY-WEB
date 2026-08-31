@@ -68,11 +68,13 @@ function extractSize(text: string): string {
   return "";
 }
 
-/** 提取售卖编号: 优先 大写字母+2~3位数字(如 A895/F69); 否则 3位纯数字(如 288).
- * 优先取最后一个'-'之后的匹配, 否则取全文第一个匹配 */
+/** 提取售卖编号: 优先 大写字母+1~3位数字(如 A895/F69/K2); 否则 3位纯数字(如 288).
+ * 优先取最后一个'-'之后的匹配, 否则取全文第一个匹配.
+ * 直播表格常见"范围标题+实际编号"格式(如 "K6-K23...现-K6泉日记洗衣机清洁剂" 或 "F1-F32...-F2/130"),
+ * 实际编号位于最后一个'-'之后, 依赖尾部优先规则提取 */
 function extractCode(text: string): string {
   const t = String(text ?? "");
-  const patLetter = /(?<![A-Z0-9])[A-Z]\d{2,3}(?!\d)/g;
+  const patLetter = /(?<![A-Z0-9])[A-Z]\d{1,3}(?!\d)/g;
   let m = t.match(patLetter);
   if (m && m.length) {
     const tail = t.includes("-") ? t.split("-").pop() || "" : "";
