@@ -333,6 +333,7 @@ export default function FinancePage() {
         fetchSummary();
         fetchSalesAgg();
         fetchReturnAgg();
+        fetchInboundAgg();
       }
     } catch {
       setEditSaveMsg("同步失败");
@@ -355,7 +356,7 @@ export default function FinancePage() {
 
   const fetchSalesAgg = async () => {
     try {
-      const res = await fetch("/api/sales-summary");
+      const res = await fetch("/api/sales-summary", { cache: "no-store" });
       const all = await res.json();
       if (!Array.isArray(all) || all.length === 0) { setSalesData([]); return; }
       const result = all.map((row: Record<string, unknown>) => {
@@ -398,7 +399,7 @@ export default function FinancePage() {
 
   const fetchReturnAgg = async () => {
     try {
-      const res = await fetch("/api/returns-summary");
+      const res = await fetch("/api/returns-summary", { cache: "no-store" });
       const all = await res.json();
       if (!Array.isArray(all) || all.length === 0) { setReturnData([]); return; }
       const result = all.map((row: Record<string, unknown>) => {
@@ -440,7 +441,7 @@ export default function FinancePage() {
 
   const fetchInboundAgg = async () => {
     try {
-      const res = await fetch("/api/inbound-records");
+      const res = await fetch("/api/inbound-records", { cache: "no-store" });
       const all = await res.json();
       if (!Array.isArray(all) || all.length === 0) { setInboundData([]); return; }
       const map = new Map<string, AggRow>();
