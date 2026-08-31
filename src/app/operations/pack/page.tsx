@@ -133,16 +133,31 @@ export default function PackPage() {
         };
         const scanConfig = { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 };
         // 先以基础约束启动相机(高分辨率用 ideal 非必需约束,不支持的浏览器会自动降级)
-        await scanner.start(
-          { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-          scanConfig,
-          onScanSuccess,
-          () => {}
-        );
+        try {
+          await scanner.start(
+            { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+            scanConfig,
+            onScanSuccess,
+            () => {}
+          );
+        } catch {
+          // 回退: 新建实例以最简约束重试(部分设备不接受分辨率约束)
+          scannerRef.current = new Html5Qrcode("pack-scanner-reader", {
+            verbose: false,
+            formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          });
+          await scannerRef.current.start(
+            { facingMode: "environment" },
+            scanConfig,
+            onScanSuccess,
+            () => {}
+          );
+        }
         // 启动成功后再尝试开启连续自动对焦(解决近距离模糊)
         // focusMode 是浏览器扩展约束(TS标准类型未收录),不支持时静默忽略
         try {
-          await scanner.applyVideoConstraints({
+          await scannerRef.current?.applyVideoConstraints({
             advanced: [{ focusMode: "continuous" }],
           } as unknown as MediaTrackConstraints);
         } catch {
@@ -151,10 +166,16 @@ export default function PackPage() {
       } catch (err) {
         if (cancelled) return;
         console.error("扫码相机启动失败:", err);
+        // html5-qrcode 可能抛出字符串或普通对象,健壮提取错误信息
+        const msg = typeof err === "string"
+          ? err
+          : err instanceof Error
+            ? err.message
+            : (() => { try { return JSON.stringify(err); } catch { return String(err); } })();
         setScanError(
-          err instanceof Error && /permission|denied|NotAllowed/i.test(err.message)
+          /permission|denied|NotAllowed/i.test(msg)
             ? "相机权限被拒绝，请在浏览器设置中允许本站使用相机后重试"
-            : `相机启动失败: ${err instanceof Error ? err.message : "未知错误"}`
+            : `相机启动失败: ${msg || "未知错误"}`
         );
         setScanning(false);
       }
