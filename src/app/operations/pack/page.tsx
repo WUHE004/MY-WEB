@@ -132,33 +132,30 @@ export default function PackPage() {
           setTimeout(() => doSearch(cleaned), 200);
         };
         const scanConfig = { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 };
+        // 先以基础约束启动相机(高分辨率用 ideal 非必需约束,不支持的浏览器会自动降级)
+        await scanner.start(
+          { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+          scanConfig,
+          onScanSuccess,
+          () => {}
+        );
+        // 启动成功后再尝试开启连续自动对焦(解决近距离模糊)
+        // focusMode 是浏览器扩展约束(TS标准类型未收录),不支持时静默忽略
         try {
-          // 优先: 高分辨率 + 连续自动对焦(解决近距离模糊)
-          // focusMode 是浏览器扩展约束(TS标准类型未收录),需类型断言
-          const focusMode = { focusMode: "continuous" } as unknown as MediaTrackConstraintSet;
-          await scanner.start(
-            {
-              facingMode: "environment",
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              advanced: [focusMode],
-            },
-            scanConfig,
-            onScanSuccess,
-            () => {}
-          );
+          await scanner.applyVideoConstraints({
+            advanced: [{ focusMode: "continuous" }],
+          } as unknown as MediaTrackConstraints);
         } catch {
-          // 降级: 部分浏览器不支持 advanced 对焦约束,回退到基础配置
-          await scanner.start(
-            { facingMode: "environment" },
-            scanConfig,
-            onScanSuccess,
-            () => {}
-          );
+          // 不支持对焦约束的浏览器(如 iOS Safari)保持默认对焦
         }
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        setScanError("无法启动相机，请确保已授权相机权限并在HTTPS环境下访问");
+        console.error("扫码相机启动失败:", err);
+        setScanError(
+          err instanceof Error && /permission|denied|NotAllowed/i.test(err.message)
+            ? "相机权限被拒绝，请在浏览器设置中允许本站使用相机后重试"
+            : `相机启动失败: ${err instanceof Error ? err.message : "未知错误"}`
+        );
         setScanning(false);
       }
     };
