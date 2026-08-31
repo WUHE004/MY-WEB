@@ -14,6 +14,7 @@ import {
   Loader2,
   AlertTriangle,
   X,
+  PenLine,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -291,11 +292,12 @@ function isErrorRow(row: CleanRow): boolean {
   return !(row[0] && row[2] && row[3] && row[5]);
 }
 
-/** 清洗结果行背景色: 缺编号(红) > 缺尺码(黄) > 缺售价(橙) > 缺面单号(蓝) > 斑马纹 */
-function rowBg(row: CleanRow, idx: number, selected: boolean): string {
+/** 清洗结果行背景色: 缺编号(红) > 缺尺码(黄) > 缺售价(橙) > 缺面单号(蓝) > 斑马纹
+ * sizeFilled: 批量追加填入尺码的行, 保留黄色标记以提示原本缺尺码 */
+function rowBg(row: CleanRow, idx: number, selected: boolean, sizeFilled?: Set<number>): string {
   if (selected) return "bg-[#3375e6] text-white";
   if (!row[3]) return "bg-[#f8d7da]";
-  if (!row[0]) return "bg-[#fff3cd]";
+  if (!row[0] || sizeFilled?.has(idx)) return "bg-[#fff3cd]";
   if (!row[2]) return "bg-[#ffd9c0]";
   if (!row[5]) return "bg-[#d9e7fd]";
   return idx % 2 === 1 ? "bg-gray-50" : "bg-white";
@@ -340,6 +342,10 @@ export default function DataCleanPage() {
   // 单元格编辑状态
   const [editing, setEditing] = useState<{ idx: number; col: number } | null>(null);
   const [editValue, setEditValue] = useState("");
+  // 无尺码批量填入
+  const [manualSize, setManualSize] = useState("");
+  // 批量填入过尺码的行索引(保留黄色背景提示原本缺尺码)
+  const [sizeFilled, setSizeFilled] = useState<Set<number>>(new Set());
 
   const sourceFilesRef = useRef<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -406,6 +412,7 @@ export default function DataCleanPage() {
     setFilterOn(false);
     setSelectedIdx(-1);
     setEditing(null);
+    setSizeFilled(new Set());
     setSourceDisplay(supported.length === 1 ? supported[0].name : `已拖入 ${supported.length} 个表格文件`);
     setLoading(false);
   }, []);
@@ -415,6 +422,25 @@ export default function DataCleanPage() {
     if (sourceFilesRef.current.length === 0) return;
     processFiles(sourceFilesRef.current);
   }, [processFiles]);
+
+  // 无尺码批量填入: 将所有缺尺码行填入手动输入的尺码, 保留黄色背景提示
+  const applyManualSize = useCallback(() => {
+    const val = manualSize.trim();
+    if (!val) return;
+    const filled = new Set<number>();
+    setCleanData((prev) =>
+      prev.map((row, i) => {
+        if (!row[0]) {
+          filled.add(i);
+          const next = [...row];
+          next[0] = val;
+          return next as CleanRow;
+        }
+        return row;
+      })
+    );
+    setSizeFilled((prev) => new Set([...prev, ...filled]));
+  }, [manualSize]);
 
   // ---------- 拖拽 ----------
 
@@ -586,6 +612,28 @@ export default function DataCleanPage() {
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />重新清洗
             </button>
+            {/* 无尺码批量填入 */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs lg:text-sm font-extrabold text-gray-700 whitespace-nowrap">无尺码填:</span>
+              <input
+                value={manualSize}
+                onChange={(e) => setManualSize(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyManualSize();
+                }}
+                disabled={!hasData || loading}
+                placeholder="如 80"
+                className="h-9 w-16 px-2 rounded-lg border-2 border-gray-300 bg-gray-50 text-xs font-bold text-gray-800 outline-none focus:border-[#4A90E2] focus:bg-white disabled:opacity-40"
+              />
+              <button
+                onClick={applyManualSize}
+                disabled={!hasData || loading || !manualSize.trim() || missStats.size === 0}
+                title="将输入的尺码填入所有缺尺码的行(保留黄色标记)"
+                className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-[#F59E0B] bg-[#FFC93C] text-xs font-extrabold text-gray-900 hover:bg-[#f5b800] transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <PenLine className="h-3.5 w-3.5" />填入
+              </button>
+            </div>
             <button
               onClick={() => setFilterOn(!filterOn)}
               disabled={!hasData}
@@ -741,7 +789,7 @@ export default function DataCleanPage() {
                         <tr
                           key={idx}
                           onClick={() => setSelectedIdx(idx)}
-                          className={`cursor-pointer ${rowBg(row, idx, selected)}`}
+                          className={`cursor-pointer ${rowBg(row, idx, selected, sizeFilled)}`}
                         >
                           {row.map((cell, col) => (
                             <td
