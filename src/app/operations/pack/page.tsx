@@ -122,20 +122,40 @@ export default function PackPage() {
           experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         });
         scannerRef.current = scanner;
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 },
-          (decodedText) => {
-            if (cancelled) return;
-            const cleaned = decodedText.trim();
-            setTrackingNumber(cleaned);
-            stopScanner();
-            setShowScanner(false);
-            setScanning(false);
-            setTimeout(() => doSearch(cleaned), 200);
-          },
-          () => {}
-        );
+        const onScanSuccess = (decodedText: string) => {
+          if (cancelled) return;
+          const cleaned = decodedText.trim();
+          setTrackingNumber(cleaned);
+          stopScanner();
+          setShowScanner(false);
+          setScanning(false);
+          setTimeout(() => doSearch(cleaned), 200);
+        };
+        const scanConfig = { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 };
+        try {
+          // 优先: 高分辨率 + 连续自动对焦(解决近距离模糊)
+          // focusMode 是浏览器扩展约束(TS标准类型未收录),需类型断言
+          const focusMode = { focusMode: "continuous" } as unknown as MediaTrackConstraintSet;
+          await scanner.start(
+            {
+              facingMode: "environment",
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              advanced: [focusMode],
+            },
+            scanConfig,
+            onScanSuccess,
+            () => {}
+          );
+        } catch {
+          // 降级: 部分浏览器不支持 advanced 对焦约束,回退到基础配置
+          await scanner.start(
+            { facingMode: "environment" },
+            scanConfig,
+            onScanSuccess,
+            () => {}
+          );
+        }
       } catch {
         if (cancelled) return;
         setScanError("无法启动相机，请确保已授权相机权限并在HTTPS环境下访问");
@@ -458,6 +478,7 @@ export default function PackPage() {
               <div id="pack-scanner-reader" className="w-full rounded-xl overflow-hidden border-2 border-gray-900" />
               {scanError && <p className="mt-3 text-sm text-red-500 font-bold text-center">{scanError}</p>}
               <p className="mt-3 text-xs text-gray-500 text-center">将面单号条形码对准扫描框即可自动识别</p>
+              <p className="mt-1 text-xs text-gray-400 text-center">手机距面单约10-20cm，画面清晰时更易识别；模糊可稍拉远等待对焦</p>
             </div>
           </div>
         </div>
