@@ -1,7 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// 手动触发日统计归档：从 sales_records 和 return_records 回填到 daily_stats 表
+// 时区安全取日期(北京时间): 数据库返回 UTC ISO 字符串, 直接 slice 会差一天
+function toDateStr(v: unknown): string {
+  if (!v) return "";
+  try {
+    return new Date(v as string).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  } catch {
+    return String(v).slice(0, 10);
+  }
+}
+
+// 手动触发日统计归档：从 sales_records 和 return_records 回填到 daily_stats 表（按登记日期）
 export async function POST() {
   try {
     const diagnostics: string[] = [];
@@ -13,7 +23,7 @@ export async function POST() {
     while (true) {
       const { data: chunk, error } = await supabase
         .from("sales_records")
-        .select("order_time, sell_price, quantity, sale_id, tracking_number")
+        .select("registration_date, order_time, sell_price, quantity, sale_id, tracking_number")
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (error || !chunk || chunk.length === 0) break;
       allSalesRecords = allSalesRecords.concat(chunk);
@@ -70,9 +80,9 @@ export async function POST() {
       trackingMap: Map<string, number>;
     }> = {};
     for (const row of allSalesRecords) {
-      const ot = String(row.order_time || "");
-      if (!ot) continue;
-      const date = ot.slice(0, 10);
+      // 按登记日期归档，无登记日期时回退 order_time
+      const date = toDateStr(row.registration_date) || toDateStr(row.order_time);
+      if (!date) continue;
       if (!dailyMap[date]) dailyMap[date] = { date, total_amount: 0, total_quantity: 0, total_profit: 0, shipping_fee: 0, platform_fee: 0, trackingMap: new Map() };
       const price = Number(row.sell_price) || 0;
       const qty = Number(row.quantity) || 0;

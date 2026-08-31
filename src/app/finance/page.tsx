@@ -446,7 +446,7 @@ export default function FinancePage() {
       if (!Array.isArray(all) || all.length === 0) { setInboundData([]); return; }
       const map = new Map<string, AggRow>();
       for (const row of all) {
-        const sid = (row.sale_id || "").toUpperCase();
+        const sid = (row.sale_id || "").trim().toUpperCase();
         if (!sid) continue;
         if (!map.has(sid)) {
           map.set(sid, {
@@ -773,8 +773,8 @@ export default function FinancePage() {
     }
     // 未入库筛选：售出总表中存在但入库表中不存在的记录
     if (uninboundFilter) {
-      const inboundIds = new Set(inboundData.map((r) => r.sale_id.toUpperCase()));
-      result = result.filter((r) => !inboundIds.has(r.sale_id.toUpperCase()));
+      const inboundIds = new Set(inboundData.map((r) => r.sale_id.trim().toUpperCase()));
+      result = result.filter((r) => !inboundIds.has(r.sale_id.trim().toUpperCase()));
     }
     // 排序(移动端下拉框): 销量降序 / 利润率降序
     if (salesSort !== "default") {

@@ -3,6 +3,16 @@ import { supabase } from "@/lib/supabase";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
+// 时区安全取日期(北京时间): 数据库返回 UTC ISO 字符串, 直接 slice 会差一天
+function toDateStr(v: unknown): string {
+  if (!v) return "";
+  try {
+    return new Date(v as string).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  } catch {
+    return String(v).slice(0, 10);
+  }
+}
+
 async function getSalesSummaryColumns(): Promise<string[]> {
   // 命中缓存直接返回（表结构很少变化，避免每次调用都探测）
   if (cachedSalesCols) return cachedSalesCols;
@@ -567,9 +577,9 @@ export async function POST(request: Request) {
       }
 
       for (const row of allSalesRecords) {
-        const ot = String(row.order_time || "");
-        if (!ot) continue;
-        const date = ot.slice(0, 10);
+        // 日统计按登记日期(registration_date)归档，无登记日期时回退 order_time
+        const date = toDateStr(row.registration_date) || toDateStr(row.order_time);
+        if (!date) continue;
         if (!dailyMap.has(date)) dailyMap.set(date, { total_amount: 0, total_quantity: 0, total_profit: 0, trackingMap: new Map() });
         const entry = dailyMap.get(date)!;
         const price = Number(row.sell_price) || 0;

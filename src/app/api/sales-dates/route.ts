@@ -3,6 +3,16 @@ import { supabase } from "@/lib/supabase";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
+// 时区安全取日期(北京时间): 数据库返回 UTC ISO 字符串, 直接 slice 会差一天
+function toDateStr(v: unknown): string {
+  if (!v) return "";
+  try {
+    return new Date(v as string).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  } catch {
+    return String(v).slice(0, 10);
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -12,12 +22,12 @@ export async function GET(request: NextRequest) {
     // 带参数：返回该日期对应的 sale_ids 及各尺码聚合数据（用于管理栏日期筛选）
     if (type && date) {
       if (type === "sales") {
-        // 从 sales_records 查该日期的所有记录，聚合各尺码数量
+        // 从 sales_records 查该日期(按登记日期,北京时间)的所有记录，聚合各尺码数量
         const { data, error } = await supabase
           .from("sales_records")
-          .select("sale_id, size, quantity, sell_price, order_time, tracking_number")
-          .gte("order_time", `${date}T00:00:00`)
-          .lte("order_time", `${date}T23:59:59`);
+          .select("sale_id, size, quantity, sell_price, registration_date, tracking_number")
+          .gte("registration_date", `${date}T00:00:00+08:00`)
+          .lte("registration_date", `${date}T23:59:59+08:00`);
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
@@ -51,10 +61,10 @@ export async function GET(request: NextRequest) {
           records[sid].total += qty;
           records[sid].total_revenue += sp * qty;
           if (sp > 0) {
-            const ot = String(r.order_time || "");
+            const rd = String(r.registration_date || "");
             const existing = records[sid].sell_price_info[String(sp)];
-            if (!existing || ot > existing) {
-              records[sid].sell_price_info[String(sp)] = ot;
+            if (!existing || rd > existing) {
+              records[sid].sell_price_info[String(sp)] = rd;
             }
           }
           const tn = String(r.tracking_number || "").trim();
@@ -119,7 +129,7 @@ export async function GET(request: NextRequest) {
     // 仅 type 无 date：返回对应类型的日期列表
     // 无参数：返回两类日期列表
 
-    // 销售日期列表（从 sales_records 原始记录表读取，确保只显示实际有数据的日期）
+    // 销售日期列表（从 sales_records 原始记录表按登记日期读取，确保只显示实际有数据的日期）
     // 注意：Supabase 默认最多返回 1000 行，必须分页读取全表，否则日期列表被截断
     const salesDateSet = new Set<string>();
     {
@@ -128,7 +138,7 @@ export async function GET(request: NextRequest) {
       while (true) {
         const { data: chunk, error: salesErr } = await supabase
           .from("sales_records")
-          .select("order_time")
+          .select("registration_date")
           .order("id", { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
         if (salesErr) {
@@ -137,8 +147,8 @@ export async function GET(request: NextRequest) {
         }
         if (!chunk || chunk.length === 0) break;
         for (const r of chunk as any[]) {
-          const ot = String(r.order_time || "");
-          if (ot) salesDateSet.add(ot.slice(0, 10));
+          const rd = toDateStr(r.registration_date);
+          if (rd) salesDateSet.add(rd);
         }
         if (chunk.length < pageSize) break;
         page++;
