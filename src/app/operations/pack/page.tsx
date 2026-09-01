@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { ArrowLeft, Camera, X, Search, Package, CheckCircle, PauseCircle, Truck, Trash2 } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, Camera, Search, Package, CheckCircle, PauseCircle, Truck, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode";
+import { BarcodeScanner } from "@/components/barcode-scanner";
 
 interface SalesRecord {
   id: number;
@@ -59,9 +59,6 @@ export default function PackPage() {
   const [packFilter, setPackFilter] = useState<PackFilter>("");
 
   const [showScanner, setShowScanner] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState("");
-  const scannerRef = useRef<Html5Qrcode | null>(null);
   // 后五位匹配到多个面单号时的候选列表
   const [matchedTrackingNumbers, setMatchedTrackingNumbers] = useState<string[]>([]);
 
@@ -96,93 +93,12 @@ export default function PackPage() {
     finally { setSearching(false); }
   }, []);
 
-  useEffect(() => {
-    if (!showScanner) return;
-    let cancelled = false;
-    const initScanner = async () => {
-      setScanning(true); setScanError("");
-      try {
-        await new Promise((r) => setTimeout(r, 300));
-        if (cancelled) return;
-        const scanner = new Html5Qrcode("pack-scanner-reader", {
-          verbose: false,
-          // 限定一维条码格式(快递面单),减少误识别
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.CODE_93,
-            Html5QrcodeSupportedFormats.CODABAR,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.ITF,
-          ],
-          // 优先使用浏览器原生 BarcodeDetector,一维条码识别率大幅提升
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        });
-        scannerRef.current = scanner;
-        const onScanSuccess = (decodedText: string) => {
-          if (cancelled) return;
-          const cleaned = decodedText.trim();
-          setTrackingNumber(cleaned);
-          stopScanner();
-          setShowScanner(false);
-          setScanning(false);
-          setTimeout(() => doSearch(cleaned), 200);
-        };
-        const scanConfig = { fps: 15, qrbox: { width: 300, height: 120 }, aspectRatio: 1.777 };
-        // 先以基础约束启动相机(高分辨率用 ideal 非必需约束,不支持的浏览器会自动降级)
-        try {
-          await scanner.start(
-            { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-            scanConfig,
-            onScanSuccess,
-            () => {}
-          );
-        } catch {
-          // 回退: 新建实例以最简约束重试(部分设备不接受分辨率约束)
-          scannerRef.current = new Html5Qrcode("pack-scanner-reader", {
-            verbose: false,
-            formatsToSupport: [Html5QrcodeSupportedFormats.CODE_128],
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-          });
-          await scannerRef.current.start(
-            { facingMode: "environment" },
-            scanConfig,
-            onScanSuccess,
-            () => {}
-          );
-        }
-        // 启动成功后再尝试开启连续自动对焦(解决近距离模糊)
-        // focusMode 是浏览器扩展约束(TS标准类型未收录),不支持时静默忽略
-        try {
-          await scannerRef.current?.applyVideoConstraints({
-            advanced: [{ focusMode: "continuous" }],
-          } as unknown as MediaTrackConstraints);
-        } catch {
-          // 不支持对焦约束的浏览器(如 iOS Safari)保持默认对焦
-        }
-      } catch (err) {
-        if (cancelled) return;
-        console.error("扫码相机启动失败:", err);
-        // html5-qrcode 可能抛出字符串或普通对象,健壮提取错误信息
-        const msg = typeof err === "string"
-          ? err
-          : err instanceof Error
-            ? err.message
-            : (() => { try { return JSON.stringify(err); } catch { return String(err); } })();
-        setScanError(
-          /permission|denied|NotAllowed/i.test(msg)
-            ? "相机权限被拒绝，请在浏览器设置中允许本站使用相机后重试"
-            : `相机启动失败: ${msg || "未知错误"}`
-        );
-        setScanning(false);
-      }
-    };
-    initScanner();
-    return () => { cancelled = true; stopScanner(); };
-  }, [showScanner, doSearch]);
+  // 扫码识别成功: 填入面单号并自动搜索
+  const handleScanResult = useCallback((code: string) => {
+    setTrackingNumber(code);
+    setShowScanner(false);
+    setTimeout(() => doSearch(code), 200);
+  }, [doSearch]);
 
   const fetchPackRecords = async () => {
     try {
@@ -193,10 +109,6 @@ export default function PackPage() {
   };
 
   const handleSearch = () => doSearch(trackingNumber);
-
-  const stopScanner = () => {
-    if (scannerRef.current) { scannerRef.current.stop().catch(() => {}); scannerRef.current = null; }
-  };
 
   const handleSubmitFind = async (status: "found" | "suspended") => {
     const submitter = localStorage.getItem("member_name") || "未知";
@@ -318,7 +230,7 @@ export default function PackPage() {
                 />
               </div>
               <button
-                type="button" onClick={() => setShowScanner(true)} disabled={scanning}
+                type="button" onClick={() => setShowScanner(true)}
                 className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
                 title="扫码识别面单号"
               >
@@ -483,24 +395,13 @@ export default function PackPage() {
       )}
 
       {/* 扫码弹窗 */}
-      {showScanner && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-md w-full overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
-              <h3 className="text-lg font-extrabold">扫描面单号条形码</h3>
-              <button onClick={() => { stopScanner(); setShowScanner(false); setScanning(false); }} className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="p-4">
-              <div id="pack-scanner-reader" className="w-full rounded-xl overflow-hidden border-2 border-gray-900" />
-              {scanError && <p className="mt-3 text-sm text-red-500 font-bold text-center">{scanError}</p>}
-              <p className="mt-3 text-xs text-gray-500 text-center">将面单号条形码对准扫描框即可自动识别</p>
-              <p className="mt-1 text-xs text-gray-400 text-center">手机距面单约10-20cm，画面清晰时更易识别；模糊可稍拉远等待对焦</p>
-            </div>
-          </div>
-        </div>
-      )}
+      <BarcodeScanner
+        open={showScanner}
+        onClose={() => setShowScanner(false)}
+        onResult={handleScanResult}
+        title="扫描面单号条形码"
+        hint="将面单号条形码对准扫描框，识别成功自动搜索"
+      />
     </PageWrapper>
   );
 }
