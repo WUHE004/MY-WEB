@@ -50,6 +50,9 @@ export default function SalesPage() {
   const [inboundRecords, setInboundRecords] = useState<InboundRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<InboundRecord[]>([]);
   const [totalSoldCount, setTotalSoldCount] = useState(0);
+  // 该编号各尺码已售/已退数量（用于计算剩余库存）
+  const [soldBySize, setSoldBySize] = useState<Record<number, number>>({});
+  const [returnedBySize, setReturnedBySize] = useState<Record<number, number>>({});
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRecord, setSelectedRecord] = useState<InboundRecord | null>(null);
@@ -150,6 +153,40 @@ export default function SalesPage() {
     }
   };
 
+  // 获取该编号各尺码的已售/已退数量，用于计算剩余库存
+  const fetchStockData = async (saleId: string) => {
+    // 已售
+    try {
+      const res = await fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`);
+      const data = await res.json();
+      const sold: Record<number, number> = {};
+      if (Array.isArray(data)) {
+        for (const r of data) {
+          const size = Number(r.size);
+          sold[size] = (sold[size] || 0) + (Number(r.quantity) || 0);
+        }
+      }
+      setSoldBySize(sold);
+    } catch {
+      setSoldBySize({});
+    }
+    // 已退
+    try {
+      const res = await fetch(`/api/return-records?sale_id=${encodeURIComponent(saleId)}`);
+      const data = await res.json();
+      const ret: Record<number, number> = {};
+      if (Array.isArray(data)) {
+        for (const r of data) {
+          const size = Number(r.size);
+          ret[size] = (ret[size] || 0) + (Number(r.quantity) || 0);
+        }
+      }
+      setReturnedBySize(ret);
+    } catch {
+      setReturnedBySize({});
+    }
+  };
+
   // 从售出记录中查找该编号的售价
   const fetchExistingSellPrice = async (saleId: string) => {
     try {
@@ -178,6 +215,8 @@ export default function SalesPage() {
     selectedRecordRef.current = null;
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
     setSellPriceFound(false);
+    setSoldBySize({});
+    setReturnedBySize({});
 
     if (query.trim()) {
       const filtered = inboundRecords.filter(
@@ -200,6 +239,7 @@ export default function SalesPage() {
     setShowDropdown(false);
     setNotFound(false);
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    fetchStockData(record.sale_id);
     fetchExistingSellPrice(record.sale_id);
   };
 
@@ -216,6 +256,7 @@ export default function SalesPage() {
       setSelectedRecord(exactMatch);
       selectedRecordRef.current = exactMatch;
       setNotFound(false);
+      fetchStockData(exactMatch.sale_id);
       fetchExistingSellPrice(exactMatch.sale_id);
     } else {
       setNotFound(true);
@@ -234,6 +275,7 @@ export default function SalesPage() {
         selectedRecordRef.current = exactMatch;
         setShowDropdown(false);
         setNotFound(false);
+        fetchStockData(exactMatch.sale_id);
         fetchExistingSellPrice(exactMatch.sale_id);
       } else {
         setSelectedRecord(null);
@@ -246,7 +288,12 @@ export default function SalesPage() {
 
   const getAvailableStock = (size: number): number => {
     if (!selectedRecord) return 0;
-    return getStock(selectedRecord, size);
+    // 该编号所有入库记录的该尺码合计（同编号可能多次入库）
+    const inboundTotal = inboundRecords
+      .filter((r) => r.sale_id.toLowerCase() === selectedRecord.sale_id.toLowerCase())
+      .reduce((sum, r) => sum + getStock(r, size), 0);
+    // 剩余库存 = 入库合计 - 已售 + 已退
+    return Math.max(0, inboundTotal - (soldBySize[size] || 0) + (returnedBySize[size] || 0));
   };
 
   const hasAnySizeSelected = Object.values(sizes).some((v) => v > 0);

@@ -35,6 +35,8 @@ export default function ReturnsPage() {
   const [selectedSaleInfo, setSelectedSaleInfo] = useState<SalesRecord[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [totalReturnCount, setTotalReturnCount] = useState(0);
+  // 该编号各尺码已退数量（可退数量 = 已售 - 已退）
+  const [returnedBySize, setReturnedBySize] = useState<Record<number, number>>({});
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedSaleIdRef = useRef("");
@@ -84,6 +86,7 @@ export default function ReturnsPage() {
     selectedSaleIdRef.current = "";
     setSelectedSaleInfo([]);
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
+    setReturnedBySize({});
 
     if (query.trim()) {
       const filtered = salesRecords.filter(
@@ -94,6 +97,24 @@ export default function ReturnsPage() {
     } else {
       setFilteredRecords([]);
       setShowDropdown(false);
+    }
+  };
+
+  // 获取该编号各尺码的已退数量
+  const fetchReturnedData = async (saleId: string) => {
+    try {
+      const res = await fetch(`/api/return-records?sale_id=${encodeURIComponent(saleId)}`);
+      const data = await res.json();
+      const ret: Record<number, number> = {};
+      if (Array.isArray(data)) {
+        for (const r of data) {
+          const size = Number(r.size);
+          ret[size] = (ret[size] || 0) + (Number(r.quantity) || 0);
+        }
+      }
+      setReturnedBySize(ret);
+    } catch {
+      setReturnedBySize({});
     }
   };
 
@@ -108,6 +129,7 @@ export default function ReturnsPage() {
     // 获取该售卖编号下的所有尺码售卖记录
     const info = salesRecords.filter((r) => r.sale_id.toLowerCase() === saleId.toLowerCase());
     setSelectedSaleInfo(info);
+    fetchReturnedData(saleId);
   };
 
   const handleBlur = () => {
@@ -153,7 +175,8 @@ export default function ReturnsPage() {
   };
 
   const getMaxReturnable = (size: number): number => {
-    return getSoldQuantity(size);
+    // 可退数量 = 已售合计 - 已退合计
+    return Math.max(0, getSoldQuantity(size) - (returnedBySize[size] || 0));
   };
 
   const hasAnySizeSelected = Object.values(sizes).some((v) => v > 0);
