@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useDeferredValue } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
@@ -116,21 +116,18 @@ function HoverImage({ src, alt }: { src: string; alt: string }) {
 }
 
 // 筛选标签按钮
-function FilterTag({ label, active, expanded, onClick, value }: { label: string; active: boolean; expanded: boolean; onClick: () => void; value?: string }) {
+function FilterTag({ label, active, onClick, value }: { label: string; active: boolean; onClick: () => void; value?: string }) {
   return (
     <button
       onClick={onClick}
       className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
         active
           ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-          : expanded
-          ? "bg-gray-100 text-gray-900"
           : "bg-white text-gray-600 hover:bg-gray-50"
       }`}
     >
       {label}
       {active && value && <span className="text-[10px] opacity-70">({value})</span>}
-      <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
     </button>
   );
 }
@@ -177,8 +174,10 @@ export default function FinancePage() {
   const [hotRankFilter, setHotRankFilter] = useState<string>("");
   const [returnFilter, setReturnFilter] = useState<string>("");
   const [manufacturerFilter, setManufacturerFilter] = useState<string>("");
-  // 当前展开的筛选面板（一次只展开一个）
-  const [expandedFilter, setExpandedFilter] = useState<string>("");
+  // 总表筛选/排序下拉菜单
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate">("");
 
   // 明细弹窗
   const [detailType, setDetailType] = useState<"sales" | "returns" | null>(null);
@@ -704,8 +703,23 @@ export default function FinancePage() {
     if (manufacturerFilter) {
       result = result.filter((r) => (r.manufacturer || "未知") === manufacturerFilter);
     }
+    // 排序
+    if (sortBy === "sales") {
+      result = [...result].sort((a, b) => (b.sold_total || 0) - (a.sold_total || 0));
+    } else if (sortBy === "profitRate") {
+      // 利润率 = 利润 / 销售额（销售额 = 售价 × 已售）
+      const rate = (r: SummaryRow) => {
+        const revenue = (r.sell_price || 0) * (r.sold_total || 0);
+        return revenue > 0 ? (r.profits || 0) / revenue : 0;
+      };
+      result = [...result].sort((a, b) => rate(b) - rate(a));
+    } else if (sortBy === "returnRate") {
+      // 退货率 = 退货数 / 已售数
+      const rate = (r: SummaryRow) => (r.sold_total || 0) > 0 ? (r.return_total || 0) / (r.sold_total || 0) : (r.return_total || 0) > 0 ? 1 : 0;
+      result = [...result].sort((a, b) => rate(b) - rate(a));
+    }
     return result;
-  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
+  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sortBy]);
 
   // 厂家列表（用于筛选选项）
   const manufacturerList = useMemo(() => {
@@ -717,7 +731,7 @@ export default function FinancePage() {
     return Array.from(set).sort();
   }, [data]);
 
-  // 一键清空所有筛选
+  // 一键清空所有筛选（含排序）
   const clearAllFilters = () => {
     setStockFilter("");
     setValueFilter("");
@@ -726,6 +740,7 @@ export default function FinancePage() {
     setHotRankFilter("");
     setReturnFilter("");
     setManufacturerFilter("");
+    setSortBy("");
   };
 
   // 已激活的筛选数量
@@ -1151,55 +1166,149 @@ export default function FinancePage() {
           />
         </div>
 
-        {/* 总表：可展开筛选标签栏 */}
+        {/* 总表：筛选/排序下拉 + 错误库存 */}
         {viewMode === "summary" && (
           <div className="flex flex-wrap gap-2 items-center">
-            <FilterTag
-              label="剩余库存"
-              active={!!stockFilter}
-              expanded={expandedFilter === "stock"}
-              onClick={() => setExpandedFilter(expandedFilter === "stock" ? "" : "stock")}
-              value={stockFilter === "tail" ? "尾货" : stockFilter === "low" ? "不足5手" : stockFilter === "mid" ? "5手以上" : stockFilter === "high" ? "10手以上" : ""}
-            />
-            <FilterTag
-              label="库存价值"
-              active={!!valueFilter}
-              expanded={expandedFilter === "value"}
-              onClick={() => setExpandedFilter(expandedFilter === "value" ? "" : "value")}
-              value={valueFilter}
-            />
-            <FilterTag
-              label="库存预警"
-              active={!!alertFilter}
-              expanded={expandedFilter === "alert"}
-              onClick={() => setExpandedFilter(expandedFilter === "alert" ? "" : "alert")}
-              value={alertFilter === "out" ? "缺货" : alertFilter === "low" ? "低库存" : alertFilter === "mid" ? "中等" : alertFilter === "over" ? "积压" : ""}
-            />
-            <FilterTag
-              label="热销排行"
-              active={!!hotRankFilter}
-              expanded={expandedFilter === "hot"}
-              onClick={() => setExpandedFilter(expandedFilter === "hot" ? "" : "hot")}
-              value={hotRankFilter === "top10" ? "Top10" : hotRankFilter === "top30" ? "Top30" : hotRankFilter === "top50" ? "Top50" : hotRankFilter === "zero" ? "零销量" : ""}
-            />
-            <FilterTag
-              label="退货分析"
-              active={!!returnFilter}
-              expanded={expandedFilter === "return"}
-              onClick={() => setExpandedFilter(expandedFilter === "return" ? "" : "return")}
-              value={returnFilter === "zero" ? "无退货" : returnFilter === "low" ? "1-2件" : returnFilter === "mid" ? "3-5件" : returnFilter === "high" ? "5件+" : ""}
-            />
-            <FilterTag
-              label="厂家"
-              active={!!manufacturerFilter}
-              expanded={expandedFilter === "mfr"}
-              onClick={() => setExpandedFilter(expandedFilter === "mfr" ? "" : "mfr")}
-              value={manufacturerFilter}
-            />
+            {/* 筛选下拉：集成剩余库存/库存价值/库存预警/热销排行/退货分析/厂家 */}
+            <div className="relative">
+              <button
+                onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
+                className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
+                  activeFilterCount > 0
+                    ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                筛选
+                {activeFilterCount > 0 && (
+                  <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#FF6B7A] text-white text-[9px] font-extrabold inline-flex items-center justify-center">
+                    {activeFilterCount}
+                  </span>
+                )}
+                <ChevronDown className={`h-3 w-3 transition-transform ${showFilterMenu ? "rotate-180" : ""}`} />
+              </button>
+              {showFilterMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
+                  <div className="absolute left-0 top-full mt-2 z-50 w-[320px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
+                    {/* 剩余库存 */}
+                    <div className="mb-3">
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">剩余库存</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <FilterOption label="尾货" color="yellow" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
+                        <FilterOption label="不足5手" color="red" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="5手以上" color="blue" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label="10手以上" color="green" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
+                      </div>
+                    </div>
+                    {/* 库存价值 */}
+                    <div className="mb-3">
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存价值</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <FilterOption label="0-100" color="green" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
+                        <FilterOption label="101-300" color="blue" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
+                        <FilterOption label="301-500" color="yellow" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
+                        <FilterOption label="500以上" color="red" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
+                      </div>
+                    </div>
+                    {/* 库存预警 */}
+                    <div className="mb-3">
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存预警</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <FilterOption label="缺货 (≤0)" color="red" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
+                        <FilterOption label="低库存 (1-4)" color="yellow" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="中等 (5-20)" color="blue" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label="积压 (>50)" color="gray" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
+                      </div>
+                    </div>
+                    {/* 热销排行 */}
+                    <div className="mb-3">
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">热销排行</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <FilterOption label="销量 Top 10" color="red" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
+                        <FilterOption label="销量 Top 30" color="yellow" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
+                        <FilterOption label="销量 Top 50" color="blue" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
+                        <FilterOption label="零销量" color="gray" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
+                      </div>
+                    </div>
+                    {/* 退货分析 */}
+                    <div className="mb-3">
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">退货分析</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <FilterOption label="无退货" color="green" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
+                        <FilterOption label="1-2 件" color="blue" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="3-5 件" color="yellow" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label="5 件以上" color="red" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
+                      </div>
+                    </div>
+                    {/* 厂家（数量多，用下拉选择） */}
+                    <div>
+                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">厂家</p>
+                      <select
+                        value={manufacturerFilter}
+                        onChange={(e) => setManufacturerFilter(e.target.value)}
+                        className="w-full h-9 px-2 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-bold text-gray-700 focus:outline-none"
+                      >
+                        <option value="">全部厂家</option>
+                        {manufacturerList.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 排序下拉 */}
+            <div className="relative">
+              <button
+                onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
+                className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
+                  sortBy
+                    ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                    : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                排序
+                {sortBy && (
+                  <span className="text-[10px] opacity-70">
+                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : "退货率"})
+                  </span>
+                )}
+                <ChevronDown className={`h-3 w-3 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
+              </button>
+              {showSortMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
+                  <div className="absolute left-0 top-full mt-2 z-50 w-40 p-1.5 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    {([
+                      { v: "", label: "默认排序" },
+                      { v: "sales", label: "按销量" },
+                      { v: "profitRate", label: "按利润率" },
+                      { v: "returnRate", label: "按退货率" },
+                    ] as const).map((o) => (
+                      <button
+                        key={o.v}
+                        onClick={() => { setSortBy(o.v); setShowSortMenu(false); }}
+                        className={`w-full text-left px-3 h-9 rounded-lg text-xs font-bold transition-all ${
+                          sortBy === o.v ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 错误库存（保留独立按钮） */}
             <FilterTag
               label="错误库存"
               active={errorFilter}
-              expanded={false}
               onClick={() => setErrorFilter(!errorFilter)}
             />
             {activeFilterCount > 0 && (
@@ -1209,66 +1318,6 @@ export default function FinancePage() {
               >
                 <X className="h-3 w-3" />清除全部({activeFilterCount})
               </button>
-            )}
-          </div>
-        )}
-
-        {/* 总表：筛选展开面板 */}
-        {viewMode === "summary" && expandedFilter && (
-          <div className="w-full mt-2 p-3 rounded-xl border-[2px] border-gray-900 bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)]">
-            {/* 剩余库存 */}
-            {expandedFilter === "stock" && (
-              <div className="flex flex-wrap gap-2 items-center">
-                <FilterOption label="尾货" color="yellow" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
-                <FilterOption label="不足5手" color="red" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
-                <FilterOption label="5手以上" color="blue" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
-                <FilterOption label="10手以上" color="green" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
-              </div>
-            )}
-            {/* 库存价值 */}
-            {expandedFilter === "value" && (
-              <div className="flex flex-wrap gap-2 items-center">
-                <FilterOption label="0-100" color="green" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
-                <FilterOption label="101-300" color="blue" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
-                <FilterOption label="301-500" color="yellow" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
-                <FilterOption label="500以上" color="red" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
-              </div>
-            )}
-            {/* 库存预警 */}
-            {expandedFilter === "alert" && (
-              <div className="flex flex-wrap gap-2 items-center">
-                <FilterOption label="缺货 (≤0)" color="red" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
-                <FilterOption label="低库存 (1-4)" color="yellow" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
-                <FilterOption label="中等 (5-20)" color="blue" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
-                <FilterOption label="积压 (>50)" color="gray" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
-              </div>
-            )}
-            {/* 热销排行 */}
-            {expandedFilter === "hot" && (
-              <div className="flex flex-wrap gap-2 items-center">
-                <FilterOption label="销量 Top 10" color="red" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
-                <FilterOption label="销量 Top 30" color="yellow" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
-                <FilterOption label="销量 Top 50" color="blue" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
-                <FilterOption label="零销量" color="gray" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
-              </div>
-            )}
-            {/* 退货分析 */}
-            {expandedFilter === "return" && (
-              <div className="flex flex-wrap gap-2 items-center">
-                <FilterOption label="无退货" color="green" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
-                <FilterOption label="1-2 件" color="blue" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
-                <FilterOption label="3-5 件" color="yellow" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
-                <FilterOption label="5 件以上" color="red" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
-              </div>
-            )}
-            {/* 厂家 */}
-            {expandedFilter === "mfr" && (
-              <div className="flex flex-wrap gap-2 items-center max-h-40 overflow-y-auto">
-                {manufacturerList.length === 0 && <span className="text-xs text-gray-500">暂无厂家数据</span>}
-                {manufacturerList.map((m) => (
-                  <FilterOption key={m} label={m} color="blue" active={manufacturerFilter === m} onClick={() => { setManufacturerFilter(manufacturerFilter === m ? "" : m); }} />
-                ))}
-              </div>
             )}
           </div>
         )}

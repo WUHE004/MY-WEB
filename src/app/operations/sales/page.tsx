@@ -45,6 +45,8 @@ export default function SalesPage() {
   const [sizes, setSizes] = useState<Record<number, number>>(
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
+  // 当前聚焦的尺码输入框(值为0时聚焦显示空,避免用户需先删0)
+  const [focusedSize, setFocusedSize] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [inboundRecords, setInboundRecords] = useState<InboundRecord[]>([]);
@@ -566,7 +568,7 @@ export default function SalesPage() {
           {!selectedRecord && (
             <p className="text-xs text-gray-400 mb-3">请先选择售卖编号后再选择尺码</p>
           )}
-          <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
             {SIZE_OPTIONS.map((size) => {
               const stock = getAvailableStock(size);
               const disabled = isSizeDisabled(size);
@@ -589,26 +591,28 @@ export default function SalesPage() {
                       {stock > 0 ? `库存:${stock}` : "无库存"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-1 lg:gap-0.5">
                     <button
                       type="button"
                       disabled={disabled || currentQty <= 0}
                       onClick={() => updateSize(size, -1)}
-                      className={`flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all ${
+                      className={`flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all shrink-0 ${
                         disabled || currentQty <= 0
                           ? "border-gray-200 bg-gray-200 text-gray-300 cursor-not-allowed"
                           : "border-gray-900 bg-[#FF6B7A] text-white active:scale-90"
                       }`}
                     >
-                      <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                      <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                     <input
                       type="text"
                       inputMode="numeric"
                       disabled={disabled}
-                      value={disabled ? "" : currentQty}
+                      value={disabled ? "" : focusedSize === size && currentQty === 0 ? "" : currentQty}
+                      onFocus={() => setFocusedSize(size)}
+                      onBlur={() => setFocusedSize(null)}
                       onChange={(e) => setSizeValue(size, e.target.value)}
-                      className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
+                      className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
                         disabled ? "text-gray-300" : "text-gray-900"
                       }`}
                     />
@@ -616,13 +620,13 @@ export default function SalesPage() {
                       type="button"
                       disabled={disabled || currentQty >= stock}
                       onClick={() => updateSize(size, 1)}
-                      className={`flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all ${
+                      className={`flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all shrink-0 ${
                         disabled || currentQty >= stock
                           ? "border-gray-200 bg-gray-200 text-gray-300 cursor-not-allowed"
                           : "border-gray-900 bg-[#4CD964] text-white active:scale-90"
                       }`}
                     >
-                      <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                      <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                   </div>
                 </div>
