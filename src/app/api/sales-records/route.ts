@@ -6,11 +6,51 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trackingNumber = searchParams.get("tracking_number");
   const saleId = searchParams.get("sale_id");
+  // 按编号模糊检索(退货登记等页面的输入联想, 避免全表拉取超 Vercel 响应限制)
+  const search = searchParams.get("search");
 
   // 分页获取所有记录，避免默认1000条限制
   let allData: Record<string, any>[] = [];
   let page = 0;
   const pageSize = 1000;
+
+  if (search) {
+    // 模糊匹配编号, 限制返回500条防止响应过大
+    const { data, error } = await supabase
+      .from("sales_records")
+      .select("*")
+      .ilike("sale_id", `%${search}%`)
+      .order("registration_date", { ascending: false })
+      .limit(500);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // 关联产品信息
+    if (data && data.length > 0) {
+      const saleIds = [...new Set(data.map((r: any) => r.sale_id).filter(Boolean))];
+      if (saleIds.length > 0) {
+        const { data: products } = await supabase
+          .from("inbound_records")
+          .select("sale_id, photo, manufacturer, shelf_no, name")
+          .in("sale_id", saleIds);
+        if (products) {
+          const productMap = new Map(products.map((p: any) => [p.sale_id, p]));
+          for (const record of data) {
+            const product = productMap.get(record.sale_id);
+            if (product) {
+              record.photo = product.photo || "";
+              record.manufacturer = product.manufacturer || "";
+              record.shelf_no = product.shelf_no || "";
+              record.product_name = product.name || record.product_name || "";
+            }
+          }
+        }
+      }
+    }
+    return NextResponse.json(data);
+  }
 
   if (trackingNumber || saleId) {
     // 有筛选条件时，查询结果后关联产品信息（照片、厂家、货架号）

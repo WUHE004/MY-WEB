@@ -27,7 +27,6 @@ export default function ReturnsPage() {
   );
   const [submitting, setSubmitting] = useState(false);
 
-  const [salesRecords, setSalesRecords] = useState<SalesRecord[]>([]);
   const [filteredRecords, setFilteredRecords] = useState<SalesRecord[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -42,7 +41,6 @@ export default function ReturnsPage() {
   const selectedSaleIdRef = useRef("");
 
   useEffect(() => {
-    fetchSalesRecords();
     fetchTotalReturnCount();
   }, []);
 
@@ -67,19 +65,8 @@ export default function ReturnsPage() {
     } catch { /* ignore */ }
   };
 
-  const fetchSalesRecords = async () => {
-    try {
-      const res = await fetch("/api/sales-records");
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setSalesRecords(data);
-      }
-    } catch (err) {
-      console.error("Fetch sales records error:", err);
-    }
-  };
-
-  const handleSearch = (query: string) => {
+  // 输入时按编号模糊检索(走数据库查询, 避免全表拉取超过 Vercel 4.5MB 响应限制被截断)
+  const handleSearch = async (query: string) => {
     setSearchQuery(query);
     setNotFound(false);
     setSelectedSaleId("");
@@ -88,12 +75,21 @@ export default function ReturnsPage() {
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
     setReturnedBySize({});
 
-    if (query.trim()) {
-      const filtered = salesRecords.filter(
-        (r) => r.sale_id.toLowerCase().includes(query.toLowerCase())
-      );
-      setFilteredRecords(filtered);
-      setShowDropdown(true);
+    const q = query.trim();
+    if (q) {
+      try {
+        const res = await fetch(`/api/sales-records?search=${encodeURIComponent(q)}`, { cache: "no-store" });
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setFilteredRecords(data);
+          setShowDropdown(true);
+          return;
+        }
+      } catch (err) {
+        console.error("Search sales records error:", err);
+      }
+      setFilteredRecords([]);
+      setShowDropdown(false);
     } else {
       setFilteredRecords([]);
       setShowDropdown(false);
@@ -118,7 +114,7 @@ export default function ReturnsPage() {
     }
   };
 
-  const handleSelectRecord = (saleId: string) => {
+  const handleSelectRecord = async (saleId: string) => {
     setSelectedSaleId(saleId);
     selectedSaleIdRef.current = saleId;
     setSearchQuery(saleId);
@@ -126,9 +122,14 @@ export default function ReturnsPage() {
     setNotFound(false);
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
 
-    // 获取该售卖编号下的所有尺码售卖记录
-    const info = salesRecords.filter((r) => r.sale_id.toLowerCase() === saleId.toLowerCase());
-    setSelectedSaleInfo(info);
+    // 按编号精确查询该编号的所有尺码售卖记录
+    try {
+      const res = await fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`, { cache: "no-store" });
+      const data = await res.json();
+      setSelectedSaleInfo(Array.isArray(data) ? data : []);
+    } catch {
+      setSelectedSaleInfo([]);
+    }
     fetchReturnedData(saleId);
   };
 
@@ -138,7 +139,8 @@ export default function ReturnsPage() {
     if (selectedSaleIdRef.current && selectedSaleIdRef.current.toLowerCase() === query.toLowerCase()) {
       return;
     }
-    const exactMatch = salesRecords.find(
+    // 从当前检索结果中找精确匹配
+    const exactMatch = filteredRecords.find(
       (r) => r.sale_id.toLowerCase() === query.toLowerCase()
     );
     if (exactMatch) {
@@ -152,7 +154,7 @@ export default function ReturnsPage() {
     if (e.key === "Enter") {
       const query = searchQuery.trim();
       if (!query) return;
-      const exactMatch = salesRecords.find(
+      const exactMatch = filteredRecords.find(
         (r) => r.sale_id.toLowerCase() === query.toLowerCase()
       );
       if (exactMatch) {
