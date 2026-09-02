@@ -68,6 +68,8 @@ export default function InboundPage() {
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
   const [standardSize, setStandardSize] = useState(0); // 无尺码分类的标码数量
+  // 当前聚焦的尺码输入框(值为0时聚焦显示空,避免用户需先删0)
+  const [focusedSize, setFocusedSize] = useState<number | null>(null);
   // 货架三级选择
   const [shelfLevel1, setShelfLevel1] = useState("");
   const [shelfLevel2, setShelfLevel2] = useState("");
@@ -464,6 +466,9 @@ export default function InboundPage() {
     return manufacturers.filter((m) => m.includes(q));
   }, [mfrInput, manufacturers]);
 
+  // 输入了厂家但不在厂家库中(未通过检索选中/未添加) → 标红并阻止提交
+  const mfrInvalid = !!mfrInput.trim() && !manufacturers.includes(mfrInput.trim());
+
   // 所有款式（含尺码 + 不含尺码）
   const allStyles = [...sizeStyles, ...noSizeStyles];
 
@@ -838,6 +843,11 @@ export default function InboundPage() {
     }
     if (!manufacturer) {
       alert("请选择厂家名称");
+      return;
+    }
+    // 输入的厂家不在厂家库中(未检索选中也未添加) → 阻止提交
+    if (!manufacturers.includes(manufacturer.trim())) {
+      alert("厂家名称不在厂家库中，请从检索列表选择，或点击右侧设置按钮先添加该厂家");
       return;
     }
     if (!costPrice || isNaN(Number(costPrice))) {
@@ -1219,8 +1229,18 @@ export default function InboundPage() {
                   onFocus={() => setMfrDropdownOpen(true)}
                   onBlur={() => setTimeout(() => setMfrDropdownOpen(false), 150)}
                   placeholder="输入厂家名称自动检索"
-                  className="neo-input w-full text-sm"
+                  className={`neo-input w-full text-sm ${
+                    mfrInvalid
+                      ? "!border-[#FF6B7A] !text-[#FF6B7A] !bg-[#FF6B7A]/5"
+                      : ""
+                  }`}
                 />
+                {/* 不在厂家库中提示 */}
+                {mfrInvalid && (
+                  <p className="absolute left-0 -bottom-5 text-[10px] font-bold text-[#FF6B7A] whitespace-nowrap">
+                    该厂家不在厂家库中, 请从检索列表选择或先添加
+                  </p>
+                )}
                 {/* 自动检索下拉 */}
                 {mfrDropdownOpen && mfrFilteredList.length > 0 && (
                   <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-56 overflow-auto rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
@@ -1422,7 +1442,9 @@ export default function InboundPage() {
               <input
                 type="text"
                 inputMode="numeric"
-                value={standardSize}
+                value={focusedSize === -1 && standardSize === 0 ? "" : standardSize}
+                onFocus={() => setFocusedSize(-1)}
+                onBlur={() => setFocusedSize(null)}
                 onChange={(e) => {
                   const num = parseInt(e.target.value, 10);
                   setStandardSize(isNaN(num) ? 0 : Math.max(0, num));
@@ -1458,7 +1480,9 @@ export default function InboundPage() {
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={sizes[size] || 0}
+                      value={focusedSize === size && (sizes[size] || 0) === 0 ? "" : sizes[size] || 0}
+                      onFocus={() => setFocusedSize(size)}
+                      onBlur={() => setFocusedSize(null)}
                       onChange={(e) => setSizeValue(size, e.target.value)}
                       className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}
                     />
@@ -2202,33 +2226,6 @@ export default function InboundPage() {
                       placeholder="输入编号或名称搜索"
                       className="text-sm w-full"
                     />
-                    {showRestockDropdown && restockDropdown.length > 0 && (
-                      <div className="absolute z-50 left-0 right-0 mt-1 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-60 overflow-y-auto">
-                        {restockDropdown.map((item) => (
-                          <button
-                            key={item.sale_id}
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              handleRestockSelect(item);
-                            }}
-                            className="w-full flex items-center gap-2 p-2 hover:bg-purple-50 border-b border-gray-100 last:border-b-0 text-left"
-                          >
-                            {item.photo ? (
-                              <img src={item.photo} alt="" className="w-8 h-8 rounded border border-gray-300 object-cover flex-shrink-0" />
-                            ) : (
-                              <div className="w-8 h-8 rounded border border-gray-300 bg-gray-200 flex items-center justify-center flex-shrink-0">
-                                <Image className="h-3 w-3 text-gray-400" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</p>
-                              <p className="text-[10px] text-gray-500 truncate">{item.name || "未命名"} · {item.manufacturer || "-"}</p>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <button
                     onClick={() => handleRestockSearch()}
@@ -2239,6 +2236,34 @@ export default function InboundPage() {
                     查询
                   </button>
                 </div>
+                {/* 检索结果: 内嵌展开(撑开弹窗高度, 避免被 overflow 裁剪) */}
+                {showRestockDropdown && restockDropdown.length > 0 && (
+                  <div className="mt-1.5 bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] max-h-52 overflow-y-auto">
+                    {restockDropdown.map((item) => (
+                      <button
+                        key={item.sale_id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          handleRestockSelect(item);
+                        }}
+                        className="w-full flex items-center gap-2 p-2 hover:bg-purple-50 border-b border-gray-100 last:border-b-0 text-left"
+                      >
+                        {item.photo ? (
+                          <img src={item.photo} alt="" className="w-8 h-8 rounded border border-gray-300 object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded border border-gray-300 bg-gray-200 flex items-center justify-center flex-shrink-0">
+                            <Image className="h-3 w-3 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</p>
+                          <p className="text-[10px] text-gray-500 truncate">{item.name || "未命名"} · {item.manufacturer || "-"}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {restockError && (
                   <p className="text-xs text-red-500 font-bold mt-1.5 flex items-center gap-1">
                     <AlertTriangle className="h-3 w-3" /> {restockError}
