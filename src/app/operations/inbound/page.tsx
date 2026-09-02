@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -83,6 +83,10 @@ export default function InboundPage() {
   const [newMfrName, setNewMfrName] = useState("");
   const [mfrSortMode, setMfrSortMode] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  // 厂家输入框: 自动检索
+  const [mfrInput, setMfrInput] = useState("");
+  const [mfrDropdownOpen, setMfrDropdownOpen] = useState(false);
+  const [mfrHighlight, setMfrHighlight] = useState("");
   // 厂家管理 - 草稿和变更追踪
   const [mfrDraft, setMfrDraft] = useState<string[]>([]);
   const [mfrHasChanges, setMfrHasChanges] = useState(false);
@@ -452,6 +456,13 @@ export default function InboundPage() {
 
   // 判断当前款式是否为无尺码分类
   const isNoSizeStyle = noSizeStyles.includes(style);
+
+  // 厂家输入框的自动检索过滤: 包含输入内容即命中, 按原排序保持
+  const mfrFilteredList = useMemo(() => {
+    const q = mfrInput.trim();
+    if (!q) return manufacturers;
+    return manufacturers.filter((m) => m.includes(q));
+  }, [mfrInput, manufacturers]);
 
   // 所有款式（含尺码 + 不含尺码）
   const allStyles = [...sizeStyles, ...noSizeStyles];
@@ -877,6 +888,8 @@ export default function InboundPage() {
         setSaleId("");
         setName("");
         setManufacturer("");
+        setMfrInput("");
+        setMfrHighlight("");
         setCostPrice("");
         setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
         setStandardSize(0);
@@ -1190,21 +1203,71 @@ export default function InboundPage() {
               厂家名称 <span className="text-red-500">*</span>
             </label>
             <div className="flex gap-2">
+              {/* 输入框: 输入时自动检索厂家并填入 */}
               <div className="relative flex-1">
-                <select
-                  value={manufacturer}
-                  onChange={(e) => setManufacturer(e.target.value)}
-                  className="neo-input w-full text-sm pr-8"
-                >
-                  <option value="">请选择厂家</option>
-                  {manufacturers.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={mfrInput}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setMfrInput(v);
+                    setManufacturer(v);
+                    setMfrDropdownOpen(true);
+                    // 完全匹配已有厂家时高亮选中
+                    if (v && manufacturers.some((m) => m === v)) setMfrHighlight(v);
+                  }}
+                  onFocus={() => setMfrDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setMfrDropdownOpen(false), 150)}
+                  placeholder="输入厂家名称自动检索"
+                  className="neo-input w-full text-sm"
+                />
+                {/* 自动检索下拉 */}
+                {mfrDropdownOpen && mfrFilteredList.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 max-h-56 overflow-auto rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    {mfrFilteredList.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setMfrInput(m);
+                          setManufacturer(m);
+                          setMfrHighlight(m);
+                          setMfrDropdownOpen(false);
+                        }}
+                        className={`block w-full text-left px-3 py-2 text-sm font-bold truncate ${
+                          m === mfrHighlight
+                            ? "bg-[#FFC93C] text-gray-900"
+                            : m === manufacturer
+                              ? "bg-gray-100 text-gray-900"
+                              : "text-gray-700 hover:bg-gray-100"
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+              {/* 下拉框: 保留单独翻找功能 */}
+              <select
+                value={manufacturers.includes(manufacturer) ? manufacturer : ""}
+                onChange={(e) => {
+                  setManufacturer(e.target.value);
+                  setMfrInput(e.target.value);
+                  setMfrHighlight(e.target.value);
+                }}
+                className="neo-input w-28 lg:w-36 text-sm"
+                title="下拉选择厂家"
+              >
+                <option value="">选择</option>
+                {manufacturers.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
               <button
                 onClick={() => { setMfrDraft([...manufacturers]); setMfrHasChanges(false); setShowMfrDialog(true); }}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
                 title="管理厂家"
               >
                 <Settings2 className="h-5 w-5" />
@@ -1375,7 +1438,7 @@ export default function InboundPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
+            <div className="grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
               {SIZE_OPTIONS.map((size) => (
                 <div
                   key={size}
@@ -1384,27 +1447,27 @@ export default function InboundPage() {
                   <div className={`text-center text-[10px] lg:text-xs font-extrabold mb-1 ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}>
                     {size}
                   </div>
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-1 lg:gap-0.5">
                     <button
                       type="button"
                       onClick={() => updateSize(size, -1)}
-                      className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                      className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
                     >
-                      <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                      <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                     <input
                       type="text"
                       inputMode="numeric"
                       value={sizes[size] || 0}
                       onChange={(e) => setSizeValue(size, e.target.value)}
-                      className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}
+                      className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}
                     />
                     <button
                       type="button"
                       onClick={() => updateSize(size, 1)}
-                      className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                      className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
                     >
-                      <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                      <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                   </div>
                 </div>
@@ -2304,29 +2367,29 @@ export default function InboundPage() {
                                 <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
                                 <p className="text-[9px] lg:text-[10px] text-gray-500">当前 {currentQty} 件</p>
                               </div>
-                              <div className="flex items-center gap-0.5">
+                              <div className="flex items-center gap-1 lg:gap-0.5">
                                 <button
                                   type="button"
                                   onClick={() => updateRestockSize(size, -1)}
-                                  className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                                  className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
                                 >
-                                  <Minus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                                  <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
                                 </button>
                                 <input
                                   type="text"
                                   inputMode="numeric"
                                   value={restockQty}
                                   onChange={(e) => setRestockSizeValue(size, e.target.value)}
-                                  className={`w-full text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
+                                  className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
                                     restockQty > 0 ? "text-[#7B61FF]" : "text-gray-300"
                                   }`}
                                 />
                                 <button
                                   type="button"
                                   onClick={() => updateRestockSize(size, 1)}
-                                  className="flex h-5 w-5 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                                  className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
                                 >
-                                  <Plus className="h-2.5 w-2.5 lg:h-3 lg:w-3" />
+                                  <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
                                 </button>
                               </div>
                             </div>
