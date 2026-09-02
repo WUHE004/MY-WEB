@@ -24,17 +24,31 @@ import { PageWrapper } from "@/components/page-wrapper";
 const SIZES = new Set(["80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]);
 // 支持的表格扩展名
 const SUPPORTED_EXTS = [".xlsx", ".xls", ".csv", ".cvs"];
-// 原始表展示列
-const ORIG_HEADERS = ["选购商品", "商品数量", "商品金额", "支付完成时间", "快递信息"];
+// 数据来源: dy=抖店 pdd=拼多多(按表头自动识别)
+type SourceType = "dy" | "pdd";
+// 原始表展示列(按来源切换, 均归一化为5列)
+const DY_ORIG_HEADERS = ["选购商品", "商品数量", "商品金额", "支付完成时间", "快递信息"];
+const PDD_ORIG_HEADERS = ["商品规格", "商品数量", "商品总价", "支付时间", "面单号(自动)"];
+const MIXED_ORIG_HEADERS = ["商品/规格", "数量", "金额", "时间", "快递/面单"];
 // 清洗结果列
 const CLEAN_HEADERS = ["尺码", "售卖数量", "售价", "售卖编号", "下单时间", "面单号"];
-// 原始表各数据列的表头名 -> 默认下标
+// 抖店原始表各数据列的表头名 -> 默认下标
 const DEFAULT_COLMAP: Record<string, number> = {
   选购商品: 0,
   商品数量: 1,
   商品金额: 2,
   支付完成时间: 3,
   快递信息: 4,
+};
+// 拼多多原始表各数据列的表头名 -> 默认下标
+// (A商品 B商品数量 C支付时间 D商品规格 E商家编码-规格维度 F商家编码-商品维度 G商品总价)
+const PDD_COLMAP: Record<string, number> = {
+  商品规格: 3,
+  商品数量: 1,
+  支付时间: 2,
+  "商家编码-规格维度": 4,
+  "商家编码-商品维度": 5,
+  商品总价: 6,
 };
 
 interface OrigRow {
@@ -90,6 +104,16 @@ function extractCode(text: string): string {
     const mt = tail.match(patDigit);
     if (mt && mt.length) return mt[0];
     return m[0];
+  }
+  return "";
+}
+
+/** 提取拼多多商品规格中的尺码: 扫描全部数字, 返回第一个属于有效尺码的数字
+ * (如 "桃色,9# 110"→110, "灰色,130"→130, "蓝色,23#"→无有效尺码返回空) */
+function extractPddSize(spec: string): string {
+  const t = String(spec ?? "");
+  for (const num of t.match(/\d+/g) || []) {
+    if (SIZES.has(num)) return num;
   }
   return "";
 }
@@ -170,15 +194,19 @@ async function readCsvFile(file: File): Promise<string[][]> {
   return parseCsv(text);
 }
 
-/** 表头行识别: 首列为'选购商品' 或 前8列任意含'商品数量' */
-function isHeaderRow(vals: string[]): boolean {
-  if (!vals || vals.length === 0) return false;
-  if (vals[0] === "选购商品") return true;
-  return vals.slice(0, 8).some((v) => v && v.includes("商品数量"));
+/** 表头行识别并判断数据来源:
+ * 含'商家编码'或'商品规格' → 拼多多; 含'选购商品'/'快递信息'/'支付完成时间' 或含'商品数量' → 抖店 */
+function detectHeader(vals: string[]): SourceType | null {
+  if (!vals || vals.length === 0) return null;
+  const joined = vals.join("|");
+  if (joined.includes("商家编码") || joined.includes("商品规格")) return "pdd";
+  if (vals[0] === "选购商品" || joined.includes("快递信息") || joined.includes("支付完成时间")) return "dy";
+  if (vals.slice(0, 8).some((v) => v && v.includes("商品数量"))) return "dy";
+  return null;
 }
 
-/** 读取单个表格, 返回 (数据行列表, 列下标映射); 不含表头行 */
-async function readSpreadsheet(file: File): Promise<{ rows: string[][]; colMap: Record<string, number> } | null> {
+/** 读取单个表格, 返回 (数据行列表, 列下标映射, 数据来源); 不含表头行 */
+async function readSpreadsheet(file: File): Promise<{ rows: string[][]; colMap: Record<string, number>; source: SourceType } | null> {
   const dotIdx = file.name.lastIndexOf(".");
   const ext = dotIdx === -1 ? "" : file.name.slice(dotIdx).toLowerCase();
   const raw: string[][] = [];
@@ -204,22 +232,32 @@ async function readSpreadsheet(file: File): Promise<{ rows: string[][]; colMap: 
     return null;
   }
 
-  const colMap = { ...DEFAULT_COLMAP };
+  let colMap: Record<string, number> | null = null;
+  let source: SourceType | null = null;
   const rows: string[][] = [];
-  let headerSeen = false;
   for (const vals of raw) {
-    if (!headerSeen && isHeaderRow(vals)) {
-      headerSeen = true;
-      vals.forEach((v, i) => {
-        for (const key of Object.keys(colMap)) {
-          if (v.includes(key)) colMap[key] = i;
-        }
-      });
-      continue;
+    if (!source) {
+      const st = detectHeader(vals);
+      if (st) {
+        source = st;
+        const map: Record<string, number> = { ...(st === "pdd" ? PDD_COLMAP : DEFAULT_COLMAP) };
+        vals.forEach((v, i) => {
+          for (const key of Object.keys(map)) {
+            if (v.includes(key)) map[key] = i;
+          }
+        });
+        colMap = map;
+        continue;
+      }
     }
     rows.push(vals);
   }
-  return { rows, colMap };
+  // 无表头时按抖店默认列处理
+  if (!source || !colMap) {
+    source = "dy";
+    colMap = { ...DEFAULT_COLMAP };
+  }
+  return { rows, colMap, source };
 }
 
 function cellAt(vals: string[], idx: number): string {
@@ -335,6 +373,8 @@ export default function DataCleanPage() {
   const [okFiles, setOkFiles] = useState<string[]>([]);
   const [failedFiles, setFailedFiles] = useState<FailedFile[]>([]);
   const [filterOn, setFilterOn] = useState(false);
+  // 本次数据来源: dy=抖店 pdd=拼多多 mixed=两者混合
+  const [sourceMode, setSourceMode] = useState<"dy" | "pdd" | "mixed">("dy");
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -382,22 +422,43 @@ export default function DataCleanPage() {
     const clean: CleanRow[] = [];
     const ok: string[] = [];
     const failed: FailedFile[] = [];
+    const sources = new Set<SourceType>();
+    // 拼多多无面单号, 统一为 多多+当天日期(如 多多20260902)
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const now = new Date();
+    const pddTracking = `多多${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
 
     for (const file of supported) {
       try {
         const result = await readSpreadsheet(file);
         if (!result) continue;
-        const { rows, colMap } = result;
+        const { rows, colMap, source } = result;
+        sources.add(source);
         for (const vals of rows) {
-          const text = cellAt(vals, colMap["选购商品"]);
-          const qty = cellAt(vals, colMap["商品数量"]);
-          const price = cellAt(vals, colMap["商品金额"]);
-          const payTime = cellAt(vals, colMap["支付完成时间"]);
-          const exprInfo = cellAt(vals, colMap["快递信息"]);
-          // 面单号 = 快递信息中第一个"-"之前的内容
-          const tracking = exprInfo ? exprInfo.split("-", 1)[0].trim() : "";
-          orig.push({ file: file.name, vals });
-          clean.push([extractSize(text), qty, price, extractCode(text), payTime, tracking]);
+          if (source === "pdd") {
+            // 拼多多: 尺码←商品规格, 数量←商品数量, 售价←商品总价,
+            // 编号←商家编码(规格维度优先, 为空则商品维度), 下单时间←支付时间
+            const spec = cellAt(vals, colMap["商品规格"]);
+            const qty = cellAt(vals, colMap["商品数量"]);
+            const price = cellAt(vals, colMap["商品总价"]);
+            const payTime = cellAt(vals, colMap["支付时间"]);
+            const codeE = cellAt(vals, colMap["商家编码-规格维度"]);
+            const codeF = cellAt(vals, colMap["商家编码-商品维度"]);
+            const code = codeE || codeF;
+            orig.push({ file: file.name, vals: [spec, qty, price, payTime, pddTracking] });
+            clean.push([extractPddSize(spec), qty, price, code, payTime, pddTracking]);
+          } else {
+            // 抖店: 原有逻辑
+            const text = cellAt(vals, colMap["选购商品"]);
+            const qty = cellAt(vals, colMap["商品数量"]);
+            const price = cellAt(vals, colMap["商品金额"]);
+            const payTime = cellAt(vals, colMap["支付完成时间"]);
+            const exprInfo = cellAt(vals, colMap["快递信息"]);
+            // 面单号 = 快递信息中第一个"-"之前的内容
+            const tracking = exprInfo ? exprInfo.split("-", 1)[0].trim() : "";
+            orig.push({ file: file.name, vals: [text, qty, price, payTime, exprInfo] });
+            clean.push([extractSize(text), qty, price, extractCode(text), payTime, tracking]);
+          }
         }
         ok.push(file.name);
       } catch (e) {
@@ -408,6 +469,7 @@ export default function DataCleanPage() {
     setOrigData(orig);
     setCleanData(clean);
     setOkFiles(ok);
+    setSourceMode(sources.has("pdd") && sources.has("dy") ? "mixed" : sources.has("pdd") ? "pdd" : "dy");
     setFailedFiles(failed);
     setFilterOn(false);
     setSelectedIdx(-1);
@@ -539,12 +601,12 @@ export default function DataCleanPage() {
     if (!n) {
       return sourceDisplay ? "未读取到数据, 可拖入表格文件或点击「选择文件」" : "就绪 · 将 xlsx / xls / csv 表格文件拖入页面, 或点击「选择文件」";
     }
-    const text = `已清洗 ${okFiles.length} 个文件, 共 ${n} 行 · 缺失: 尺码 ${missStats.size} / 售价 ${missStats.price} / 编号 ${missStats.code} / 面单号 ${missStats.track}`;
+    const text = `已识别【${sourceMode === "dy" ? "抖店" : sourceMode === "pdd" ? "拼多多" : "混合来源"}】· 已清洗 ${okFiles.length} 个文件, 共 ${n} 行 · 缺失: 尺码 ${missStats.size} / 售价 ${missStats.price} / 编号 ${missStats.code} / 面单号 ${missStats.track}`;
     if (filterOn) {
       return `【仅显示缺失数据 ${visibleIndices.length}/${n} 行, 点击「返回所有数据」恢复】${text}`;
     }
     return text;
-  }, [cleanData.length, okFiles.length, missStats, filterOn, visibleIndices.length, sourceDisplay]);
+  }, [cleanData.length, okFiles.length, missStats, filterOn, visibleIndices.length, sourceDisplay, sourceMode]);
 
   const hasData = cleanData.length > 0;
 
@@ -710,7 +772,7 @@ export default function DataCleanPage() {
             {/* ===== 左: 原始数据 ===== */}
             <div className="rounded-xl border-[3px] border-gray-900 bg-white overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
               <div className="px-3 py-2 bg-gray-100 border-b-[3px] border-gray-900 flex items-center justify-between">
-                <span className="text-xs lg:text-sm font-extrabold text-gray-900">原始数据</span>
+                <span className="text-xs lg:text-sm font-extrabold text-gray-900">原始数据 · {sourceMode === "dy" ? "抖店" : sourceMode === "pdd" ? "拼多多" : "混合来源"}</span>
                 <span className="text-[10px] font-bold text-gray-500">{origData.length} 行</span>
               </div>
               <div ref={origScrollRef} onScroll={handleScroll("orig")} className="overflow-auto max-h-[62vh]">
@@ -718,7 +780,7 @@ export default function DataCleanPage() {
                   <thead className="sticky top-0 z-10">
                     <tr>
                       <th className="px-2 py-2 bg-[#cfd6e0] border-b-2 border-r-2 border-gray-400 text-gray-800 font-extrabold text-right w-12 min-w-[48px]">#</th>
-                      {ORIG_HEADERS.map((h, i) => (
+                      {(sourceMode === "pdd" ? PDD_ORIG_HEADERS : sourceMode === "mixed" ? MIXED_ORIG_HEADERS : DY_ORIG_HEADERS).map((h, i) => (
                         <th
                           key={h}
                           className={`px-2 py-2 bg-[#e8eaee] border-b-2 border-gray-400 font-extrabold text-gray-800 whitespace-nowrap ${
