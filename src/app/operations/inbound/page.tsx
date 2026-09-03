@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
+import { compressImageFile } from "@/lib/image-compress";
 import {
   ArrowLeft,
   Camera,
@@ -338,8 +339,8 @@ export default function InboundPage() {
       });
       setPhoto(preview);
 
-      // 前端 canvas 压缩图片（WebP），返回的 File 已带 .webp 扩展名
-      const compressedFile = await compressImage(file);
+      // 前端 canvas 压缩图片（自动检测 WebP 编码能力，iOS Safari 回退 JPEG）
+      const compressedFile = await compressImageFile(file, { target: 100 * 1024, maxWidth: 800 });
 
       // 上传到后端
       const formData = new FormData();
@@ -369,91 +370,6 @@ export default function InboundPage() {
       // 重置 input 以便可以重新选择同一文件
       if (e.target) e.target.value = "";
     }
-  };
-
-  // 前端 canvas 压缩图片：WebP 格式 + 限宽 800px + 逐级压缩至 ≤100KB
-  // WebP 同画质比 JPEG 小 25-35%，800px 足够缩略展示，典型产出 40-80KB
-  const compressImage = (file: File): Promise<File> => {
-    const TARGET = 100 * 1024;
-    const MAX_WIDTH = 800;
-
-    return new Promise((resolve) => {
-      // 小于目标大小的图片不压缩，直接使用原文件
-      if (file.size <= TARGET) {
-        resolve(file);
-        return;
-      }
-
-      const img = new window.Image();
-      const url = URL.createObjectURL(file);
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        resolve(file); // 加载失败，使用原文件
-      };
-
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          resolve(file); // canvas 不可用，直接上传原文件
-          return;
-        }
-
-        // 基准缩放：先限制最大宽度 800
-        const baseScale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
-
-        const draw = (scale: number) => {
-          canvas.width = Math.max(1, Math.round(img.width * scale));
-          canvas.height = Math.max(1, Math.round(img.height * scale));
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
-
-        // 逐级压缩：先固定尺寸降质量，仍超标则逐步缩小尺寸
-        const steps: Array<{ scale: number; quality: number }> = [
-          { scale: 1, quality: 0.8 },
-          { scale: 1, quality: 0.6 },
-          { scale: 0.8, quality: 0.65 },
-          { scale: 0.6, quality: 0.6 },
-        ];
-
-        let lastBlob: Blob | null = null;
-        let attempt = 0;
-        const tryCompress = () => {
-          if (attempt >= steps.length) {
-            // 所有级别压不到目标：用最后结果（已远比原图小），否则原文件
-            if (lastBlob && lastBlob.size > 0 && lastBlob.size < file.size) {
-              console.log(`[压缩-兜底] ${(file.size / 1024).toFixed(1)}KB → ${(lastBlob.size / 1024).toFixed(1)}KB`);
-              resolve(new File([lastBlob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" }));
-            } else {
-              resolve(file);
-            }
-            return;
-          }
-          const { scale, quality } = steps[attempt++];
-          draw(baseScale * scale);
-          canvas.toBlob(
-            (blob) => {
-              lastBlob = blob;
-              if (blob && blob.size > 0 && blob.size <= TARGET) {
-                console.log(`[压缩] ${(file.size / 1024).toFixed(1)}KB → ${(blob.size / 1024).toFixed(1)}KB (scale=${scale}, q=${quality})`);
-                resolve(new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" }));
-              } else {
-                tryCompress();
-              }
-            },
-            "image/webp",
-            quality
-          );
-        };
-
-        tryCompress();
-      };
-
-      img.src = url;
-    });
   };
 
   // 判断当前款式是否为无尺码分类

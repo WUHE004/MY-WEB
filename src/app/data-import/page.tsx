@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
+import { compressImageFileSimple } from "@/lib/image-compress";
 import {
   Upload,
   FileSpreadsheet,
@@ -404,34 +405,9 @@ export default function DataImportPage() {
     }
   };
 
-  // 客户端压缩图片（Canvas），避免超过Vercel请求体限制
+  // 客户端压缩图片（Canvas），避免超过Vercel请求体限制（自动检测 WebP 编码能力，iOS Safari 回退 JPEG）
   const compressImageClient = (file: File): Promise<File> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        const MAX_WIDTH = 800;
-        let { width, height } = img;
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas not supported")); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        canvas.toBlob((blob) => {
-          if (!blob) { reject(new Error("toBlob failed")); return; }
-          const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" });
-          resolve(compressed);
-        }, "image/webp", 0.75);
-      };
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片加载失败")); };
-      img.src = url;
-    });
+    return compressImageFileSimple(file, 800, 0.75);
   };
 
   // 补充照片导入：先客户端压缩，再分批发送（自动跳过已存在的照片）

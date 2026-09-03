@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
+import { compressImageFileSimple } from "@/lib/image-compress";
 import {
   ArrowLeft,
   Camera,
@@ -63,39 +64,9 @@ function hasValidPhoto(photo: string | null | undefined): boolean {
   return String(photo).trim().startsWith("https://");
 }
 
-// 图片压缩：限制最大宽度 800px，WebP 质量 0.75（同画质比 JPEG 小 25-35%）
+// 图片压缩：限制最大宽度 800px（自动检测 WebP 编码能力，iOS Safari 回退 JPEG）
 function compressImage(file: File): Promise<File> {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const maxW = 800;
-      let w = img.width;
-      let h = img.height;
-      if (w > maxW) {
-        h = Math.round((h * maxW) / w);
-        w = maxW;
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { resolve(file); return; }
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) { resolve(file); return; }
-          const compressed = new File([blob], file.name.replace(/\.[^.]+$/, ".webp"), { type: "image/webp" });
-          resolve(compressed);
-        },
-        "image/webp",
-        0.75
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
-    img.src = url;
-  });
+  return compressImageFileSimple(file, 800, 0.75);
 }
 
 export default function AdjustPage() {
