@@ -232,7 +232,7 @@ export default function FinancePage() {
   const [editSizeStyles, setEditSizeStyles] = useState<string[]>(["T恤", "裤子", "裙子", "外套", "卫衣", "套装", "连体衣", "羽绒服", "衬衫", "内衣", "其他"]);
   const [editNoSizeStyles, setEditNoSizeStyles] = useState<string[]>(["母婴", "日用", "配饰"]);
 
-  useEffect(() => { fetchSummary(); }, []);
+  useEffect(() => { fetchSummary(); fetchSalesAgg(); fetchInboundAgg(); }, []);
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
@@ -861,6 +861,19 @@ export default function FinancePage() {
     for (const r of data) m.set(r.sale_id, r);
     return m;
   }, [data]);
+
+  // 售出/入库聚合数据按编号索引（编号统一大写，供总表卡片取最新售价/售卖日期/入库日期）
+  const salesAggBySaleId = useMemo(() => {
+    const m = new Map<string, AggRow>();
+    for (const r of salesData) m.set((r.sale_id || "").toUpperCase(), r);
+    return m;
+  }, [salesData]);
+
+  const inboundBySaleId = useMemo(() => {
+    const m = new Map<string, AggRow>();
+    for (const r of inboundData) m.set((r.sale_id || "").toUpperCase(), r);
+    return m;
+  }, [inboundData]);
 
   // ===== 入库视图汇总（移出内联 reduce）=====
   const inboundTotals = useMemo(() => {
@@ -1850,6 +1863,19 @@ export default function FinancePage() {
                 const isError = hasErrorStock(row);
                 const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
                 const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
+                // 最新售价与售卖日期（来自售出聚合）、入库日期（来自入库聚合）
+                const salesAgg = salesAggBySaleId.get(row.sale_id.toUpperCase());
+                const inboundAgg = inboundBySaleId.get(row.sale_id.toUpperCase());
+                let latestSellPrice = row.sell_price || 0;
+                let lastOrderTime = salesAgg?.last_order_time || "";
+                const priceInfo = (salesAgg as Record<string, unknown> | undefined)?.sell_price_info as Record<string, string> | undefined;
+                if (priceInfo) {
+                  let maxTime = "";
+                  for (const [p, t] of Object.entries(priceInfo)) {
+                    if (t && String(t) > maxTime) { maxTime = String(t); const n = Number(p); if (n > 0) latestSellPrice = n; }
+                  }
+                }
+                const inboundDate = inboundAgg?.inbound_date || "";
                 return (
                   <div key={row.sale_id} className={`bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
                     <div className="flex gap-2">
@@ -1889,6 +1915,16 @@ export default function FinancePage() {
                             <span className="text-xs font-extrabold text-yellow-600">退货 {row.return_total}</span>
                             <span className="text-xs font-bold ml-2 text-yellow-600">退货率 {pct(returnRate)}</span>
                           </div>
+                        </div>
+                        {/* 进价/最新售价 */}
+                        <div className="flex gap-3 mt-0.5 text-xs">
+                          <span className="text-gray-500">进价 <span className="font-bold text-gray-700">¥{fmt(row.cost_price)}</span></span>
+                          <span className="text-gray-500">售价 <span className="font-bold text-red-500">¥{fmt(latestSellPrice)}</span></span>
+                        </div>
+                        {/* 入库日期/最新售卖日期 */}
+                        <div className="flex gap-3 mt-0.5 text-xs text-gray-500">
+                          <span>入库 {inboundDate ? new Date(inboundDate).toLocaleDateString("zh-CN") : "-"}</span>
+                          <span>售卖 {lastOrderTime ? new Date(lastOrderTime).toLocaleDateString("zh-CN") : "-"}</span>
                         </div>
                         {/* 货架号 */}
                         <div className="text-xs text-gray-500 mt-0.5">货架号: {row.shelf_no || "-"}</div>
@@ -2233,7 +2269,7 @@ export default function FinancePage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</span>
+                            <span className="text-base font-extrabold text-gray-900 truncate">{row.sale_id}</span>
                             {curSeason && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold shrink-0">{curSeason}</span>}
                             {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                           </div>
@@ -2749,9 +2785,13 @@ export default function FinancePage() {
                 </table>
               )}
             </div>
-          {/* 图片大图预览 */}
+          </div>
+        </div>
+      )}
+
+      {/* 图片大图预览（独立于明细弹窗，避免状态残留导致打开明细时误弹照片） */}
       <div
-        className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
         onClick={() => setImgPreview(null)}
       >
         <div className="relative max-w-[90vw] max-h-[90vh]">
@@ -2761,9 +2801,6 @@ export default function FinancePage() {
           {imgPreview && <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />}
         </div>
       </div>
-          </div>
-        </div>
-      )}
     </PageWrapper>
   );
 }
