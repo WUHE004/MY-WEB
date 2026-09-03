@@ -1862,8 +1862,8 @@ export default function FinancePage() {
                         {/* 编号 */}
                         <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
                         {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                        {/* 所有尺码 窄4列显示 */}
-                        <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                        {/* 所有尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
+                        <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
                             return (
@@ -1893,6 +1893,20 @@ export default function FinancePage() {
                         {/* 货架号 */}
                         <div className="text-xs text-gray-500 mt-0.5">货架号: {row.shelf_no || "-"}</div>
                       </div>
+                    </div>
+
+                    {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
+                    <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                      {ALL_SIZES.map((s) => {
+                        const val = Number(row[`size_${s}`]) || 0;
+                        return (
+                          <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                            val < 0 ? "bg-red-50 border-red-300 text-red-600" :
+                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
+                            "bg-white border-gray-200 text-gray-300"
+                          }`}>{s}:{val}</span>
+                        );
+                      })}
                     </div>
 
                     {/* 入库/剩余/价值 均匀排开 */}
@@ -1975,8 +1989,8 @@ export default function FinancePage() {
                             </div>
                           </div>
                           {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                          {/* 尺码 4列显示 */}
-                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
+                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
                             {ALL_SIZES.map((s) => {
                               const val = Number(row[`size_${s}`]) || 0;
                               return (
@@ -2018,6 +2032,18 @@ export default function FinancePage() {
                             )}
                           </div>
                         </div>
+                      </div>
+
+                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
+                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                        {ALL_SIZES.map((s) => {
+                          const val = Number(row[`size_${s}`]) || 0;
+                          return (
+                            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                              val > 0 ? "bg-green-50 border-green-300 text-green-700" : "bg-white border-gray-200 text-gray-300"
+                            }`}>{s}:{val || "-"}</span>
+                          );
+                        })}
                       </div>
 
                       {/* 底部：进价 盈利 利润率 */}
@@ -2081,8 +2107,8 @@ export default function FinancePage() {
                             </div>
                           </div>
                           {summaryRow?.name && <div className="text-xs text-gray-500 truncate">{summaryRow.name}</div>}
-                          {/* 尺码 4列显示 */}
-                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
+                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
                             {ALL_SIZES.map((s) => {
                               const val = Number(row[`size_${s}`]) || 0;
                               return (
@@ -2124,6 +2150,18 @@ export default function FinancePage() {
                             )}
                           </div>
                         </div>
+                      </div>
+
+                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
+                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                        {ALL_SIZES.map((s) => {
+                          const val = Number(row[`size_${s}`]) || 0;
+                          return (
+                            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                              val > 0 ? "bg-yellow-50 border-yellow-300 text-yellow-700" : "bg-white border-gray-200 text-gray-300"
+                            }`}>{s}:{val || "-"}</span>
+                          );
+                        })}
                       </div>
 
                       {/* 底部：进价 退货率 */}
@@ -2200,8 +2238,8 @@ export default function FinancePage() {
                             {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                           </div>
                           {curName && <div className="text-xs text-gray-500 truncate">{curName}</div>}
-                          {/* 尺码 4列显示 */}
-                          <div className="mt-1 grid grid-cols-4 gap-x-0.5 gap-y-0.5">
+                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
+                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
                             {ALL_SIZES.map((s) => {
                               const val = Number(row[`size_${s}`]) || 0;
                               return (
@@ -2212,6 +2250,17 @@ export default function FinancePage() {
                             })}
                           </div>
                         </div>
+                      </div>
+                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
+                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                        {ALL_SIZES.map((s) => {
+                          const val = Number(row[`size_${s}`]) || 0;
+                          return (
+                            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                              val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
+                            }`}>{s}:{val || "-"}</span>
+                          );
+                        })}
                       </div>
                       {/* 总入库和进价 - 无框 */}
                       <div className="flex justify-between items-center text-[10px]">
