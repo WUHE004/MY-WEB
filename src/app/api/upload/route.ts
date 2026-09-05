@@ -27,15 +27,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "文件数据异常" }, { status: 400 });
     }
 
-    // 确定扩展名和 MIME 类型
-    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    let contentType = file.type || "application/octet-stream";
+    // 魔数检测: 按真实文件头识别格式，不信任前端声明的扩展名/MIME
+    // (防御 iOS Safari canvas.toBlob("image/webp") 静默回退输出 PNG 的怪癖)
+    const detectImageFormat = (b: Buffer): { format: string; contentType: string } | null => {
+      if (b.length < 12) return null;
+      if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { format: "png", contentType: "image/png" };
+      if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { format: "jpg", contentType: "image/jpeg" };
+      if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return { format: "webp", contentType: "image/webp" };
+      if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return { format: "gif", contentType: "image/gif" };
+      return null;
+    };
 
-    // 规范化 MIME 类型
-    if (ext === "png") contentType = "image/png";
-    else if (ext === "webp") contentType = "image/webp";
-    else if (ext === "jpg" || ext === "jpeg") contentType = "image/jpeg";
-    else if (ext === "gif") contentType = "image/gif";
+    const detected = detectImageFormat(buffer);
+    if (!detected) {
+      return NextResponse.json({ error: "无法识别的图片格式（支持 JPG/PNG/WebP/GIF）" }, { status: 400 });
+    }
+
+    // 扩展名与 MIME 均按真实内容设置，保证 Content-Type 与文件内容一致
+    const ext = detected.format;
+    const contentType = detected.contentType;
 
     // 生成唯一文件名
     const timestamp = Date.now();
@@ -50,7 +60,7 @@ export async function POST(request: NextRequest) {
       .upload(fileName, buffer, {
         contentType,
         upsert: false,
-        cacheControl: "max-age=3600",
+        cacheControl: "31536000", // 文件名唯一永不复用，可用长缓存(实测Supabase当前强制no-cache,靠SW缓存兜底)
       });
 
     if (uploadError) {
