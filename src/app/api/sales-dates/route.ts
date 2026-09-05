@@ -184,12 +184,13 @@ export async function GET(request: NextRequest) {
     const returnDates = Array.from(returnDateSet).sort().reverse();
 
     // 按 type 返回对应日期列表到 dates 字段（前端 fetchSalesDates/fetchReturnsDates 用 data.dates）
-    // 日期列表一天最多变一次，CDN 缓存 5 分钟大幅减少重复全表拉取
+    // 日期列表一天最多变一次（当天首笔新增日期），CDN 缓存 60 秒：
+    // 既避免重复全表拉取，又让新日期最多延迟1分钟出现在下拉框
     const response =
       type === "returns"
         ? NextResponse.json({ dates: returnDates, returnDates, salesDates })
         : NextResponse.json({ dates: salesDates, salesDates, returnDates });
-    response.headers.set("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+    response.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     return response;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

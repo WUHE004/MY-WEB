@@ -38,6 +38,8 @@ async function fetchAllRows(
   if (!count || count === 0) return { rows: [], error: null };
 
   // 2. 按总页数并行拉取（多拉一页防止 count 后有新数据导致末页遗漏）
+  // orderCol 不唯一(如批量导入产生842行同 registration_date),必须加 id 次级排序键,
+  // 否则 Postgres 对同值行的顺序无保证,分页边界落在同值组内时会跳行/重复
   const pages = Math.ceil(count / PAGE_SIZE) + 1;
   const results = await Promise.all(
     Array.from({ length: pages }, (_, p) =>
@@ -45,6 +47,7 @@ async function fetchAllRows(
         .from(table)
         .select(select)
         .order(orderCol, { ascending: false })
+        .order("id", { ascending: false })
         .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
     )
   );
