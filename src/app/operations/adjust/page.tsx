@@ -216,7 +216,8 @@ export default function AdjustPage() {
   const handleSelectResult = (p: Product) => {
     setSearch(p.sale_id);
     setShowDropdown(false);
-    if (isMissing(p)) {
+    // 照片调整: 已有照片的商品也允许选中,支持上传新照片替换
+    if (isMissing(p) || activeTab === "photo") {
       setSelectedId(p.sale_id);
       setSearchWarning("");
       // 重置表单
@@ -330,11 +331,13 @@ export default function AdjustPage() {
     }
   };
 
-  // 保存照片
+  // 保存照片（无照片→上传；已有照片→替换）
   const savePhoto = async () => {
     if (!selectedId) return;
     setPhotoSaving(true);
     setSaveMsg("");
+    // 记录保存前是否已有照片,用于区分提示语
+    const wasReplace = !!selectedProduct?.photo && hasValidPhoto(selectedProduct.photo);
     try {
       let photoUrl = "";
       if (photoFile) {
@@ -348,7 +351,7 @@ export default function AdjustPage() {
         body: JSON.stringify({ sale_id: selectedId, photo: photoUrl }),
       });
       if (!res.ok) throw new Error("保存失败");
-      setSaveMsg("照片保存成功");
+      setSaveMsg(wasReplace ? "照片替换成功" : "照片保存成功");
       setPhotoFile(null);
       setPhotoPreview(null);
       fetchProducts();
@@ -470,7 +473,7 @@ export default function AdjustPage() {
   ];
 
   const tabDescription: Record<TabType, string> = {
-    photo: "为没有图片的商品上传照片",
+    photo: "为没有图片的商品上传照片，已有照片的商品可上传新照片替换",
     shelf: "为没有货架号的商品添加货架号",
     category: "为没有季节/款式分类的商品补齐分类",
     name: "为没有名称的商品添加名称",
@@ -647,36 +650,58 @@ export default function AdjustPage() {
             </button>
           </div>
 
-          {/* 照片调整 */}
+          {/* 照片调整（无照片→上传；已有照片→可选新照片替换） */}
           {activeTab === "photo" && (
             <div>
-              <label className="text-sm font-extrabold text-gray-900 mb-2 block">上传商品照片</label>
-              <div className="flex gap-3 items-start">
-                <div className="w-32 h-40 rounded-lg border-2 border-dashed border-gray-300 overflow-hidden bg-gray-50 flex items-center justify-center cursor-pointer hover:border-gray-900 transition-colors"
-                  onClick={() => document.getElementById("photo-input")?.click()}
-                >
-                  {photoPreview ? (
-                    <img src={photoPreview} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="flex flex-col items-center gap-1 text-gray-400">
-                      <Upload className="h-6 w-6" />
-                      <span className="text-[10px] font-bold">点击上传</span>
+              {(() => {
+                const hasPhoto = selectedProduct.photo && hasValidPhoto(selectedProduct.photo);
+                return (
+                  <>
+                    <label className="text-sm font-extrabold text-gray-900 mb-2 block">
+                      {hasPhoto ? "替换商品照片" : "上传商品照片"}
+                    </label>
+                    <div className="flex gap-3 items-start">
+                      <div className="relative w-32 h-40 rounded-lg border-2 border-dashed border-gray-300 overflow-hidden bg-gray-50 flex items-center justify-center cursor-pointer hover:border-gray-900 transition-colors shrink-0"
+                        onClick={() => document.getElementById("photo-input")?.click()}
+                      >
+                        {photoPreview ? (
+                          <img src={photoPreview} alt="" className="w-full h-full object-cover" />
+                        ) : hasPhoto ? (
+                          // 未选新照片时展示当前照片,点击即选择新照片替换
+                          <>
+                            <img src={selectedProduct.photo} alt="" className="w-full h-full object-cover" />
+                            <span className="absolute top-1 left-1 text-[9px] font-bold text-white bg-black/60 px-1.5 py-0.5 rounded">当前照片</span>
+                          </>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 text-gray-400">
+                            <Upload className="h-6 w-6" />
+                            <span className="text-[10px] font-bold">点击上传</span>
+                          </div>
+                        )}
+                      </div>
+                      <input id="photo-input" type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-500 mb-2">
+                          {hasPhoto
+                            ? "点击左侧当前照片选择新照片，保存后将替换现有照片。"
+                            : "选择商品照片后点击保存，照片将自动压缩后上传到云端并关联到该商品。"}
+                        </p>
+                        <button
+                          onClick={savePhoto}
+                          disabled={photoSaving || photoUploading || !photoFile}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {photoSaving || photoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          {hasPhoto ? "替换照片" : "保存照片"}
+                        </button>
+                        {photoFile && hasPhoto && (
+                          <p className="text-[10px] text-blue-500 font-bold mt-1.5">已选择新照片，保存后生效</p>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-                <input id="photo-input" type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-2">选择商品照片后点击保存，照片将自动压缩后上传到云端并关联到该商品。</p>
-                  <button
-                    onClick={savePhoto}
-                    disabled={photoSaving || photoUploading || !photoFile}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {photoSaving || photoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                    保存照片
-                  </button>
-                </div>
-              </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
