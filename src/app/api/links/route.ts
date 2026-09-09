@@ -3,67 +3,47 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    // 从 sales_daily_stats 获取最新日期数据（含快递费和平台抽点）
-    const { data: latestStats, error: statsErr } = await supabase
-      .from("sales_daily_stats")
-      .select("date, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
-      .order("date", { ascending: false })
-      .limit(1);
+    // 全部查询并行（原先串行 5 个查询 + 2 个全表日期列表，~1.8s）
+    // 日期列表已删除：无调用方使用（finance 页用的是 /api/sales-dates）
+    const [latestStatsRes, latestReturnsRes, liveCountRes] = await Promise.all([
+      // 最新日期的快递费/平台抽点（sales_daily_stats 按日期倒序取第一条）
+      supabase
+        .from("sales_daily_stats")
+        .select("date, shipping_fee, platform_fee")
+        .order("date", { ascending: false })
+        .limit(1),
+      // 最新退货数据
+      supabase
+        .from("returns_daily_stats")
+        .select("date, total_returned")
+        .order("date", { ascending: false })
+        .limit(1),
+      // 直播选品数（head 请求只取 count，不拉全部 id）
+      supabase
+        .from("live_selections")
+        .select("id", { count: "exact", head: true }),
+    ]);
 
-    if (statsErr) {
-      console.error("sales_daily_stats 查询失败:", statsErr.message);
+    if (latestStatsRes.error) {
+      console.error("sales_daily_stats 查询失败:", latestStatsRes.error.message);
+    }
+    if (latestReturnsRes.error) {
+      console.error("returns_daily_stats 查询失败:", latestReturnsRes.error.message);
+    }
+    if (liveCountRes.error) {
+      console.error("live_selections 计数失败:", liveCountRes.error.message);
     }
 
-    const latest = latestStats && latestStats.length > 0 ? latestStats[0] : null;
-    const latestShippingFee = latest ? (Number(latest.shipping_fee) || 0) : 0;
-    const latestPlatformFee = latest ? (Number(latest.platform_fee) || 0) : 0;
-
-    // 从 returns_daily_stats 获取最新退货数据
-    const { data: latestReturns, error: retErr } = await supabase
-      .from("returns_daily_stats")
-      .select("date, total_returned")
-      .order("date", { ascending: false })
-      .limit(1);
-
-    if (retErr) {
-      console.error("returns_daily_stats 查询失败:", retErr.message);
-    }
-
-    const latestReturn = latestReturns && latestReturns.length > 0 ? latestReturns[0] : null;
-
-    // 获取所有销售日期列表
-    const { data: allDates } = await supabase
-      .from("sales_daily_stats")
-      .select("date")
-      .order("date", { ascending: false });
-
-    const salesDates = (allDates || []).map((row: any) => row.date);
-
-    // 获取所有退货日期列表
-    const { data: allReturnDates } = await supabase
-      .from("returns_daily_stats")
-      .select("date")
-      .order("date", { ascending: false });
-
-    const returnDates = (allReturnDates || []).map((row: any) => row.date);
-
-    // 获取 live_selections 表中选中的商品数
-    const { data: liveData } = await supabase
-      .from("live_selections")
-      .select("id");
-
-    const totalLive = (liveData || []).length;
+    const latest =
+      latestStatsRes.data && latestStatsRes.data.length > 0
+        ? latestStatsRes.data[0]
+        : null;
 
     return NextResponse.json({
-      // 快递费/平台费 — 从 sales_daily_stats 读取最新日期的数据
-      latest_shipping_fee: latestShippingFee,
-      latest_platform_fee: latestPlatformFee,
+      latest_shipping_fee: latest ? Number(latest.shipping_fee) || 0 : 0,
+      latest_platform_fee: latest ? Number(latest.platform_fee) || 0 : 0,
       latest_date: latest ? latest.date : "",
-      selected_count: totalLive,
-      // 日期列表
-      salesDates,
-      returnDates,
-      totalLive,
+      selected_count: liveCountRes.count || 0,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

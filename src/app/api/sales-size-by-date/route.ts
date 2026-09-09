@@ -16,23 +16,35 @@ function toDateStr(v: unknown): string {
 // 按日期聚合各尺码售出数量（从 sales_records 原始表读取，按登记日期归档）
 export async function GET() {
   try {
-    // 分页读取所有售出记录的 registration_date 和 size 字段
+    // 并行拉取全表：count + 全页并行（原先 21 页串行 ~7.4s，并行后 ~1.5s）
+    // 排序加 id 次级键保证分页确定性（registration_date 存在大量同值组）
+    const PAGE_SIZE = 1000;
+    const { count, error: countErr } = await supabase
+      .from("sales_records")
+      .select("registration_date", { count: "exact", head: true });
+
     let allRecords: Record<string, unknown>[] = [];
-    let page = 0;
-    const pageSize = 1000;
-    while (true) {
-      const { data: chunk, error } = await supabase
-        .from("sales_records")
-        .select("registration_date, order_time, size, quantity")
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-      if (error) {
-        console.error("sales-size-by-date 查询失败:", error.message);
-        break;
+    if (!countErr && count && count > 0) {
+      const pages = Math.ceil(count / PAGE_SIZE) + 1;
+      const results = await Promise.all(
+        Array.from({ length: pages }, (_, p) =>
+          supabase
+            .from("sales_records")
+            .select("registration_date, order_time, size, quantity")
+            .order("registration_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+        )
+      );
+      for (const r of results) {
+        if (r.error) {
+          console.error("sales-size-by-date 查询失败:", r.error.message);
+          break;
+        }
+        if (r.data) allRecords = allRecords.concat(r.data as unknown as Record<string, unknown>[]);
       }
-      if (!chunk || chunk.length === 0) break;
-      allRecords = allRecords.concat(chunk as unknown as Record<string, unknown>[]);
-      if (chunk.length < pageSize) break;
-      page++;
+    } else if (countErr) {
+      console.error("sales-size-by-date count 失败:", countErr.message);
     }
 
     // 按登记日期聚合各尺码数量

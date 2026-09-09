@@ -140,9 +140,9 @@ export default function LinksPage() {
             <div>
               <p className="text-[10px] lg:text-sm font-bold text-gray-500">退货登记</p>
               <p className="text-lg lg:text-3xl font-extrabold">
-                {loading ? "..." : stats.returnCount.toLocaleString()}
-              </p>
-              <p className="text-[10px] lg:text-xs text-gray-400 font-medium">单</p>
+              {loading ? "..." : stats.returnCount.toLocaleString()}
+            </p>
+            <p className="text-[10px] lg:text-xs text-gray-400 font-medium">款</p>
             </div>
             <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#4CD964]">
               <Undo2 className="h-4 w-4 lg:h-6 lg:w-6 text-white" />

@@ -205,38 +205,51 @@ export async function upsertSalesSummary(saleId: string) {
 // GET: 获取售卖总表数据
 export async function GET() {
   try {
-    let allData: Record<string, unknown>[] = [];
-    let page = 0;
-    const pageSize = 1000;
+    // 并行拉取全表：count + 全页并行（原先逐页串行）
+    // 注意: sales_summary 表没有 id 列, 次级排序键用主键 sale_id 保证分页确定性
+    const PAGE_SIZE = 1000;
+    const { count, error: countErr } = await supabase
+      .from("sales_summary")
+      .select("*", { count: "exact", head: true });
 
-    while (true) {
-      const { data: chunk, error } = await supabase
-        .from("sales_summary")
-        .select("*")
-        .range(page * pageSize, (page + 1) * pageSize - 1)
-        .order("updated_at", { ascending: false });
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
-      }
-      if (!chunk || chunk.length === 0) break;
-      // 从 sell_price_info 中计算最高售价
-      const processed = chunk.map((row: Record<string, unknown>) => {
-        const info = row.sell_price_info as Record<string, string> | null;
-        if (info && Object.keys(info).length > 0) {
-          const prices = Object.keys(info).map(Number).filter((p) => p > 0);
-          if (prices.length > 0) {
-            return { ...row, sell_price: Math.max(...prices) };
-          }
-        }
-        return row;
-      });
-      allData = allData.concat(processed);
-      if (chunk.length < pageSize) break;
-      page++;
+    if (countErr) {
+      return NextResponse.json({ error: countErr.message }, { status: 500 });
     }
 
-    return NextResponse.json(allData);
+    let allData: Record<string, unknown>[] = [];
+    if (count && count > 0) {
+      const pages = Math.ceil(count / PAGE_SIZE) + 1;
+      const results = await Promise.all(
+        Array.from({ length: pages }, (_, p) =>
+          supabase
+            .from("sales_summary")
+            .select("*")
+            .order("updated_at", { ascending: false })
+            .order("sale_id", { ascending: false })
+            .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+        )
+      );
+      for (const r of results) {
+        if (r.error) {
+          return NextResponse.json({ error: r.error.message }, { status: 500 });
+        }
+        if (r.data) allData = allData.concat(r.data as Record<string, unknown>[]);
+      }
+    }
+
+    // 从 sell_price_info 中计算最高售价
+    const processed = allData.map((row: Record<string, unknown>) => {
+      const info = row.sell_price_info as Record<string, string> | null;
+      if (info && Object.keys(info).length > 0) {
+        const prices = Object.keys(info).map(Number).filter((p) => p > 0);
+        if (prices.length > 0) {
+          return { ...row, sell_price: Math.max(...prices) };
+        }
+      }
+      return row;
+    });
+
+    return NextResponse.json(processed);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 500 });

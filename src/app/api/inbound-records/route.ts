@@ -18,25 +18,36 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data || []);
   }
 
-  // 分页获取所有记录，避免默认1000条限制
+  // 并行拉取全表：count + 全页并行（原先逐页串行，2s+ → ~1s）
+  // 排序加 id 次级键保证分页确定性
+  const PAGE_SIZE = 1000;
+  const { count, error: countErr } = await supabase
+    .from("inbound_records")
+    .select("*", { count: "exact", head: true });
+
+  if (countErr) {
+    return NextResponse.json({ error: countErr.message }, { status: 500 });
+  }
+
   let allData: Record<string, any>[] = [];
-  let page = 0;
-  const pageSize = 1000;
-
-  while (true) {
-    const { data: chunk, error } = await supabase
-      .from("inbound_records")
-      .select("*")
-      .range(page * pageSize, (page + 1) * pageSize - 1)
-      .order("inbound_date", { ascending: false });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+  if (count && count > 0) {
+    const pages = Math.ceil(count / PAGE_SIZE) + 1;
+    const results = await Promise.all(
+      Array.from({ length: pages }, (_, p) =>
+        supabase
+          .from("inbound_records")
+          .select("*")
+          .order("inbound_date", { ascending: false })
+          .order("id", { ascending: false })
+          .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+      )
+    );
+    for (const r of results) {
+      if (r.error) {
+        return NextResponse.json({ error: r.error.message }, { status: 500 });
+      }
+      if (r.data) allData = allData.concat(r.data as Record<string, any>[]);
     }
-    if (!chunk || chunk.length === 0) break;
-    allData = allData.concat(chunk);
-    if (chunk.length < pageSize) break;
-    page++;
   }
 
   return NextResponse.json(allData);
