@@ -284,14 +284,26 @@ export default function PackPage() {
                     </div>
                     <div className="p-3 sm:p-4">
                       <div className="text-xs sm:text-sm font-extrabold text-gray-900 mb-1 truncate">{item.sale_id}</div>
-                      <div className="text-xs text-gray-500 mb-1 truncate">{item.product_name || "商品名称"}</div>
-                      <div className="grid grid-cols-2 gap-1 text-xs">
-                        <div><span className="text-gray-400">售价:</span> <span className="font-extrabold text-red-500">¥{item.sell_price}</span></div>
-                        <div><span className="text-gray-400">尺码:</span> <span className="font-bold">{item.size}</span></div>
-                        <div><span className="text-gray-400">数量:</span> <span className="font-bold">{item.quantity}</span></div>
-                        <div><span className="text-gray-400">货架号:</span> <span className="font-bold">{item.shelf_no || "-"}</span></div>
-                        <div className="col-span-2"><span className="text-gray-400">下单时间:</span> <span className="font-medium">{item.order_time ? new Date(item.order_time).toLocaleString("zh-CN") : "-"}</span></div>
-                        <div className="col-span-2"><span className="text-gray-400">厂家:</span> <span className="font-medium">{item.manufacturer || "-"}</span></div>
+                      <div className="text-xs text-gray-500 mb-2 truncate">{item.product_name || "商品名称"}</div>
+                      {/* 找货三要素: 数量/尺码/货架号 突出显示 */}
+                      <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2">
+                        <div className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-1 py-1.5 text-center">
+                          <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">数量</div>
+                          <div className="text-lg sm:text-xl font-extrabold text-white leading-tight">{item.quantity}</div>
+                        </div>
+                        <div className="rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-1 py-1.5 text-center">
+                          <div className="text-[9px] font-bold text-gray-700 leading-none mb-0.5">尺码</div>
+                          <div className="text-lg sm:text-xl font-extrabold text-gray-900 leading-tight">{item.size}</div>
+                        </div>
+                        <div className="rounded-lg border-2 border-gray-900 bg-[#4CD964] px-1 py-1.5 text-center">
+                          <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">货架号</div>
+                          <div className="text-base sm:text-lg font-extrabold text-white leading-tight truncate">{item.shelf_no || "-"}</div>
+                        </div>
+                      </div>
+                      {/* 次要信息弱化显示 */}
+                      <div className="text-xs space-y-0.5">
+                        <div className="truncate"><span className="text-gray-400">售价:</span> <span className="font-extrabold text-red-500">¥{item.sell_price}</span><span className="text-gray-300 mx-1">·</span><span className="text-gray-400">厂家:</span> <span className="font-medium">{item.manufacturer || "-"}</span></div>
+                        <div className="text-gray-400">{item.order_time ? new Date(item.order_time).toLocaleString("zh-CN") : "-"}</div>
                       </div>
                     </div>
                   </div>
@@ -363,8 +375,22 @@ export default function PackPage() {
                           </div>
                           <div className="p-2 sm:p-3">
                             <div className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</div>
-                            <div className="text-xs text-gray-500 mt-0.5">尺码: {item.size} · 数量: {item.quantity} · ¥{item.sell_price}</div>
-                            <div className="text-xs text-gray-400 mt-0.5">货架号: {item.shelf_no || "-"} · 厂家: {item.manufacturer || "-"}</div>
+                            {/* 找货三要素: 数量/尺码/货架号 突出显示(与找货模式一致) */}
+                            <div className="grid grid-cols-3 gap-1.5 mt-1.5 mb-1.5">
+                              <div className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-1 py-1 text-center">
+                                <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">数量</div>
+                                <div className="text-lg font-extrabold text-white leading-tight">{item.quantity}</div>
+                              </div>
+                              <div className="rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-1 py-1 text-center">
+                                <div className="text-[9px] font-bold text-gray-700 leading-none mb-0.5">尺码</div>
+                                <div className="text-lg font-extrabold text-gray-900 leading-tight">{item.size}</div>
+                              </div>
+                              <div className="rounded-lg border-2 border-gray-900 bg-[#4CD964] px-1 py-1 text-center">
+                                <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">货架号</div>
+                                <div className="text-base font-extrabold text-white leading-tight truncate">{item.shelf_no || "-"}</div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-400 truncate">¥{item.sell_price} · {item.manufacturer || "-"}</div>
                           </div>
                         </div>
                       ))}
