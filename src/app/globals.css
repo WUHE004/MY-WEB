@@ -124,13 +124,14 @@ body {
   box-shadow: 4px 4px 0px 0px rgba(0,0,0,0.15);
 }
 
-/* iOS Safari: 输入框字号 <16px 聚焦时会自动放大整个页面
+/* iOS Safari: 文本输入框字号 <16px 聚焦弹键盘时会自动放大整个页面
    (iOS 10+ 已忽略 viewport 的 maximum-scale/user-scalable, 只能靠字号解决)。
-   移动端统一 16px 屏蔽放大; 同步减小 neo-input 上下内边距, 避免 h-9/h-[42px]
-   固定高度输入框内容区被 padding 挤占导致文字只显示一半 */
+   仅对 input/textarea 强制 16px; select 点击弹出的是原生选择器、不弹键盘,
+   不会触发缩放, 保留原本的小字号设计。
+   同步减小 neo-input 上下内边距, 避免 h-9/h-[42px] 固定高度输入框内容区
+   被 padding 挤占导致文字只显示一半 */
 @media (max-width: 1023px) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
-  select,
   textarea {
     font-size: 16px !important;
   }

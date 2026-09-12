@@ -970,7 +970,7 @@ export default function FinancePage() {
   const shelfRows = useMemo(() => getShelfRows(data), [data]);
 
   const fmt = (n: number) => n.toFixed(2);
-  const pct = (n: number) => (n * 100).toFixed(1) + "%";
+  const pct = (n: number) => (n * 100).toFixed(0) + "%";
 
   // 跳转到入库登记页面，预填售出记录中的信息
   const router = useRouter();
@@ -1890,8 +1890,8 @@ export default function FinancePage() {
                 return (
                   <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
                     <div className="flex gap-2.5">
-                      {/* 图片区域: 宽度自适应, 避免固定px在窄屏挤压右侧格子 */}
-                      <div className="w-[42%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      {/* 图片区域: 拉宽为更大方形, 右侧格子区相应变窄 */}
+                      <div className="w-[48%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                       </div>
                       {/* 右侧规范化格子区 */}
@@ -1914,13 +1914,13 @@ export default function FinancePage() {
                           {/* 售出 / 利润率 */}
                           <div className="flex divide-x-2 divide-gray-200">
                             <div
-                              className={`flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
+                              className={`flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
                               onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}
                             >
                               <span className="text-gray-500 shrink-0">售出</span>
                               <span className="font-extrabold text-green-600 truncate">{row.sold_total}</span>
                             </div>
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
                               <span className="text-gray-500 shrink-0">利润率</span>
                               <span className={`font-extrabold truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
                             </div>
@@ -1928,13 +1928,13 @@ export default function FinancePage() {
                           {/* 退货 / 退货率 */}
                           <div className="flex divide-x-2 divide-gray-200">
                             <div
-                              className={`flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
+                              className={`flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
                               onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}
                             >
                               <span className="text-gray-500 shrink-0">退货</span>
                               <span className="font-extrabold text-yellow-600 truncate">{row.return_total}</span>
                             </div>
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
                               <span className="text-gray-500 shrink-0">退货率</span>
                               <span className="font-extrabold text-yellow-600 truncate">{pct(returnRate)}</span>
                             </div>
