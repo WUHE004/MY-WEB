@@ -970,7 +970,7 @@ export default function FinancePage() {
   const shelfRows = useMemo(() => getShelfRows(data), [data]);
 
   const fmt = (n: number) => n.toFixed(2);
-  const pct = (n: number) => (n * 100).toFixed(0) + "%";
+  const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
   // 跳转到入库登记页面，预填售出记录中的信息
   const router = useRouter();
@@ -1172,7 +1172,7 @@ export default function FinancePage() {
       {/* 搜索 + 筛选按钮 + 编辑/导出 */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
         {/* 搜索框 */}
-        <div className="relative flex-1 min-w-[180px]">
+        <div className="relative flex-1 min-w-[140px] lg:min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -1180,6 +1180,24 @@ export default function FinancePage() {
             className="w-full h-11 text-sm sm:text-base pl-11 pr-4 rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all"
           />
         </div>
+
+        {/* 售出(移动端): 汇总数据 + 未入库 放搜索框右侧 */}
+        {viewMode === "sales" && (
+          <div className="flex gap-2 lg:hidden">
+            <button onClick={syncSummary} disabled={syncing}
+              className="h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
+              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
+            </button>
+            <button onClick={() => setUninboundFilter(!uninboundFilter)}
+              className={`h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+                uninboundFilter
+                  ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]"
+                  : "border-red-500 bg-white text-red-500 hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(239,68,68,0.4)]"
+              }`}>
+              <AlertTriangle className="h-4 w-4" />未入库
+            </button>
+          </div>
+        )}
 
         {/* 总表：筛选/排序下拉 + 错误库存 */}
         {viewMode === "summary" && (
@@ -1339,11 +1357,12 @@ export default function FinancePage() {
 
         {/* 售出：日期 + 编辑 + 同步数据 - 绿色系 */}
         {viewMode === "sales" && (
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center w-full lg:w-auto">
+            {/* 日期下拉: 移动端拉长均分 */}
             <select
               value={salesDateFilter}
               onChange={e => setSalesDateFilter(e.target.value)}
-              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
+              className="h-11 flex-1 lg:flex-none text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
             >
               <option value="">全部日期</option>
               {salesDates.map(d => (
@@ -1358,22 +1377,23 @@ export default function FinancePage() {
               }`}>
               {salesEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
-            {/* 移动端: 排序下拉框(替代编辑按钮) */}
+            {/* 移动端: 排序下拉框(替代编辑按钮), 拉长均分 */}
             <select
               value={salesSort}
               onChange={(e) => setSalesSort(e.target.value as "default" | "sold" | "profit")}
-              className="h-11 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
+              className="h-11 flex-1 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
             >
               <option value="default">默认排序</option>
               <option value="sold">销量排序</option>
               <option value="profit">利润率排序</option>
             </select>
+            {/* 汇总数据/未入库: 桌面端保留原位置(移动端已移至搜索框右侧) */}
             <button onClick={syncSummary} disabled={syncing}
-              className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
+              className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
             <button onClick={() => setUninboundFilter(!uninboundFilter)}
-              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 uninboundFilter
                   ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]"
                   : "border-red-500 bg-white text-red-500 hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(239,68,68,0.4)]"
@@ -1890,8 +1910,8 @@ export default function FinancePage() {
                 return (
                   <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
                     <div className="flex gap-2.5">
-                      {/* 图片区域: 拉宽为更大方形, 右侧格子区相应变窄 */}
-                      <div className="w-[48%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
+                      <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                       </div>
                       {/* 右侧规范化格子区 */}
@@ -1911,32 +1931,32 @@ export default function FinancePage() {
                         </div>
                         {/* 规范格子: 每行两格, 隔行浅灰底 */}
                         <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
-                          {/* 售出 / 利润率 */}
+                          {/* 售出 / 利润率 (竖杠左移: 售出格窄, 利润率格宽) */}
                           <div className="flex divide-x-2 divide-gray-200">
                             <div
-                              className={`flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
+                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
                               onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}
                             >
-                              <span className="text-gray-500 shrink-0">售出</span>
-                              <span className="font-extrabold text-green-600 truncate">{row.sold_total}</span>
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                              <span className="font-extrabold text-[13px] text-green-600 truncate">{row.sold_total}</span>
                             </div>
                             <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">利润率</span>
-                              <span className={`font-extrabold truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
+                              <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
                             </div>
                           </div>
-                          {/* 退货 / 退货率 */}
+                          {/* 退货 / 退货率 (竖杠左移: 退货格窄, 退货率格宽) */}
                           <div className="flex divide-x-2 divide-gray-200">
                             <div
-                              className={`flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
+                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
                               onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}
                             >
-                              <span className="text-gray-500 shrink-0">退货</span>
-                              <span className="font-extrabold text-yellow-600 truncate">{row.return_total}</span>
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.return_total}</span>
                             </div>
                             <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">退货率</span>
-                              <span className="font-extrabold text-yellow-600 truncate">{pct(returnRate)}</span>
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
+                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{pct(returnRate)}</span>
                             </div>
                           </div>
                           {/* 进价(浅灰底,全宽) */}
