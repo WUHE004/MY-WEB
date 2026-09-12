@@ -30,6 +30,8 @@ interface SummaryRow {
   sale_id: string;
   inbound_total: number;
   sold_total: number;
+  // 拼多多渠道销量(面单号"多多2026****"格式), 抖音/其他渠道 = sold_total - pdd_sold
+  pdd_sold?: number;
   return_total: number;
   remaining: number;
   profits: number;
@@ -1876,63 +1878,102 @@ export default function FinancePage() {
                   }
                 }
                 const inboundDate = inboundAgg?.inbound_date || "";
+                // 渠道角标: 红=拼多多(多多面单号), 绿=抖音/其他(=售出总数-拼多多)
+                const pddQty = Number(row.pdd_sold) || 0;
+                const dyQty = Math.max(0, row.sold_total - pddQty);
+                const fmtDate = (d: string) => {
+                  if (!d) return "-";
+                  const dt = new Date(d);
+                  if (isNaN(dt.getTime())) return "-";
+                  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
+                };
                 return (
-                  <div key={row.sale_id} className={`bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
-                    <div className="flex gap-2">
-                      {/* 图片区域 */}
-                      <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
+                  <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
+                    <div className="flex gap-2.5">
+                      {/* 图片区域: 宽度自适应, 避免固定px在窄屏挤压右侧格子 */}
+                      <div className="w-[42%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                        {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                       </div>
-                      {/* 右侧内容区 */}
-                      <div className="flex-1 min-w-0">
-                        {/* 编号 */}
-                        <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                        {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                        {/* 所有尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
-                        <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
-                          {ALL_SIZES.map((s) => {
-                            const val = Number(row[`size_${s}`]) || 0;
-                            return (
-                              <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
-                                val < 0 ? "bg-red-50 border-red-300 text-red-600" :
-                                val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
-                                "bg-white border-gray-200 text-gray-300"
-                              }`}>{s}:{val}</span>
-                            );
-                          })}
+                      {/* 右侧规范化格子区 */}
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        {/* 编号/名称 + 渠道角标(卡片右上角) */}
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="min-w-0">
+                            <div className="text-xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            {row.name && <div className="text-xs text-gray-500 truncate mt-0.5">{row.name}</div>}
+                          </div>
+                          {row.sold_total > 0 && (
+                            <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <span className="rounded-md border-2 border-gray-900 bg-[#FF6B7A] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">多多{pddQty}</span>
+                              <span className="rounded-md border-2 border-gray-900 bg-[#4CD964] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">抖音{dyQty}</span>
+                            </div>
+                          )}
                         </div>
-                        {/* 售出/退货 字体放大到和商品名一样大 */}
-                        <div className="flex gap-3 mt-1">
-                          <div className="cursor-pointer shrink-0"
-                            onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}>
-                            <span className="text-xs font-extrabold text-green-600">售出 {row.sold_total}</span>
-                            <span className={`text-xs font-bold ml-2 ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>利润率 {pct(profitRate)}</span>
+                        {/* 规范格子: 每行两格, 隔行浅灰底 */}
+                        <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                          {/* 售出 / 利润率 */}
+                          <div className="flex divide-x-2 divide-gray-200">
+                            <div
+                              className={`flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
+                              onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}
+                            >
+                              <span className="text-gray-500 shrink-0">售出</span>
+                              <span className="font-extrabold text-green-600 truncate">{row.sold_total}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">利润率</span>
+                              <span className={`font-extrabold truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
+                            </div>
+                          </div>
+                          {/* 退货 / 退货率 */}
+                          <div className="flex divide-x-2 divide-gray-200">
+                            <div
+                              className={`flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
+                              onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}
+                            >
+                              <span className="text-gray-500 shrink-0">退货</span>
+                              <span className="font-extrabold text-yellow-600 truncate">{row.return_total}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">退货率</span>
+                              <span className="font-extrabold text-yellow-600 truncate">{pct(returnRate)}</span>
+                            </div>
+                          </div>
+                          {/* 进价 / 售价(浅灰底) */}
+                          <div className="flex bg-gray-100 divide-x-2 divide-gray-200">
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">进价</span>
+                              <span className="font-bold text-gray-700 truncate">¥{fmt(row.cost_price)}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-red-500 shrink-0">售价</span>
+                              <span className="font-extrabold text-red-500 truncate">¥{fmt(latestSellPrice)}</span>
+                            </div>
+                          </div>
+                          {/* 入库时间 / 售出时间 */}
+                          <div className="flex divide-x-2 divide-gray-200">
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">入库时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtDate(inboundDate)}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">售出时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtDate(lastOrderTime)}</span>
+                            </div>
+                          </div>
+                          {/* 货架号(浅灰底) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">货架号</span>
+                              <span className="font-medium text-gray-700 truncate">{row.shelf_no || "-"}</span>
+                            </div>
                           </div>
                         </div>
-                        <div className="flex gap-3 mt-0.5">
-                          <div className="cursor-pointer shrink-0"
-                            onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}>
-                            <span className="text-xs font-extrabold text-yellow-600">退货 {row.return_total}</span>
-                            <span className="text-xs font-bold ml-2 text-yellow-600">退货率 {pct(returnRate)}</span>
-                          </div>
-                        </div>
-                        {/* 进价/最新售价 */}
-                        <div className="flex gap-3 mt-0.5 text-xs">
-                          <span className="text-gray-500">进价 <span className="font-bold text-gray-700">¥{fmt(row.cost_price)}</span></span>
-                          <span className="text-gray-500">售价 <span className="font-bold text-red-500">¥{fmt(latestSellPrice)}</span></span>
-                        </div>
-                        {/* 入库日期/最新售卖日期 */}
-                        <div className="flex gap-3 mt-0.5 text-xs text-gray-500">
-                          <span>入库 {inboundDate ? new Date(inboundDate).toLocaleDateString("zh-CN") : "-"}</span>
-                          <span>售卖 {lastOrderTime ? new Date(lastOrderTime).toLocaleDateString("zh-CN") : "-"}</span>
-                        </div>
-                        {/* 货架号 */}
-                        <div className="text-xs text-gray-500 mt-0.5">货架号: {row.shelf_no || "-"}</div>
                       </div>
                     </div>
 
-                    {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
-                    <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                    {/* 尺码全宽5列换行显示 */}
+                    <div className="mt-1.5 grid grid-cols-5 gap-1">
                       {ALL_SIZES.map((s) => {
                         const val = Number(row[`size_${s}`]) || 0;
                         return (

@@ -7,6 +7,8 @@ interface SummaryRow {
   sale_id: string;
   inbound_total: number;
   sold_total: number;
+  // 拼多多渠道销量(面单号以"多多"开头, 如多多20260903); 抖音渠道销量 = sold_total - pdd_sold
+  pdd_sold: number;
   return_total: number;
   remaining: number;
   profits: number;
@@ -72,7 +74,7 @@ export async function GET() {
         `sale_id,${sizeCols},cost_price,name,manufacturer,photo,shelf_no`,
         "inbound_date"
       ),
-      fetchAllRows("sales_records", "sale_id,quantity,size,sell_price", "registration_date"),
+      fetchAllRows("sales_records", "sale_id,quantity,size,sell_price,tracking_number", "registration_date"),
       fetchAllRows("return_records", "sale_id,quantity,size", "created_at"),
     ]);
 
@@ -125,6 +127,7 @@ export async function GET() {
           sale_id: saleId,
           inbound_total: rowTotal,
           sold_total: 0,
+          pdd_sold: 0,
           return_total: 0,
           remaining: rowTotal,
           profits: 0,
@@ -154,6 +157,7 @@ export async function GET() {
           sale_id: saleId,
           inbound_total: 0,
           sold_total: 0,
+          pdd_sold: 0,
           return_total: 0,
           remaining: 0,
           profits: 0,
@@ -169,6 +173,10 @@ export async function GET() {
 
       const entry = summaryMap.get(saleId)!;
       entry.sold_total += qty;
+      // 拼多多渠道(面单号"多多20260903"格式)计入多多角标, 其余(抖店/补录)计入抖音角标
+      if (String(row.tracking_number || "").trim().startsWith("多多")) {
+        entry.pdd_sold += qty;
+      }
       if (sellPrice > 0) entry.sell_price = sellPrice;
 
       // 减去对应尺码
@@ -191,6 +199,7 @@ export async function GET() {
           sale_id: saleId,
           inbound_total: 0,
           sold_total: 0,
+          pdd_sold: 0,
           return_total: 0,
           remaining: 0,
           profits: 0,
