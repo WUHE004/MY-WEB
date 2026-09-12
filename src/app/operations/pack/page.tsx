@@ -43,6 +43,15 @@ interface PackItem {
   manufacturer: string;
 }
 
+// 货架数据(与入库登记共用 shelf_data 设置, 默认值一致)
+const DEFAULT_SHELF_DATA: Record<string, number[]> = {
+  A: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  B: [1, 2],
+  C: [1, 2, 3, 4, 5],
+};
+
+const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
+
 type TabMode = "find" | "pack";
 type PackFilter = "" | "suspended" | "found" | "shipped";
 
@@ -67,11 +76,28 @@ export default function PackPage() {
   const [scannerMode, setScannerMode] = useState<"find" | "pack">("find");
   // 打包模式: 展开的文件夹合集
   const [expandedPackId, setExpandedPackId] = useState<number | null>(null);
-  // 找货模式: 货架号编辑(卡片索引)
+  // 找货模式: 货架号编辑(卡片索引) - 三级货架选择(排/货架号/层, 与入库登记同步)
   const [editingShelfIdx, setEditingShelfIdx] = useState<number | null>(null);
-  const [shelfEditValue, setShelfEditValue] = useState("");
+  const [shelfData, setShelfData] = useState<Record<string, number[]>>(DEFAULT_SHELF_DATA);
+  const [editShelfL1, setEditShelfL1] = useState("");
+  const [editShelfL2, setEditShelfL2] = useState("");
+  const [editShelfL3, setEditShelfL3] = useState("");
 
   useEffect(() => { fetchPackRecords(); }, []);
+
+  // 加载货架设置(与入库登记共用 shelf_data, 入库登记新增货架后此处同步)
+  const loadShelfData = useCallback(() => {
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.shelf_data && typeof data.shelf_data === "object") {
+          setShelfData(data.shelf_data as Record<string, number[]>);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadShelfData(); }, [loadShelfData]);
 
   const doSearch = useCallback(async (query: string) => {
     const q = query.trim();
@@ -199,6 +225,12 @@ export default function PackPage() {
 
   // 打包模式: 状态筛选 + 面单号查找(已提交记录, 支持完整精确/后六位后缀匹配, 本地过滤)
   const packSearchQ = packTrackingNumber.trim();
+
+  // 找货模式: 该面单下商品总价(售价×数量合计)
+  const trackingTotalPrice = useMemo(
+    () => searchResults.reduce((sum, r) => sum + (Number(r.sell_price) || 0) * (Number(r.quantity) || 0), 0),
+    [searchResults]
+  );
   const visiblePackRecords = useMemo(() => {
     const base = packFilter ? packRecords.filter((r) => r.status === packFilter) : packRecords;
     if (!packSearchQ) return base;
@@ -314,9 +346,15 @@ export default function PackPage() {
 
           {searchResults.length > 0 && (
             <div>
-              <p className="text-xs sm:text-sm font-bold text-gray-500 mb-3 sm:mb-4">
-                共找到 {searchResults.length} 件商品 · 面单号: {trackingNumber}
-              </p>
+              {/* 原商品数量位置: 显示该面单下商品总价(放大标红) */}
+              <div className="flex items-baseline gap-2 flex-wrap mb-3 sm:mb-4">
+                <span className="text-lg sm:text-xl font-extrabold text-red-500">
+                  总价 ¥{Number(trackingTotalPrice.toFixed(2))}
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-gray-500">
+                  · 面单号: {trackingNumber}
+                </span>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 {searchResults.map((item, index) => (
                   <div key={index} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
@@ -337,7 +375,16 @@ export default function PackPage() {
                           <div className="text-lg sm:text-xl font-extrabold text-gray-900 leading-tight">{item.size}</div>
                         </div>
                         <div
-                          onClick={() => { setEditingShelfIdx(editingShelfIdx === index ? null : index); setShelfEditValue(item.shelf_no || ""); }}
+                          onClick={() => {
+                            setEditingShelfIdx(editingShelfIdx === index ? null : index);
+                            // 每次打开时刷新货架数据, 确保与入库登记同步
+                            loadShelfData();
+                            // 解析已有货架号(如 A-1-2)回填三级选择
+                            const m = (item.shelf_no || "").trim().match(/^([^-]+)-(\d+)-(\d+)$/);
+                            setEditShelfL1(m ? m[1] : "");
+                            setEditShelfL2(m ? m[2] : "");
+                            setEditShelfL3(m ? m[3] : "");
+                          }}
                           className="relative rounded-lg border-2 border-gray-900 bg-[#4CD964] px-1 py-1.5 text-center cursor-pointer active:scale-95 transition-transform"
                           title="点击修改货架号"
                         >
@@ -345,33 +392,58 @@ export default function PackPage() {
                           <div className="text-base sm:text-lg font-extrabold text-white leading-tight truncate">{item.shelf_no || "点击添加"}</div>
                         </div>
                       </div>
-                      {/* 货架号编辑栏 */}
+                      {/* 货架号编辑栏: 三级选择(与入库登记同款) */}
                       {editingShelfIdx === index && (
-                        <div className="flex gap-1.5 mb-2">
-                          <input
-                            type="text"
-                            value={shelfEditValue}
-                            onChange={(e) => setShelfEditValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleShelfSave(item.sale_id, shelfEditValue.trim());
-                              if (e.key === "Escape") setEditingShelfIdx(null);
-                            }}
-                            autoFocus
-                            placeholder="输入货架号，如 A-1-2"
-                            className="neo-input flex-1 min-w-0 text-xs h-9"
-                          />
-                          <button
-                            onClick={() => handleShelfSave(item.sale_id, shelfEditValue.trim())}
-                            className="h-9 px-3 rounded-lg border-2 border-gray-900 bg-[#4CD964] text-white text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] shrink-0"
-                          >
-                            保存
-                          </button>
-                          <button
-                            onClick={() => setEditingShelfIdx(null)}
-                            className="h-9 px-3 rounded-lg border-2 border-gray-900 bg-white text-gray-600 text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] shrink-0"
-                          >
-                            取消
-                          </button>
+                        <div className="mb-2">
+                          <div className="flex gap-1.5">
+                            <select
+                              value={editShelfL1}
+                              onChange={(e) => { setEditShelfL1(e.target.value); setEditShelfL2(""); setEditShelfL3(""); }}
+                              className="neo-input flex-1 min-w-0 text-xs h-9"
+                            >
+                              <option value="">一排</option>
+                              {Object.keys(shelfData).map((k) => (
+                                <option key={k} value={k}>{k}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={editShelfL2}
+                              onChange={(e) => { setEditShelfL2(e.target.value); setEditShelfL3(""); }}
+                              disabled={!editShelfL1}
+                              className="neo-input flex-1 min-w-0 text-xs h-9 disabled:opacity-40"
+                            >
+                              <option value="">货架号</option>
+                              {editShelfL1 && (shelfData[editShelfL1] || []).map((n) => (
+                                <option key={n} value={String(n)}>{n}</option>
+                              ))}
+                            </select>
+                            <select
+                              value={editShelfL3}
+                              onChange={(e) => setEditShelfL3(e.target.value)}
+                              disabled={!editShelfL2}
+                              className="neo-input flex-1 min-w-0 text-xs h-9 disabled:opacity-40"
+                            >
+                              <option value="">层</option>
+                              {DEFAULT_LAYERS.map((n) => (
+                                <option key={n} value={String(n)}>{n}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex gap-1.5 mt-1.5">
+                            <button
+                              onClick={() => handleShelfSave(item.sale_id, `${editShelfL1}-${editShelfL2}-${editShelfL3}`)}
+                              disabled={!editShelfL1 || !editShelfL2 || !editShelfL3}
+                              className="h-9 px-3 rounded-lg border-2 border-gray-900 bg-[#4CD964] text-white text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                            >
+                              保存
+                            </button>
+                            <button
+                              onClick={() => setEditingShelfIdx(null)}
+                              className="h-9 px-3 rounded-lg border-2 border-gray-900 bg-white text-gray-600 text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] shrink-0"
+                            >
+                              取消
+                            </button>
+                          </div>
                         </div>
                       )}
                       {/* 次要信息弱化显示 */}
@@ -482,24 +554,28 @@ export default function PackPage() {
               const expanded = expandedPackId === record.id;
               const firstPhoto = record.items && record.items.length > 0 ? record.items[0].photo : "";
               return (
-                <div key={record.id} className="mb-3 sm:mb-4 bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+                <div key={record.id} className="relative mb-3 sm:mb-4 bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+                  {/* 该面单下商品数量: 红色角标置于文件夹右上角 */}
+                  <div className="absolute top-0 right-0 z-10 bg-[#FF6B7A] border-l-[3px] border-b-[3px] border-gray-900 rounded-bl-xl px-2 py-0.5 text-[11px] sm:text-xs font-extrabold text-white leading-relaxed">
+                    {(record.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)}件
+                  </div>
                   {/* 文件夹头部: 缩略图 + 面单信息 + 状态 + 操作按钮, 点击主体展开/收起 */}
                   <div className="p-3 sm:p-4 bg-gray-50 border-b-2 border-gray-200">
                     <div
-                      className="flex items-center gap-3 cursor-pointer"
+                      className="flex items-center gap-3 cursor-pointer pt-1"
                       onClick={() => setExpandedPackId(expanded ? null : record.id)}
                     >
                       {/* 第一个商品照片缩略图 */}
                       <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg border-2 border-gray-900 bg-gray-100 overflow-hidden shrink-0 flex items-center justify-center">
                         {firstPhoto ? <img src={firstPhoto} alt="" className="w-full h-full object-cover" /> : <Package className="h-6 w-6 text-gray-300" />}
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 pr-6 sm:pr-8">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-extrabold text-gray-900 truncate">{record.tracking_number}</span>
                           <span className={`px-2 py-0.5 rounded-lg border-2 text-[10px] font-extrabold shrink-0 ${st.color}`}>{st.text}</span>
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5 truncate">
-                          {record.submitter} · {new Date(record.created_at).toLocaleString("zh-CN")} · {record.items.length}件
+                          {record.submitter} · {new Date(record.created_at).toLocaleString("zh-CN")}
                         </div>
                       </div>
                       <ChevronDown className={`h-4 w-4 text-gray-400 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -523,33 +599,31 @@ export default function PackPage() {
                       </div>
                     )}
                   </div>
-                  {/* 展开内容: 该面单下所有商品 */}
+                  {/* 展开内容: 该面单下所有商品(缩小显示, 一行2个) */}
                   {expanded && (
                     <div className="p-3 sm:p-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
                         {record.items.map((item, idx) => (
                           <div key={idx} className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden">
-                            <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
-                              {item.photo ? <img src={item.photo} alt="" className="w-full h-full object-cover" /> : <Package className="h-12 w-12 text-gray-300" />}
+                            <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center overflow-hidden">
+                              {item.photo ? <img src={item.photo} alt="" className="w-full h-full object-cover" /> : <Package className="h-8 w-8 text-gray-300" />}
                             </div>
-                            <div className="p-2 sm:p-3">
-                              <div className="text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</div>
-                              {/* 找货三要素: 数量/尺码/货架号 突出显示(与找货模式一致) */}
-                              <div className="grid grid-cols-3 gap-1.5 mt-1.5 mb-1.5">
+                            <div className="p-1.5 sm:p-2">
+                              <div className="text-[11px] sm:text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</div>
+                              {/* 数量/尺码 突出显示(货架号移至底部厂家栏小字) */}
+                              <div className="grid grid-cols-2 gap-1.5 mt-1 mb-1">
                                 <div className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-1 py-1 text-center">
                                   <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">数量</div>
-                                  <div className="text-lg font-extrabold text-white leading-tight">{item.quantity}</div>
+                                  <div className="text-base sm:text-lg font-extrabold text-white leading-tight">{item.quantity}</div>
                                 </div>
                                 <div className="rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-1 py-1 text-center">
                                   <div className="text-[9px] font-bold text-gray-700 leading-none mb-0.5">尺码</div>
-                                  <div className="text-lg font-extrabold text-gray-900 leading-tight">{item.size}</div>
-                                </div>
-                                <div className="rounded-lg border-2 border-gray-900 bg-[#4CD964] px-1 py-1 text-center">
-                                  <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">货架号</div>
-                                  <div className="text-base font-extrabold text-white leading-tight truncate">{item.shelf_no || "-"}</div>
+                                  <div className="text-base sm:text-lg font-extrabold text-gray-900 leading-tight">{item.size}</div>
                                 </div>
                               </div>
-                              <div className="text-xs text-gray-400 truncate">¥{item.sell_price} · {item.manufacturer || "-"}</div>
+                              <div className="text-[10px] sm:text-xs text-gray-400 truncate">
+                                ¥{item.sell_price} · {item.manufacturer || "-"} · {item.shelf_no || "-"}
+                              </div>
                             </div>
                           </div>
                         ))}
