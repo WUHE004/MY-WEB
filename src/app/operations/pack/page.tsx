@@ -52,18 +52,21 @@ const DEFAULT_SHELF_DATA: Record<string, number[]> = {
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 
-// 解析货架号为三级(排/货架号/层): 支持 A-3-1 标准格式, 也兼容 A-7--4(层为负数)等非标格式
+// 解析货架号为三级(排/货架号/层)
+// 历史格式背景: 2026年6~8月线上版本入库登记产生"排-货架号--层"双横线格式(如B-1--1, 层是正数),
+// 9月起入库登记及表格导入为"排-货架号-层"标准格式(如B-1-1), 另有导入缺排横线格式(如A5-1)
 const parseShelfNo = (s: string): { l1: string; l2: string; l3: string } => {
   const t = (s || "").trim();
-  // 标准/负层格式: 排(非横线)-货架号(纯数字)-层(可负)
-  const m = t.match(/^([^-]+)-(\d+)-(-?\d+)$/);
-  if (m) return { l1: m[1], l2: m[2], l3: m[3] };
-  // 兜底: 第一个横线前为排, 最后一个横线后为层, 中间全部为货架号
-  const i1 = t.indexOf("-");
-  const i2 = t.lastIndexOf("-");
-  if (i1 > 0 && i2 > i1 + 1) {
-    return { l1: t.slice(0, i1), l2: t.slice(i1 + 1, i2), l3: t.slice(i2 + 1) };
-  }
+  if (!t) return { l1: "", l2: "", l3: "" };
+  // 双横线格式: 排-货架号--层 (必须先于单横线匹配, "--"是分隔符残留而非负数层)
+  let m = t.match(/^([^-]+)-(\d+)--(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
+  // 标准单横线: 排-货架号-层
+  m = t.match(/^([^-]+)-(\d+)-(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
+  // 导入缺排横线: 排货架号-层 (如 A5-1)
+  m = t.match(/^([A-Za-z\u4e00-\u9fff]+)(\d+)-(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
   return { l1: "", l2: "", l3: "" };
 };
 
@@ -440,7 +443,7 @@ export default function PackPage() {
                               <option value="">货架号</option>
                               {(() => {
                                 const nums = (shelfData[editShelfL1] || []).map(String);
-                                // 解析出的货架号不在选项时追加显示(如 A-7--4 的 "7")
+                                // 解析出的货架号不在货架库时追加显示, 保证能识别现有值
                                 const opts = editShelfL2 && !nums.includes(editShelfL2) ? [...nums, editShelfL2] : nums;
                                 return opts.map((n) => (
                                   <option key={n} value={n}>{n}</option>
@@ -454,14 +457,9 @@ export default function PackPage() {
                               className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none disabled:opacity-40"
                             >
                               <option value="">层</option>
-                              {(() => {
-                                const nums = DEFAULT_LAYERS.map(String);
-                                // 解析出的层不在选项时追加显示(如 A-7--4 的 "-4")
-                                const opts = editShelfL3 && !nums.includes(editShelfL3) ? [...nums, editShelfL3] : nums;
-                                return opts.map((n) => (
-                                  <option key={n} value={n}>{n}</option>
-                                ));
-                              })()}
+                              {DEFAULT_LAYERS.map((n) => (
+                                <option key={n} value={String(n)}>{n}</option>
+                              ))}
                             </select>
                           </div>
                           <div className="flex gap-1.5 mt-1.5">
