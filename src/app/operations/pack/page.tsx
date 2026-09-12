@@ -52,6 +52,21 @@ const DEFAULT_SHELF_DATA: Record<string, number[]> = {
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 
+// 解析货架号为三级(排/货架号/层): 支持 A-3-1 标准格式, 也兼容 A-7--4(层为负数)等非标格式
+const parseShelfNo = (s: string): { l1: string; l2: string; l3: string } => {
+  const t = (s || "").trim();
+  // 标准/负层格式: 排(非横线)-货架号(纯数字)-层(可负)
+  const m = t.match(/^([^-]+)-(\d+)-(-?\d+)$/);
+  if (m) return { l1: m[1], l2: m[2], l3: m[3] };
+  // 兜底: 第一个横线前为排, 最后一个横线后为层, 中间全部为货架号
+  const i1 = t.indexOf("-");
+  const i2 = t.lastIndexOf("-");
+  if (i1 > 0 && i2 > i1 + 1) {
+    return { l1: t.slice(0, i1), l2: t.slice(i1 + 1, i2), l3: t.slice(i2 + 1) };
+  }
+  return { l1: "", l2: "", l3: "" };
+};
+
 type TabMode = "find" | "pack";
 type PackFilter = "" | "suspended" | "found" | "shipped";
 
@@ -289,33 +304,47 @@ export default function PackPage() {
       {/* ===== 找货模式 ===== */}
       {activeTab === "find" && (
         <div>
-          <div className="mb-4 sm:mb-6">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={trackingNumber}
-                  onChange={(e) => { setTrackingNumber(e.target.value); setMatchedTrackingNumbers([]); }}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder="面单号 / 后六位"
-                  className="neo-input w-full text-sm pl-10"
-                />
+          {/* 固定顶部: 面单输入框 + 相机/查找按钮 + 副标题, 仅下方商品卡片滚动 */}
+          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-4 sm:-mt-6 lg:-mt-8 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-4 sm:mb-6 bg-white">
+            <div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={trackingNumber}
+                    onChange={(e) => { setTrackingNumber(e.target.value); setMatchedTrackingNumbers([]); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                    placeholder="面单号 / 后六位"
+                    className="neo-input w-full text-sm pl-10"
+                  />
+                </div>
+                <button
+                  type="button" onClick={() => { setScannerMode("find"); setShowScanner(true); }}
+                  className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
+                  title="扫码识别面单号"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={handleSearch} disabled={searching || !trackingNumber.trim()}
+                  className="flex items-center justify-center h-[42px] px-4 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
+                >
+                  {searching ? "搜索中..." : "查找"}
+                </button>
               </div>
-              <button
-                type="button" onClick={() => { setScannerMode("find"); setShowScanner(true); }}
-                className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
-                title="扫码识别面单号"
-              >
-                <Camera className="h-4 w-4" />
-              </button>
-              <button
-                onClick={handleSearch} disabled={searching || !trackingNumber.trim()}
-                className="flex items-center justify-center h-[42px] px-4 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
-              >
-                {searching ? "搜索中..." : "查找"}
-              </button>
             </div>
+            {/* 副标题: 总价 + 商品数量(保持字体大小和标红) */}
+            {searchResults.length > 0 && (
+              <div className="flex items-baseline gap-2 flex-wrap mt-3">
+                <span className="text-lg sm:text-xl font-extrabold text-red-500">
+                  总价 ¥{Number(trackingTotalPrice.toFixed(2))} · 共{searchResults.length}件
+                </span>
+                <span className="text-xs sm:text-sm font-bold text-gray-500">
+                  · 面单号: {trackingNumber}
+                </span>
+              </div>
+            )}
           </div>
 
           {searched && notFound && (
@@ -346,15 +375,6 @@ export default function PackPage() {
 
           {searchResults.length > 0 && (
             <div>
-              {/* 原商品数量位置: 显示该面单下商品总价(放大标红) */}
-              <div className="flex items-baseline gap-2 flex-wrap mb-3 sm:mb-4">
-                <span className="text-lg sm:text-xl font-extrabold text-red-500">
-                  总价 ¥{Number(trackingTotalPrice.toFixed(2))}
-                </span>
-                <span className="text-xs sm:text-sm font-bold text-gray-500">
-                  · 面单号: {trackingNumber}
-                </span>
-              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 {searchResults.map((item, index) => (
                   <div key={index} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
@@ -364,9 +384,9 @@ export default function PackPage() {
                     <div className="p-3 sm:p-4">
                       <div className="text-xs sm:text-sm font-extrabold text-gray-900 mb-1 truncate">{item.sale_id}</div>
                       <div className="text-xs text-gray-500 mb-2 truncate">{item.product_name || "商品名称"}</div>
-                      {/* 找货三要素: 数量/尺码/货架号 突出显示 */}
+                      {/* 找货三要素: 数量(1件红/≥2件绿)/尺码/货架号 突出显示 */}
                       <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mb-2">
-                        <div className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-1 py-1.5 text-center">
+                        <div className={`rounded-lg border-2 border-gray-900 px-1 py-1.5 text-center ${Number(item.quantity) >= 2 ? "bg-[#4CD964]" : "bg-[#FF6B7A]"}`}>
                           <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">数量</div>
                           <div className="text-lg sm:text-xl font-extrabold text-white leading-tight">{item.quantity}</div>
                         </div>
@@ -379,11 +399,11 @@ export default function PackPage() {
                             setEditingShelfIdx(editingShelfIdx === index ? null : index);
                             // 每次打开时刷新货架数据, 确保与入库登记同步
                             loadShelfData();
-                            // 解析已有货架号(如 A-1-2)回填三级选择
-                            const m = (item.shelf_no || "").trim().match(/^([^-]+)-(\d+)-(\d+)$/);
-                            setEditShelfL1(m ? m[1] : "");
-                            setEditShelfL2(m ? m[2] : "");
-                            setEditShelfL3(m ? m[3] : "");
+                            // 解析已有货架号回填三级选择(兼容 A-3-1 / A-7--4 等格式)
+                            const p = parseShelfNo(item.shelf_no || "");
+                            setEditShelfL1(p.l1);
+                            setEditShelfL2(p.l2);
+                            setEditShelfL3(p.l3);
                           }}
                           className="relative rounded-lg border-2 border-gray-900 bg-[#4CD964] px-1 py-1.5 text-center cursor-pointer active:scale-95 transition-transform"
                           title="点击修改货架号"
@@ -392,41 +412,56 @@ export default function PackPage() {
                           <div className="text-base sm:text-lg font-extrabold text-white leading-tight truncate">{item.shelf_no || "点击添加"}</div>
                         </div>
                       </div>
-                      {/* 货架号编辑栏: 三级选择(与入库登记同款) */}
+                      {/* 货架号编辑栏: 三级选择(与入库登记同款, 不用 neo-input 避免文字被裁剪) */}
                       {editingShelfIdx === index && (
                         <div className="mb-2">
                           <div className="flex gap-1.5">
                             <select
                               value={editShelfL1}
                               onChange={(e) => { setEditShelfL1(e.target.value); setEditShelfL2(""); setEditShelfL3(""); }}
-                              className="neo-input flex-1 min-w-0 text-xs h-9"
+                              className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none"
                             >
                               <option value="">一排</option>
-                              {Object.keys(shelfData).map((k) => (
-                                <option key={k} value={k}>{k}</option>
-                              ))}
+                              {(() => {
+                                const keys = Object.keys(shelfData);
+                                // 解析出的排不在货架库时追加显示, 保证能识别现有值
+                                const opts = editShelfL1 && !keys.includes(editShelfL1) ? [...keys, editShelfL1] : keys;
+                                return opts.map((k) => (
+                                  <option key={k} value={k}>{k}</option>
+                                ));
+                              })()}
                             </select>
                             <select
                               value={editShelfL2}
                               onChange={(e) => { setEditShelfL2(e.target.value); setEditShelfL3(""); }}
                               disabled={!editShelfL1}
-                              className="neo-input flex-1 min-w-0 text-xs h-9 disabled:opacity-40"
+                              className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none disabled:opacity-40"
                             >
                               <option value="">货架号</option>
-                              {editShelfL1 && (shelfData[editShelfL1] || []).map((n) => (
-                                <option key={n} value={String(n)}>{n}</option>
-                              ))}
+                              {(() => {
+                                const nums = (shelfData[editShelfL1] || []).map(String);
+                                // 解析出的货架号不在选项时追加显示(如 A-7--4 的 "7")
+                                const opts = editShelfL2 && !nums.includes(editShelfL2) ? [...nums, editShelfL2] : nums;
+                                return opts.map((n) => (
+                                  <option key={n} value={n}>{n}</option>
+                                ));
+                              })()}
                             </select>
                             <select
                               value={editShelfL3}
                               onChange={(e) => setEditShelfL3(e.target.value)}
                               disabled={!editShelfL2}
-                              className="neo-input flex-1 min-w-0 text-xs h-9 disabled:opacity-40"
+                              className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none disabled:opacity-40"
                             >
                               <option value="">层</option>
-                              {DEFAULT_LAYERS.map((n) => (
-                                <option key={n} value={String(n)}>{n}</option>
-                              ))}
+                              {(() => {
+                                const nums = DEFAULT_LAYERS.map(String);
+                                // 解析出的层不在选项时追加显示(如 A-7--4 的 "-4")
+                                const opts = editShelfL3 && !nums.includes(editShelfL3) ? [...nums, editShelfL3] : nums;
+                                return opts.map((n) => (
+                                  <option key={n} value={n}>{n}</option>
+                                ));
+                              })()}
                             </select>
                           </div>
                           <div className="flex gap-1.5 mt-1.5">
@@ -471,65 +506,68 @@ export default function PackPage() {
       {/* ===== 打包模式 ===== */}
       {activeTab === "pack" && (
         <div>
-          {/* 面单查找框（与找货同款, 查已提交记录） */}
-          <div className="mb-3 sm:mb-4">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={packTrackingNumber}
-                  onChange={(e) => { setPackTrackingNumber(e.target.value); setExpandedPackId(null); }}
-                  placeholder="面单号 / 后六位（查已提交记录）"
-                  className="neo-input w-full text-sm pl-10 pr-9"
-                />
-                {packTrackingNumber && (
-                  <button
-                    onClick={() => setPackTrackingNumber("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
-                    title="清空"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
+          {/* 固定顶部: 面单查找框 + 筛选按钮, 仅面单文件夹列表滚动 */}
+          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-4 sm:-mt-6 lg:-mt-8 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-3 sm:mb-4 bg-white">
+            {/* 面单查找框（与找货同款, 查已提交记录） */}
+            <div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={packTrackingNumber}
+                    onChange={(e) => { setPackTrackingNumber(e.target.value); setExpandedPackId(null); }}
+                    placeholder="面单号 / 后六位（查已提交记录）"
+                    className="neo-input w-full text-sm pl-10 pr-9"
+                  />
+                  {packTrackingNumber && (
+                    <button
+                      onClick={() => setPackTrackingNumber("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
+                      title="清空"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button" onClick={() => { setScannerMode("pack"); setShowScanner(true); }}
+                  className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
+                  title="扫码识别面单号"
+                >
+                  <Camera className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => { fetchPackRecords(); setExpandedPackId(null); }}
+                  className="flex items-center justify-center h-[42px] px-4 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
+                >
+                  查找
+                </button>
               </div>
+            </div>
+
+            {/* 筛选按钮 + 清空 */}
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-3">
+              {filterBtnDefs.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setPackFilter(packFilter === f.key ? "" : f.key)}
+                  className={`flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${
+                    packFilter === f.key ? f.activeClass + " shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {f.icon}<span>{f.label}</span>
+                  <span className="ml-0.5 opacity-70">({filterCounts[f.key as keyof typeof filterCounts]})</span>
+                </button>
+              ))}
               <button
-                type="button" onClick={() => { setScannerMode("pack"); setShowScanner(true); }}
-                className="flex items-center justify-center h-[42px] w-[42px] rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
-                title="扫码识别面单号"
+                onClick={handleClearAll}
+                className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border-[2px] border-red-400 bg-red-50 text-red-600 text-xs font-extrabold hover:bg-red-100 transition-all ml-auto"
               >
-                <Camera className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => { fetchPackRecords(); setExpandedPackId(null); }}
-                className="flex items-center justify-center h-[42px] px-4 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all shrink-0"
-              >
-                查找
+                <Trash2 className="h-3 w-3" />
+                <span>清空历史</span>
               </button>
             </div>
-          </div>
-
-          {/* 筛选按钮 + 清空 */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-            {filterBtnDefs.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setPackFilter(packFilter === f.key ? "" : f.key)}
-                className={`flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${
-                  packFilter === f.key ? f.activeClass + " shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                {f.icon}<span>{f.label}</span>
-                <span className="ml-0.5 opacity-70">({filterCounts[f.key as keyof typeof filterCounts]})</span>
-              </button>
-            ))}
-            <button
-              onClick={handleClearAll}
-              className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border-[2px] border-red-400 bg-red-50 text-red-600 text-xs font-extrabold hover:bg-red-100 transition-all ml-auto"
-            >
-              <Trash2 className="h-3 w-3" />
-              <span>清空历史</span>
-            </button>
           </div>
 
           {filteredPackRecords.length === 0 ? (
@@ -553,6 +591,10 @@ export default function PackPage() {
               const st = statusLabel(record.status);
               const expanded = expandedPackId === record.id;
               const firstPhoto = record.items && record.items.length > 0 ? record.items[0].photo : "";
+              // 该面单下商品总价(售价×数量合计)
+              const recordTotalPrice = (record.items || []).reduce(
+                (s, it) => s + (Number(it.sell_price) || 0) * (Number(it.quantity) || 0), 0
+              );
               return (
                 <div key={record.id} className="relative mb-3 sm:mb-4 bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
                   {/* 该面单下商品数量: 红色角标置于文件夹右上角 */}
@@ -573,6 +615,10 @@ export default function PackPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-extrabold text-gray-900 truncate">{record.tracking_number}</span>
                           <span className={`px-2 py-0.5 rounded-lg border-2 text-[10px] font-extrabold shrink-0 ${st.color}`}>{st.text}</span>
+                          {/* 商品总价: 状态标志后标红显示 */}
+                          <span className="text-xs sm:text-sm font-extrabold text-red-500 shrink-0">
+                            ¥{Number(recordTotalPrice.toFixed(2))}
+                          </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5 truncate">
                           {record.submitter} · {new Date(record.created_at).toLocaleString("zh-CN")}
@@ -599,10 +645,10 @@ export default function PackPage() {
                       </div>
                     )}
                   </div>
-                  {/* 展开内容: 该面单下所有商品(缩小显示, 一行2个) */}
+                  {/* 展开内容: 该面单下所有商品(缩小显示, 一行2个, 卡片区独立上下滚动) */}
                   {expanded && (
                     <div className="p-3 sm:p-4">
-                      <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                      <div className="grid grid-cols-2 gap-2 sm:gap-3 max-h-[65vh] overflow-y-auto">
                         {record.items.map((item, idx) => (
                           <div key={idx} className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden">
                             <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center overflow-hidden">
@@ -610,9 +656,9 @@ export default function PackPage() {
                             </div>
                             <div className="p-1.5 sm:p-2">
                               <div className="text-[11px] sm:text-xs font-extrabold text-gray-900 truncate">{item.sale_id}</div>
-                              {/* 数量/尺码 突出显示(货架号移至底部厂家栏小字) */}
+                              {/* 数量(1件红/≥2件绿)/尺码 突出显示(货架号移至底部厂家栏小字) */}
                               <div className="grid grid-cols-2 gap-1.5 mt-1 mb-1">
-                                <div className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-1 py-1 text-center">
+                                <div className={`rounded-lg border-2 border-gray-900 px-1 py-1 text-center ${Number(item.quantity) >= 2 ? "bg-[#4CD964]" : "bg-[#FF6B7A]"}`}>
                                   <div className="text-[9px] font-bold text-white/90 leading-none mb-0.5">数量</div>
                                   <div className="text-base sm:text-lg font-extrabold text-white leading-tight">{item.quantity}</div>
                                 </div>
