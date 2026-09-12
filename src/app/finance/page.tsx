@@ -1899,8 +1899,8 @@ export default function FinancePage() {
                         {/* 编号/名称 + 渠道角标(卡片右上角) */}
                         <div className="flex items-start justify-between gap-1">
                           <div className="min-w-0">
-                            <div className="text-xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            {row.name && <div className="text-xs text-gray-500 truncate mt-0.5">{row.name}</div>}
+                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
                           </div>
                           {row.sold_total > 0 && (
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
@@ -1939,24 +1939,30 @@ export default function FinancePage() {
                               <span className="font-extrabold text-yellow-600 truncate">{pct(returnRate)}</span>
                             </div>
                           </div>
-                          {/* 进价 / 售价(浅灰底) */}
-                          <div className="flex bg-gray-100 divide-x-2 divide-gray-200">
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                          {/* 进价(浅灰底,全宽) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
                               <span className="text-gray-500 shrink-0">进价</span>
                               <span className="font-bold text-gray-700 truncate">¥{fmt(row.cost_price)}</span>
                             </div>
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                          </div>
+                          {/* 售价(浅灰底,全宽) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
                               <span className="text-red-500 shrink-0">售价</span>
                               <span className="font-extrabold text-red-500 truncate">¥{fmt(latestSellPrice)}</span>
                             </div>
                           </div>
-                          {/* 入库时间 / 售出时间 */}
-                          <div className="flex divide-x-2 divide-gray-200">
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                          {/* 入库时间(全宽) */}
+                          <div className="flex">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
                               <span className="text-gray-500 shrink-0">入库时间</span>
                               <span className="font-medium text-gray-700 truncate">{fmtDate(inboundDate)}</span>
                             </div>
-                            <div className="flex-1 flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                          </div>
+                          {/* 售出时间(全宽) */}
+                          <div className="flex">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
                               <span className="text-gray-500 shrink-0">售出时间</span>
                               <span className="font-medium text-gray-700 truncate">{fmtDate(lastOrderTime)}</span>
                             </div>
