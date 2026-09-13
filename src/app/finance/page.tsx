@@ -124,8 +124,8 @@ function FilterTag({ label, active, onClick, value }: { label: string; active: b
       onClick={onClick}
       className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
         active
-          ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-          : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
+          ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+          : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
       }`}
     >
       {label}
@@ -1045,7 +1045,7 @@ export default function FinancePage() {
           <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
         {viewMode === "summary" && (
           <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
                   <Warehouse className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
@@ -1055,7 +1055,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{totals.inbound_total}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
                   <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-blue-600" />
@@ -1065,7 +1065,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-600 leading-tight">{totals.remaining}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
                   <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
@@ -1079,7 +1079,7 @@ export default function FinancePage() {
         )}
         {viewMode === "sales" && (
           <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
                   <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
@@ -1089,7 +1089,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{salesTotals.orderCount}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
                   <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
@@ -1099,7 +1099,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-600 leading-tight">{salesTotals.totalSold}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
                   <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
@@ -1113,7 +1113,7 @@ export default function FinancePage() {
         )}
         {viewMode === "returns" && (
           <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
                   <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
@@ -1123,7 +1123,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{returnTotals.orderCount}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
                   <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
@@ -1133,7 +1133,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">{returnTotals.totalReturned}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
                   <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
@@ -1149,7 +1149,7 @@ export default function FinancePage() {
         )}
         {viewMode === "inbound" && (
           <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
                   <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
@@ -1159,7 +1159,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{filteredInbound.length}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">种</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
                   <ArrowDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
@@ -1169,7 +1169,7 @@ export default function FinancePage() {
               <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{inboundTotals.totalInbound}</div>
               <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
               <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
                 <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
                   <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
@@ -1224,8 +1224,8 @@ export default function FinancePage() {
                 onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
                 className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
                   activeFilterCount > 0
-                    ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
+                    ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 <Filter className="h-3.5 w-3.5" />
@@ -1316,8 +1316,8 @@ export default function FinancePage() {
                 onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
                 className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
                   sortBy
-                    ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
+                    ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
@@ -1363,9 +1363,9 @@ export default function FinancePage() {
             {activeFilterCount > 0 && (
               <button
                 onClick={clearAllFilters}
-                className="h-11 inline-flex items-center gap-1 px-3 rounded-xl border-[2px] border-red-500 text-xs font-extrabold text-red-500 bg-white hover:bg-red-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] transition-all whitespace-nowrap"
+                className="h-11 inline-flex items-center gap-1 px-3 rounded-xl border-[2px] border-red-500 text-xs font-extrabold text-red-500 bg-white hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] transition-all whitespace-nowrap"
               >
-                <X className="h-3 w-3" />清除全部({activeFilterCount})
+                <X className="h-3 w-3" />清除({activeFilterCount})
               </button>
             )}
           </div>
