@@ -1934,7 +1934,7 @@ export default function FinancePage() {
                 };
                 return (
                   <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
-                    <div className="flex gap-2.5">
+                    <div className="flex gap-2.5 items-start">
                       {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
                       <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
@@ -2101,32 +2101,20 @@ export default function FinancePage() {
                       }}
                       className={`bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform ${uninboundFilter ? "border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]" : ""}`}
                     >
-                      <div className="flex gap-2">
-                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="flex gap-2.5 items-start">
+                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            <div className="flex items-center gap-2 text-[10px] shrink-0 ml-1">
-                              <span className="text-gray-400">售出</span>
-                              <span className="font-extrabold text-green-600">{row.total}</span>
-                              <span className="text-gray-300">|</span>
-                              <span className="text-gray-400">剩余</span>
-                              <span className="font-extrabold">{remaining}</span>
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="min-w-0">
+                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                              {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
                             </div>
-                          </div>
-                          {row.name && <div className="text-xs text-gray-500 truncate">{row.name}</div>}
-                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
-                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
-                            {ALL_SIZES.map((s) => {
-                              const val = Number(row[`size_${s}`]) || 0;
-                              return (
-                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
-                                  val > 0 ? "bg-green-50 border-green-300 text-green-700" : "bg-white border-gray-200 text-gray-300"
-                                }`}>{s}:{val || "-"}</span>
-                              );
-                            })}
+                            <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <span className="text-[11px] leading-none"><span className="text-gray-400">售出 </span><span className="font-extrabold text-green-600">{row.total}</span></span>
+                              <span className="text-[11px] leading-none"><span className="text-gray-400">剩余 </span><span className="font-extrabold text-gray-900">{remaining}</span></span>
+                            </div>
                           </div>
                           {/* 货架号（售价上方） */}
                           <div className="text-xs text-gray-500 mt-1">货架号: {row.shelf_no || summaryRow?.shelf_no || "-"}</div>
@@ -2162,8 +2150,8 @@ export default function FinancePage() {
                         </div>
                       </div>
 
-                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
-                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                      {/* 尺码全宽5列换行显示(对齐总表) */}
+                      <div className="mt-1.5 grid grid-cols-5 gap-1">
                         {ALL_SIZES.map((s) => {
                           const val = Number(row[`size_${s}`]) || 0;
                           return (
@@ -2219,32 +2207,20 @@ export default function FinancePage() {
                       }}
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
                     >
-                      <div className="flex gap-2">
-                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="flex gap-2.5 items-start">
+                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between">
-                            <div className="text-sm font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            <div className="flex items-center gap-2 text-[10px] shrink-0 ml-1">
-                              <span className="text-gray-400">退货</span>
-                              <span className="font-extrabold text-yellow-600">{row.total}</span>
-                              <span className="text-gray-300">|</span>
-                              <span className="text-gray-400">剩余</span>
-                              <span className="font-extrabold">{remaining}</span>
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="min-w-0">
+                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                              {summaryRow?.name && <div className="text-sm text-gray-500 truncate mt-1">{summaryRow.name}</div>}
                             </div>
-                          </div>
-                          {summaryRow?.name && <div className="text-xs text-gray-500 truncate">{summaryRow.name}</div>}
-                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
-                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
-                            {ALL_SIZES.map((s) => {
-                              const val = Number(row[`size_${s}`]) || 0;
-                              return (
-                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
-                                  val > 0 ? "bg-yellow-50 border-yellow-300 text-yellow-700" : "bg-white border-gray-200 text-gray-300"
-                                }`}>{s}:{val || "-"}</span>
-                              );
-                            })}
+                            <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <span className="text-[11px] leading-none"><span className="text-gray-400">退货 </span><span className="font-extrabold text-yellow-600">{row.total}</span></span>
+                              <span className="text-[11px] leading-none"><span className="text-gray-400">剩余 </span><span className="font-extrabold text-gray-900">{remaining}</span></span>
+                            </div>
                           </div>
                           {/* 货架号（退货价上方） */}
                           <div className="text-xs text-gray-500 mt-1">货架号: {row.shelf_no || summaryRow?.shelf_no || "-"}</div>
@@ -2280,8 +2256,8 @@ export default function FinancePage() {
                         </div>
                       </div>
 
-                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
-                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                      {/* 尺码全宽5列换行显示(对齐总表) */}
+                      <div className="mt-1.5 grid grid-cols-5 gap-1">
                         {ALL_SIZES.map((s) => {
                           const val = Number(row[`size_${s}`]) || 0;
                           return (
@@ -2355,32 +2331,23 @@ export default function FinancePage() {
                       }}
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
                     >
-                      <div className="flex gap-2 mb-2">
-                        <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="flex gap-2.5 mb-2">
+                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-base font-extrabold text-gray-900 truncate">{row.sale_id}</span>
+                            <span className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</span>
                             {curSeason && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold shrink-0">{curSeason}</span>}
                             {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                           </div>
-                          {curName && <div className="text-xs text-gray-500 truncate">{curName}</div>}
-                          {/* 尺码 宽屏4列显示（窄屏移至卡片底部全宽显示） */}
-                          <div className="mt-1 hidden sm:grid grid-cols-4 gap-x-0.5 gap-y-0.5">
-                            {ALL_SIZES.map((s) => {
-                              const val = Number(row[`size_${s}`]) || 0;
-                              return (
-                                <span key={s} className={`text-[8px] px-1 py-1 rounded border font-bold text-center truncate ${
-                                  val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
-                                }`}>{s}:{val || "-"}</span>
-                              );
-                            })}
-                          </div>
+                          {curName && <div className="text-sm text-gray-500 truncate mt-1">{curName}</div>}
+                          {/* 入库日期 */}
+                          <div className="text-xs text-gray-500 mt-1">入库日期: {(row as Record<string, unknown>).inbound_date ? new Date(String((row as Record<string, unknown>).inbound_date)).toLocaleDateString("zh-CN") : "-"}</div>
                         </div>
                       </div>
-                      {/* 窄屏：尺码全宽换行显示，避免压缩截断 */}
-                      <div className="sm:hidden mt-1.5 grid grid-cols-5 gap-1">
+                      {/* 尺码全宽5列换行显示(对齐总表) */}
+                      <div className="mt-1.5 grid grid-cols-5 gap-1">
                         {ALL_SIZES.map((s) => {
                           const val = Number(row[`size_${s}`]) || 0;
                           return (
