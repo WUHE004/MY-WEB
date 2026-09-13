@@ -1215,13 +1215,21 @@ export default function FinancePage() {
 
       {/* 搜索 + 筛选按钮 + 编辑/导出 (移动端在 sticky 顶栏内, 底部间距由容器 pb 承担) */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:mb-4">
-        {/* 搜索框 */}
+        {/* 搜索框（投影随视图色系: 总表灰/售出绿/退货黄/入库蓝, 与筛选按钮同款） */}
         <div className="relative flex-1 min-w-[140px] lg:min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
           <input
             type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索商品编号/名称..."
-            className="w-full h-11 text-sm sm:text-base pl-11 pr-4 rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] transition-all"
+            className={`w-full h-11 text-sm sm:text-base pl-11 pr-4 rounded-xl border-[3px] border-gray-900 bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none transition-all ${
+              viewMode === "sales"
+                ? "shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(34,197,94,1)]"
+                : viewMode === "returns"
+                  ? "shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(234,179,8,1)]"
+                  : viewMode === "inbound"
+                    ? "shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(74,144,226,1)]"
+                    : "shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,0.3)]"
+            }`}
           />
         </div>
 
