@@ -122,10 +122,10 @@ function FilterTag({ label, active, onClick, value }: { label: string; active: b
   return (
     <button
       onClick={onClick}
-      className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
+      className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
         active
           ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-          : "bg-white text-gray-600 hover:bg-gray-50"
+          : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
       }`}
     >
       {label}
@@ -179,6 +179,19 @@ export default function FinancePage() {
   // 总表筛选/排序下拉菜单
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+  // 移动端滚动时收起统计卡片(平滑过渡), 回到顶部再展开
+  const [statsCollapsed, setStatsCollapsed] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      // 桌面端不收起
+      if (window.innerWidth >= 1024) { setStatsCollapsed(false); return; }
+      const y = window.scrollY;
+      if (y > 60) setStatsCollapsed(true);
+      else if (y < 15) setStatsCollapsed(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate">("");
 
   // 明细弹窗
@@ -987,39 +1000,38 @@ export default function FinancePage() {
   };
 
   const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : "入库登记清单";
-  const viewTitleShort = viewMode === "summary" ? "总表" : viewMode === "sales" ? "售出" : viewMode === "returns" ? "退货" : "入库";
   const highlightClass = viewMode === "summary" ? "highlight-blue" : viewMode === "sales" ? "highlight-green" : viewMode === "returns" ? "highlight-yellow" : "highlight-blue";
-  const titleBgClass = viewMode === "summary" ? "bg-[#4A90E2]" : viewMode === "sales" ? "bg-green-500" : viewMode === "returns" ? "bg-yellow-500" : "bg-[#4A90E2]";
 
   return (
     <PageWrapper wide>
-      {/* Header + 视图切换按钮 */}
+      {/* 移动端 sticky 顶栏: 视图按钮 + 统计卡片(滚动收起) + 搜索筛选; 桌面端还原普通流式布局 */}
+      <div className="sticky top-0 z-30 lg:static lg:z-auto -mx-4 sm:-mx-6 lg:mx-0 -mt-4 sm:-mt-6 lg:mt-0 px-4 sm:px-6 lg:px-0 pt-1 pb-3 lg:pb-0 bg-white lg:bg-transparent">
+      {/* Header + 视图切换按钮 (移动端隐藏标题, 四按钮拉宽占满) */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-        <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
-          <span className={`lg:hidden px-2 py-0.5 rounded text-white font-extrabold ${titleBgClass}`}>{viewTitleShort}</span>
-          <span className={`hidden lg:inline ${highlightClass}`}>{viewTitle}</span>
+        <h1 className="hidden lg:block text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
+          <span className={highlightClass}>{viewTitle}</span>
         </h1>
-        <div className="flex gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex gap-1.5 sm:gap-2 w-full lg:w-auto lg:shrink-0">
           <button onClick={() => switchView("summary")}
-            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
               viewMode === "summary" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>总表</span>
           </button>
           <button onClick={() => switchView("sales")}
-            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
               viewMode === "sales" ? "bg-green-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>售出</span>
           </button>
           <button onClick={() => switchView("returns")}
-            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
               viewMode === "returns" ? "bg-yellow-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>退货</span>
           </button>
           <button onClick={() => switchView("inbound")}
-            className={`flex items-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
               viewMode === "inbound" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <ArrowDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>入库</span>
@@ -1027,8 +1039,10 @@ export default function FinancePage() {
         </div>
       </div>
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4 mb-3 sm:mb-4">
+      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡) */}
+      <div className={`grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr] opacity-0 lg:grid-rows-[1fr] lg:opacity-100" : "grid-rows-[1fr] opacity-100"} ${statsCollapsed ? "mb-0" : "mb-3 sm:mb-4"}`}>
+        <div className="overflow-hidden">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
         {viewMode === "summary" && (
           <>
             <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
@@ -1167,10 +1181,12 @@ export default function FinancePage() {
             </div>
           </>
         )}
+          </div>
+        </div>
       </div>
 
-      {/* 搜索 + 筛选按钮 + 编辑/导出 */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+      {/* 搜索 + 筛选按钮 + 编辑/导出 (移动端在 sticky 顶栏内, 底部间距由容器 pb 承担) */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:mb-4">
         {/* 搜索框 */}
         <div className="relative flex-1 min-w-[140px] lg:min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
@@ -1206,10 +1222,10 @@ export default function FinancePage() {
             <div className="relative">
               <button
                 onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
-                className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
+                className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
                   activeFilterCount > 0
                     ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50"
+                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 <Filter className="h-3.5 w-3.5" />
@@ -1298,10 +1314,10 @@ export default function FinancePage() {
             <div className="relative">
               <button
                 onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
-                className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
+                className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
                   sortBy
                     ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50"
+                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)]"
                 }`}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
@@ -1347,7 +1363,7 @@ export default function FinancePage() {
             {activeFilterCount > 0 && (
               <button
                 onClick={clearAllFilters}
-                className="h-9 inline-flex items-center gap-1 px-3 rounded-lg border-[2px] border-red-500 text-xs font-extrabold text-red-500 bg-white hover:bg-red-50 transition-all whitespace-nowrap"
+                className="h-11 inline-flex items-center gap-1 px-3 rounded-xl border-[2px] border-red-500 text-xs font-extrabold text-red-500 bg-white hover:bg-red-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.12)] transition-all whitespace-nowrap"
               >
                 <X className="h-3 w-3" />清除全部({activeFilterCount})
               </button>
@@ -1465,6 +1481,7 @@ export default function FinancePage() {
             <RefreshCw className="h-3 w-3 animate-spin" />保存中...
           </span>
         )}
+      </div>
       </div>
 
       {/* ===== 总表 - 桌面端 ===== */}

@@ -563,7 +563,7 @@ export default function PackPage() {
                 className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border-[2px] border-red-400 bg-red-50 text-red-600 text-xs font-extrabold hover:bg-red-100 transition-all ml-auto"
               >
                 <Trash2 className="h-3 w-3" />
-                <span>清空历史</span>
+                <span>清空</span>
               </button>
             </div>
           </div>
