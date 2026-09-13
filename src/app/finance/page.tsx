@@ -182,6 +182,9 @@ export default function FinancePage() {
   // 移动端滚动时收起统计卡片(平滑过渡), 回到顶部再展开
   const [statsCollapsed, setStatsCollapsed] = useState(false);
   useEffect(() => {
+    // 禁用滚动锚定: 统计卡片收起改变布局时, 浏览器锚定补偿会把 scrollY 拉回顶部,
+    // 触发"收起→展开→再收起"循环跳动 (iOS Safari 18+/Chrome 的 scroll anchoring 机制)
+    document.documentElement.style.overflowAnchor = "none";
     const onScroll = () => {
       // 桌面端不收起
       if (window.innerWidth >= 1024) { setStatsCollapsed(false); return; }
@@ -190,7 +193,10 @@ export default function FinancePage() {
       else if (y < 15) setStatsCollapsed(false);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      document.documentElement.style.overflowAnchor = "";
+    };
   }, []);
   const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate">("");
 
@@ -511,6 +517,8 @@ export default function FinancePage() {
     if (mode === "sales") { fetchSalesAgg(); fetchSalesDates(); fetchInboundAgg(); }
     if (mode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
     if (mode === "inbound") fetchInboundAgg();
+    // 点击视图按钮自动回到顶部(移动端配合统计卡片重新展开)
+    window.scrollTo({ top: 0 });
   };
 
   const fetchDetail = async (type: "sales" | "returns", saleId: string) => {
@@ -1013,35 +1021,35 @@ export default function FinancePage() {
         </h1>
         <div className="flex gap-1.5 sm:gap-2 w-full lg:w-auto lg:shrink-0">
           <button onClick={() => switchView("summary")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-              viewMode === "summary" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
+              viewMode === "summary" ? "bg-[#4A90E2] text-white" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>总表</span>
           </button>
           <button onClick={() => switchView("sales")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-              viewMode === "sales" ? "bg-green-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
+              viewMode === "sales" ? "bg-green-500 text-white" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>售出</span>
           </button>
           <button onClick={() => switchView("returns")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-              viewMode === "returns" ? "bg-yellow-500 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
+              viewMode === "returns" ? "bg-yellow-500 text-white" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>退货</span>
           </button>
           <button onClick={() => switchView("inbound")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all ${
-              viewMode === "inbound" ? "bg-[#4A90E2] text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" : "bg-white text-gray-700 hover:bg-gray-100"
+            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
+              viewMode === "inbound" ? "bg-[#4A90E2] text-white" : "bg-white text-gray-700 hover:bg-gray-100"
             }`}>
             <ArrowDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>入库</span>
           </button>
         </div>
       </div>
 
-      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡) */}
+      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡); 桌面端不裁剪(保留卡片投影) */}
       <div className={`grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr] opacity-0 lg:grid-rows-[1fr] lg:opacity-100" : "grid-rows-[1fr] opacity-100"} ${statsCollapsed ? "mb-0" : "mb-3 sm:mb-4"}`}>
-        <div className="overflow-hidden">
+        <div className="overflow-hidden lg:overflow-visible">
           <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
         {viewMode === "summary" && (
           <>
