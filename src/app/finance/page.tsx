@@ -1934,9 +1934,9 @@ export default function FinancePage() {
                 };
                 return (
                   <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
-                    <div className="flex gap-2.5 items-start">
+                    <div className="flex gap-2.5">
                       {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
-                      <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                         {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
                       </div>
                       {/* 右侧规范化格子区 */}
@@ -2101,8 +2101,8 @@ export default function FinancePage() {
                       }}
                       className={`bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform ${uninboundFilter ? "border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]" : ""}`}
                     >
-                      <div className="flex gap-2.5 items-start">
-                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="flex gap-2.5">
+                        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
@@ -2207,8 +2207,8 @@ export default function FinancePage() {
                       }}
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
                     >
-                      <div className="flex gap-2.5 items-start">
-                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                      <div className="flex gap-2.5">
+                        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
@@ -2332,7 +2332,7 @@ export default function FinancePage() {
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
                     >
                       <div className="flex gap-2.5 mb-2">
-                        <div className="w-[50%] aspect-square rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0">
