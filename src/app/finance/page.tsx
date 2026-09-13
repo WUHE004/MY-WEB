@@ -198,7 +198,7 @@ export default function FinancePage() {
       document.documentElement.style.overflowAnchor = "";
     };
   }, []);
-  const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate">("");
+  const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate" | "stock" | "inbound">("");
 
   // 明细弹窗
   const [detailType, setDetailType] = useState<"sales" | "returns" | null>(null);
@@ -226,8 +226,8 @@ export default function FinancePage() {
   const [returnsDateRecords, setReturnsDateRecords] = useState<Record<string, Record<string, unknown>>>({});
 
   // 移动端排序下拉框(售出/退货视图)
-  const [salesSort, setSalesSort] = useState<"default" | "sold" | "profit">("default");
-  const [returnsSort, setReturnsSort] = useState<"default" | "qty" | "price">("default");
+  const [salesSort, setSalesSort] = useState<"default" | "sold" | "profit" | "price" | "earn">("default");
+  const [returnsSort, setReturnsSort] = useState<"default" | "qty" | "price" | "rate">("default");
   // 导出
   const [exportModal, setExportModal] = useState(false);
   const [exportFields, setExportFields] = useState<Set<string>>(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", "80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]));
@@ -740,6 +740,12 @@ export default function FinancePage() {
       // 退货率 = 退货数 / 已售数
       const rate = (r: SummaryRow) => (r.sold_total || 0) > 0 ? (r.return_total || 0) / (r.sold_total || 0) : (r.return_total || 0) > 0 ? 1 : 0;
       result = [...result].sort((a, b) => rate(b) - rate(a));
+    } else if (sortBy === "stock") {
+      // 按剩余库存降序
+      result = [...result].sort((a, b) => (b.remaining || 0) - (a.remaining || 0));
+    } else if (sortBy === "inbound") {
+      // 按入库总量降序
+      result = [...result].sort((a, b) => (b.inbound_total || 0) - (a.inbound_total || 0));
     }
     return result;
   }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sortBy]);
@@ -814,7 +820,7 @@ export default function FinancePage() {
       const inboundIds = new Set(inboundData.map((r) => r.sale_id.trim().toUpperCase()));
       result = result.filter((r) => !inboundIds.has(r.sale_id.trim().toUpperCase()));
     }
-    // 排序(移动端下拉框): 销量降序 / 利润率降序
+    // 排序(移动端下拉框): 销量 / 利润率 / 价格 / 盈利 降序
     if (salesSort !== "default") {
       const costMap = new Map<string, number>();
       for (const s of data) costMap.set(s.sale_id, Number(s.cost_price) || 0);
@@ -823,9 +829,14 @@ export default function FinancePage() {
         const cp = costMap.get(r.sale_id) || 0;
         return sp > 0 ? (sp - cp) / sp : 0;
       };
-      result = [...result].sort((a, b) =>
-        salesSort === "sold" ? b.total - a.total : rate(b) - rate(a)
-      );
+      // 盈利 = 售价 × 销量(与卡片展示公式一致)
+      const earn = (r: AggRow) => (r.total || 0) * (r.sell_price || 0);
+      result = [...result].sort((a, b) => {
+        if (salesSort === "sold") return b.total - a.total;
+        if (salesSort === "profit") return rate(b) - rate(a);
+        if (salesSort === "price") return (b.sell_price || 0) - (a.sell_price || 0);
+        return earn(b) - earn(a);
+      });
     }
     return result;
   }, [salesData, debouncedSearch, salesDateFilter, salesDateIds, salesDateRecords, uninboundFilter, inboundData, salesSort, data]);
@@ -858,16 +869,25 @@ export default function FinancePage() {
           return merged;
         });
     }
-    // 排序(移动端下拉框): 退货量降序 / 退货价格降序
+    // 排序(移动端下拉框): 退货价 / 退货量 / 退货率 降序
     if (returnsSort !== "default") {
-      result = [...result].sort((a, b) =>
-        returnsSort === "qty"
-          ? b.total - a.total
-          : (b.return_price || 0) - (a.return_price || 0)
-      );
+      if (returnsSort === "qty") {
+        result = [...result].sort((a, b) => b.total - a.total);
+      } else if (returnsSort === "price") {
+        result = [...result].sort((a, b) => (b.return_price || 0) - (a.return_price || 0));
+      } else {
+        // 退货率 = 退货量 / 已售量(取自总表)
+        const soldMap = new Map<string, number>();
+        for (const s of data) soldMap.set(s.sale_id, Number(s.sold_total) || 0);
+        const rate = (r: AggRow) => {
+          const sold = soldMap.get(r.sale_id) || 0;
+          return sold > 0 ? (r.total || 0) / sold : (r.total || 0) > 0 ? 1 : 0;
+        };
+        result = [...result].sort((a, b) => rate(b) - rate(a));
+      }
     }
     return result;
-  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds, returnsDateRecords, returnsSort]);
+  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds, returnsDateRecords, returnsSort, data]);
 
   const filteredInbound = useMemo(() => {
     let result = inboundData;
@@ -1332,7 +1352,7 @@ export default function FinancePage() {
                 排序
                 {sortBy && (
                   <span className="text-[10px] opacity-70">
-                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : "退货率"})
+                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : sortBy === "returnRate" ? "退货率" : sortBy === "stock" ? "库存" : "入库"})
                   </span>
                 )}
                 <ChevronDown className={`h-3 w-3 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
@@ -1346,6 +1366,8 @@ export default function FinancePage() {
                       { v: "sales", label: "按销量" },
                       { v: "profitRate", label: "按利润率" },
                       { v: "returnRate", label: "按退货率" },
+                      { v: "stock", label: "按库存" },
+                      { v: "inbound", label: "按入库" },
                     ] as const).map((o) => (
                       <button
                         key={o.v}
@@ -1404,12 +1426,14 @@ export default function FinancePage() {
             {/* 移动端: 排序下拉框(替代编辑按钮), 拉长均分 */}
             <select
               value={salesSort}
-              onChange={(e) => setSalesSort(e.target.value as "default" | "sold" | "profit")}
+              onChange={(e) => setSalesSort(e.target.value as "default" | "sold" | "profit" | "price" | "earn")}
               className="h-11 flex-1 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
             >
               <option value="default">默认排序</option>
-              <option value="sold">销量排序</option>
-              <option value="profit">利润率排序</option>
+              <option value="sold">按销量</option>
+              <option value="profit">按利润率</option>
+              <option value="price">按价格</option>
+              <option value="earn">按盈利</option>
             </select>
             {/* 汇总数据/未入库: 桌面端保留原位置(移动端已移至搜索框右侧) */}
             <button onClick={syncSummary} disabled={syncing}
@@ -1451,12 +1475,13 @@ export default function FinancePage() {
             {/* 移动端: 排序下拉框(替代编辑按钮) */}
             <select
               value={returnsSort}
-              onChange={(e) => setReturnsSort(e.target.value as "default" | "qty" | "price")}
+              onChange={(e) => setReturnsSort(e.target.value as "default" | "qty" | "price" | "rate")}
               className="h-11 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-yellow-500 font-extrabold bg-white text-yellow-600 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] cursor-pointer hover:bg-yellow-50 transition-all"
             >
               <option value="default">默认排序</option>
-              <option value="qty">退货量排序</option>
-              <option value="price">退货价格排序</option>
+              <option value="price">按退货价</option>
+              <option value="qty">按退货量</option>
+              <option value="rate">按退货率</option>
             </select>
           </div>
         )}
@@ -2082,6 +2107,13 @@ export default function FinancePage() {
                 const priceInfo = (row as Record<string, unknown>).sell_price_info as Record<string, string> | undefined;
                 const hasMultiPrice = priceInfo && Object.keys(priceInfo).length > 1;
                 const isPriceExpanded = expandedPriceRow === row.sale_id;
+                // 日期格式 YYYY/MM/DD(与总表一致)
+                const fmtD = (d: string) => {
+                  if (!d) return "-";
+                  const dt = new Date(d);
+                  if (isNaN(dt.getTime())) return "-";
+                  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
+                };
                 return (
                   <div key={row.sale_id}>
                     <div
@@ -2106,26 +2138,39 @@ export default function FinancePage() {
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="min-w-0">
-                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                              {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+                          <div className="min-w-0">
+                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+                          </div>
+                          {/* 规范格子: 售出/剩余 + 货架号/售卖时间 (对齐总表) */}
+                          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                            <div className="flex divide-x-2 divide-gray-200">
+                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                                <span className="font-extrabold text-[13px] text-green-600 truncate">{row.total}</span>
+                              </div>
+                              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">剩余</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{remaining}</span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-end gap-0.5 shrink-0">
-                              <span className="text-[11px] leading-none"><span className="text-gray-400">售出 </span><span className="font-extrabold text-green-600">{row.total}</span></span>
-                              <span className="text-[11px] leading-none"><span className="text-gray-400">剩余 </span><span className="font-extrabold text-gray-900">{remaining}</span></span>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
+                              <span className="text-gray-500 shrink-0">货架号</span>
+                              <span className="font-medium text-gray-700 truncate">{row.shelf_no || summaryRow?.shelf_no || "-"}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1">
+                              <span className="text-gray-500 shrink-0">售卖时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtD(row.last_order_time || "")}</span>
                             </div>
                           </div>
-                          {/* 货架号（售价上方） */}
-                          <div className="text-xs text-gray-500 mt-1">货架号: {row.shelf_no || summaryRow?.shelf_no || "-"}</div>
-                          {/* 售价（带方框，多价可下拉） */}
+                          {/* 售价（带方框，多价可下拉; 单/多价框统一 h-7 高度） */}
                           <div className="mt-1">
                             {hasMultiPrice ? (
                               <div className="border-2 border-red-300 rounded-lg overflow-hidden">
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); setExpandedPriceRow(isPriceExpanded ? null : row.sale_id); }}
-                                  className="w-full flex items-center justify-between px-2 py-1 bg-red-50 hover:bg-red-100 transition-colors"
+                                  className="w-full h-7 flex items-center justify-between px-2 bg-red-50 hover:bg-red-100 transition-colors"
                                 >
                                   <span className="text-[10px] font-extrabold text-red-500">售价 ¥{fmt(sp)}</span>
                                   <ChevronDown className={`h-3 w-3 text-red-400 transition-transform ${isPriceExpanded ? "rotate-180" : ""}`} />
@@ -2142,7 +2187,7 @@ export default function FinancePage() {
                                 )}
                               </div>
                             ) : (
-                              <div className="w-full border-2 border-red-300 rounded-lg px-2 py-1 bg-red-50">
+                              <div className="w-full h-8 border-2 border-red-300 rounded-lg px-2 flex items-center bg-red-50">
                                 <span className="text-[10px] font-extrabold text-red-500">售价 ¥{fmt(sp)}</span>
                               </div>
                             )}
@@ -2194,6 +2239,13 @@ export default function FinancePage() {
                 const rp = (row as Record<string, unknown>).return_price as number || 0;
                 const hasMultiPrice = retPriceInfo && Object.keys(retPriceInfo).length > 1;
                 const isPriceExpanded = expandedPriceRow === row.sale_id;
+                // 日期格式 YYYY/MM/DD(与总表一致)
+                const fmtD = (d: string) => {
+                  if (!d) return "-";
+                  const dt = new Date(d);
+                  if (isNaN(dt.getTime())) return "-";
+                  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
+                };
                 return (
                   <div key={row.sale_id}>
                     <div
@@ -2212,26 +2264,39 @@ export default function FinancePage() {
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="min-w-0">
-                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                              {summaryRow?.name && <div className="text-sm text-gray-500 truncate mt-1">{summaryRow.name}</div>}
+                          <div className="min-w-0">
+                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                            {summaryRow?.name && <div className="text-sm text-gray-500 truncate mt-1">{summaryRow.name}</div>}
+                          </div>
+                          {/* 规范格子: 退货/剩余 + 货架号/退货时间 (对齐总表) */}
+                          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                            <div className="flex divide-x-2 divide-gray-200">
+                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                                <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.total}</span>
+                              </div>
+                              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">剩余</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{remaining}</span>
+                              </div>
                             </div>
-                            <div className="flex flex-col items-end gap-0.5 shrink-0">
-                              <span className="text-[11px] leading-none"><span className="text-gray-400">退货 </span><span className="font-extrabold text-yellow-600">{row.total}</span></span>
-                              <span className="text-[11px] leading-none"><span className="text-gray-400">剩余 </span><span className="font-extrabold text-gray-900">{remaining}</span></span>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
+                              <span className="text-gray-500 shrink-0">货架号</span>
+                              <span className="font-medium text-gray-700 truncate">{row.shelf_no || summaryRow?.shelf_no || "-"}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1">
+                              <span className="text-gray-500 shrink-0">退货时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtD(row.last_return_time || "")}</span>
                             </div>
                           </div>
-                          {/* 货架号（退货价上方） */}
-                          <div className="text-xs text-gray-500 mt-1">货架号: {row.shelf_no || summaryRow?.shelf_no || "-"}</div>
-                          {/* 退货价（带方框，多价可下拉） */}
+                          {/* 退货价（带方框，多价可下拉; 单/多价框统一 h-7 高度） */}
                           <div className="mt-1">
                             {hasMultiPrice ? (
                               <div className="border-2 border-yellow-400 rounded-lg overflow-hidden">
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); setExpandedPriceRow(isPriceExpanded ? null : row.sale_id); }}
-                                  className="w-full flex items-center justify-between px-2 py-1 bg-yellow-50 hover:bg-yellow-100 transition-colors"
+                                  className="w-full h-7 flex items-center justify-between px-2 bg-yellow-50 hover:bg-yellow-100 transition-colors"
                                 >
                                   <span className="text-[10px] font-extrabold text-yellow-600">退货价 ¥{fmt(rp)}</span>
                                   <ChevronDown className={`h-3 w-3 text-yellow-500 transition-transform ${isPriceExpanded ? "rotate-180" : ""}`} />
@@ -2248,7 +2313,7 @@ export default function FinancePage() {
                                 )}
                               </div>
                             ) : (
-                              <div className="w-full border-2 border-yellow-400 rounded-lg px-2 py-1 bg-yellow-50">
+                              <div className="w-full h-8 border-2 border-yellow-400 rounded-lg px-2 flex items-center bg-yellow-50">
                                 <span className="text-[10px] font-extrabold text-yellow-600">退货价 ¥{fmt(rp)}</span>
                               </div>
                             )}
