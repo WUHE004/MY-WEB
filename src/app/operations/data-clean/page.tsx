@@ -438,13 +438,16 @@ export default function DataCleanPage() {
           if (source === "pdd") {
             // 拼多多: 尺码←商品规格, 数量←商品数量, 售价←商品总价,
             // 编号←商家编码(规格维度优先, 为空则商品维度), 下单时间←支付时间
+            // 注意: 规格维度若被填成货架号(如 B2-1/A-1-2/B-1--1)则跳过, 改用商品维度编号
             const spec = cellAt(vals, colMap["商品规格"]);
             const qty = cellAt(vals, colMap["商品数量"]);
             const price = cellAt(vals, colMap["商品总价"]);
             const payTime = cellAt(vals, colMap["支付时间"]);
             const codeE = cellAt(vals, colMap["商家编码-规格维度"]);
             const codeF = cellAt(vals, colMap["商家编码-商品维度"]);
-            const code = codeE || codeF;
+            const isShelfNo = (s: string) =>
+              /^[^-]+-\d+--\d+$/.test(s) || /^[^-]+-\d+-\d+$/.test(s) || /^[A-Za-z\u4e00-\u9fff]+\d+-\d+$/.test(s);
+            const code = (codeE && !isShelfNo(codeE) ? codeE : "") || codeF;
             orig.push({ file: file.name, vals: [spec, qty, price, payTime, pddTracking] });
             clean.push([extractPddSize(spec), qty, price, code, payTime, pddTracking]);
           } else {
