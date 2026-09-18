@@ -111,6 +111,53 @@ async function probeColumns(cols: string[], table: string): Promise<string[]> {
 let cachedSalesCols: string[] | null = null;
 let cachedReturnCols: string[] | null = null;
 
+// 分页读取无 id 列表的全部 sale_id（sales_summary/returns_summary 主键为 sale_id）
+// 出错时返回 null，调用方跳过幽灵行清理（保守策略，防止误删）
+async function readAllSaleIds(table: string): Promise<string[] | null> {
+  const ids: string[] = [];
+  let page = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("sale_id")
+      .order("sale_id", { ascending: true })
+      .range(page * 1000, (page + 1) * 1000 - 1);
+    if (error) {
+      console.error(`readAllSaleIds(${table}) page ${page} error:`, error.message);
+      return null;
+    }
+    if (!data || data.length === 0) break;
+    for (const row of data as { sale_id: string }[]) ids.push(row.sale_id);
+    if (data.length < 1000) break;
+    page++;
+  }
+  return ids;
+}
+
+// 清理幽灵行：删除汇总表中明细表已无记录的编号行（upsert 只增不删，会积累残留）
+// 白名单 = 本次汇总的分组结果；仅在明细拉取完整时执行，防止分页中断误删
+async function cleanupGhostRows(
+  table: string,
+  summaryIds: string[] | null,
+  activeIds: Set<string>
+): Promise<number> {
+  if (!summaryIds || activeIds.size === 0) return 0;
+  const ghosts = summaryIds.filter((sid) => !activeIds.has(sid.toUpperCase()));
+  if (ghosts.length === 0) return 0;
+  let removed = 0;
+  for (let i = 0; i < ghosts.length; i += 50) {
+    const batch = ghosts.slice(i, i + 50);
+    const { error } = await supabase.from(table).delete().in("sale_id", batch);
+    if (error) {
+      console.error(`cleanupGhostRows(${table}) batch error:`, error.message);
+    } else {
+      removed += batch.length;
+    }
+  }
+  console.log(`cleanupGhostRows(${table}): removed ${removed} ghost rows`);
+  return removed;
+}
+
 // 分页读取整张表的辅助函数（复用分页逻辑）
 async function readAllPages(table: string, select: string): Promise<Record<string, unknown>[]> {
   let allData: Record<string, unknown>[] = [];
@@ -179,6 +226,8 @@ export async function POST(request: Request) {
     diagnostics.push(`读取 ${allSalesRecords.length} 条售出记录`);
     console.log(`sync-summary: 读取 ${allSalesRecords.length} 条售出记录`);
     console.log(`sync-summary: 读取 ${allInboundRecords.length} 条入库记录`);
+    // 拉取完整性标记：分页数与 count 一致才允许幽灵行清理（防止网络中断拉到部分数据导致误删）
+    const fetchedSalesComplete = allSalesRecords.length === (salesCount ?? -1);
 
     if (allSalesRecords.length === 0) {
       return NextResponse.json({
@@ -395,12 +444,25 @@ export async function POST(request: Request) {
 
     console.log(`sync-summary: 售出汇总完成 ${salesSynced} 款`);
 
+    // ---------- 5.5 清理幽灵行（明细已无记录但汇总残留的编号） ----------
+    let salesGhostsRemoved = 0;
+    if (fetchedSalesComplete && groupMap.size > 0) {
+      const summaryIds = await readAllSaleIds("sales_summary");
+      salesGhostsRemoved = await cleanupGhostRows(
+        "sales_summary",
+        summaryIds,
+        new Set(groupMap.keys())
+      );
+      if (salesGhostsRemoved > 0) diagnostics.push(`清理售出幽灵行: ${salesGhostsRemoved} 个`);
+    }
+
     diagnostics.push(`分组: ${groupMap.size} 个唯一ID`);
     diagnostics.push(`upsert行数: ${upsertRows.length}`);
     diagnostics.push(`写入: ${salesSynced}`);
 
     // ========== 退货汇总 ==========
     let returnsSynced = 0;
+    let returnsGhostsRemoved = 0;
     let allReturnRecords: Record<string, unknown>[] = [];
 
     const { count: returnCount } = await supabase
@@ -551,6 +613,17 @@ export async function POST(request: Request) {
       }
 
       diagnostics.push(`退货分组: ${returnGroupMap.size} 个唯一ID, 写入: ${returnsSynced}`);
+
+      // 清理退货幽灵行（同样只在明细拉取完整时执行）
+      if (allReturnRecords.length === (returnCount ?? -1) && returnGroupMap.size > 0) {
+        const returnSummaryIds = await readAllSaleIds("returns_summary");
+        returnsGhostsRemoved = await cleanupGhostRows(
+          "returns_summary",
+          returnSummaryIds,
+          new Set(returnGroupMap.keys())
+        );
+        if (returnsGhostsRemoved > 0) diagnostics.push(`清理退货幽灵行: ${returnsGhostsRemoved} 个`);
+      }
     }
 
     // ========== 归档每日统计到 sales_daily_stats（含快递费和平台抽点）==========
@@ -671,7 +744,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       sales_synced: salesSynced,
       returns_synced: returnsSynced,
-      message: `售出${salesSynced}款, 退货${returnsSynced}款`,
+      sales_ghosts_removed: salesGhostsRemoved,
+      returns_ghosts_removed: returnsGhostsRemoved,
+      message: `售出${salesSynced}款, 退货${returnsSynced}款${salesGhostsRemoved + returnsGhostsRemoved > 0 ? `, 清理幽灵行${salesGhostsRemoved + returnsGhostsRemoved}个` : ""}`,
       diagnostics: [
         ...diagnostics,
         ...upsertErrors.slice(0, 5),
