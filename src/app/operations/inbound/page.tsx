@@ -864,7 +864,12 @@ export default function InboundPage() {
     setRestockSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
     setShowRestockDropdown(false);
     try {
-      const res = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(sid)}`);
+      // 并行拉取: 入库记录 + 售出汇总 + 退货汇总（用于计算各尺码剩余数量）
+      const [res, salesRes, returnsRes] = await Promise.all([
+        fetch(`/api/inbound-records?sale_id=${encodeURIComponent(sid)}`),
+        fetch(`/api/sales-summary?sale_id=${encodeURIComponent(sid)}`).catch(() => null),
+        fetch(`/api/returns-summary?sale_id=${encodeURIComponent(sid)}`).catch(() => null),
+      ]);
       const data = await res.json();
       if (!Array.isArray(data) || data.length === 0) {
         setRestockError(`未找到编号 ${sid} 的入库记录`);
@@ -872,14 +877,29 @@ export default function InboundPage() {
       }
       // 取最新一条记录作为商品基础信息
       const latest = data[0];
-      // 汇总所有记录的各尺码数量作为"当前入库总量"
+      // 汇总所有入库记录的各尺码数量
       const sizeTotals: Record<number, number> = Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]));
       for (const rec of data) {
         for (const s of SIZE_OPTIONS) {
           sizeTotals[s] += Number(rec[`size_${s}`]) || 0;
         }
       }
-      const productWithTotals = { ...latest, _sizeTotals: sizeTotals, _recordCount: data.length };
+      // 剩余数量 = 入库合计 − 已售合计 + 已退合计（按尺码）
+      let salesRow: Record<string, unknown> | null = null;
+      let returnsRow: Record<string, unknown> | null = null;
+      try {
+        const salesData = salesRes && salesRes.ok ? await salesRes.json() : [];
+        if (Array.isArray(salesData) && salesData.length > 0) salesRow = salesData[0];
+        const returnsData = returnsRes && returnsRes.ok ? await returnsRes.json() : [];
+        if (Array.isArray(returnsData) && returnsData.length > 0) returnsRow = returnsData[0];
+      } catch { /* 汇总查询失败时按无售出处理，仅显示入库数量 */ }
+      const remaining: Record<number, number> = Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]));
+      for (const s of SIZE_OPTIONS) {
+        const sold = salesRow ? Number(salesRow[`size_${s}`]) || 0 : 0;
+        const returned = returnsRow ? Number(returnsRow[`size_${s}`]) || 0 : 0;
+        remaining[s] = Math.max(0, sizeTotals[s] - sold + returned);
+      }
+      const productWithTotals = { ...latest, _sizeTotals: remaining, _inboundTotals: sizeTotals, _recordCount: data.length };
       setRestockProduct(productWithTotals);
     } catch {
       setRestockError("查询失败，请重试");
@@ -2266,7 +2286,7 @@ export default function InboundPage() {
                         <div className="w-40 rounded-xl border-[3px] border-gray-900 bg-white p-3">
                           <div className="text-center mb-2">
                             <span className="text-sm font-extrabold text-gray-900">标码</span>
-                            <p className="text-xs text-gray-500">当前 {(restockProduct._sizeTotals as Record<number, number>)[NO_SIZE_STORE] || 0} 件</p>
+                            <p className="text-xs text-gray-500">剩余 {(restockProduct._sizeTotals as Record<number, number>)[NO_SIZE_STORE] || 0} 件</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
@@ -2310,7 +2330,7 @@ export default function InboundPage() {
                             >
                               <div className="text-center mb-1">
                                 <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
-                                <p className="text-[9px] lg:text-[10px] text-gray-500">当前 {currentQty} 件</p>
+                                <p className="text-[9px] lg:text-[10px] text-gray-500">剩余 {currentQty} 件</p>
                               </div>
                               <div className="flex items-center gap-1 lg:gap-0.5">
                                 <button

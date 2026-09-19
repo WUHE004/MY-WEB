@@ -202,9 +202,20 @@ export async function upsertSalesSummary(saleId: string) {
   return true;
 }
 
-// GET: 获取售卖总表数据
-export async function GET() {
+// GET: 获取售卖总表数据（?sale_id=xxx 时只返回该编号单条，用于补录等场景的轻量查询）
+export async function GET(request: NextRequest) {
   try {
+    const sid = request.nextUrl.searchParams.get("sale_id")?.trim().toUpperCase();
+    if (sid) {
+      const { data, error } = await supabase
+        .from("sales_summary")
+        .select("*")
+        .eq("sale_id", sid);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json(data || []);
+    }
     // 并行拉取全表：count + 全页并行（原先逐页串行）
     // 注意: sales_summary 表没有 id 列, 次级排序键用主键 sale_id 保证分页确定性
     const PAGE_SIZE = 1000;

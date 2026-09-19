@@ -38,7 +38,8 @@ const TABLE_LABEL_MAP: Record<string, string> = {
   settings: "系统设置", web_orders: "网页下单",
   sales_summary: "销售汇总", returns_summary: "退货汇总",
   product_display: "商品展示", payment_qr_codes: "付款码",
-  shipping_tracks: "运费模板", sms_codes: "短信验证码",
+  live_sessions_news: "直播场次资讯", live_track_news: "直播赛道资讯", live_shoot_scripts: "直播拍摄脚本",
+  shipping_tracks: "物流轨迹", sms_codes: "短信验证码",
   accounts: "账户管理", monthly_revenue: "月度营收", transactions: "交易记录",
   category_data: "分类数据", platform_revenue: "平台营收", links: "快捷链接",
   "product-photos": "产品照片", products: "商品（旧）",
@@ -69,10 +70,45 @@ const FALLBACK_TABLE_SCHEMAS: Record<string, string[]> = {
   returns_daily_stats: ["id", "date", "total_returned", "created_at"],
 };
 
+// PostgreSQL data_type → 面板显示类型
+function mapDbType(pgType: string): string {
+  if (pgType.startsWith("timestamp") || pgType === "date") return "datetime";
+  if (["integer", "bigint", "smallint"].includes(pgType)) return "number";
+  if (["real", "numeric", "double precision"].includes(pgType)) return "number";
+  if (pgType === "boolean") return "boolean";
+  if (pgType === "jsonb" || pgType === "json") return "json";
+  return "text";
+}
+
 export async function GET() {
   try {
-    // 直接使用硬编码表列表（稳定可靠）
-    // 未来如需自动发现新表，可在 Supabase 创建 get_db_tables() 函数后启用 RPC
+    // 优先通过 Supabase RPC get_db_tables 获取真实表结构（列名+类型，与库内实际一致）
+    const { data: rpcData, error: rpcErr } = await supabase.rpc("get_db_tables");
+
+    if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
+      // 按 table_name 分组，保持列的原生顺序
+      const byTable = new Map<string, Array<{ name: string; type: string }>>();
+      for (const row of rpcData as Array<{ table_name: string; column_name: string; data_type: string }>) {
+        if (!byTable.has(row.table_name)) byTable.set(row.table_name, []);
+        byTable.get(row.table_name)!.push({ name: row.column_name, type: row.data_type });
+      }
+      const tables = Array.from(byTable.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, cols]) => ({
+          name,
+          label: TABLE_LABEL_MAP[name] || name,
+          columns: cols.map((c) => ({
+            name: c.name,
+            type: mapDbType(c.type),
+            nullable: c.name !== "id" && c.name !== "sale_id" && c.name !== "key",
+            label: COLUMN_LABELS[c.name] || c.name,
+            isPhoto: PHOTO_FIELDS.includes(c.name),
+          })),
+        }));
+      return NextResponse.json({ tables, columnLabels: COLUMN_LABELS });
+    }
+
+    // RPC 不可用时回退到硬编码表定义
     const tables = Object.entries(FALLBACK_TABLE_SCHEMAS).map(([name, colNames]) => ({
       name,
       label: TABLE_LABEL_MAP[name] || name,

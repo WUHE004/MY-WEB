@@ -1,34 +1,83 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
-// 表名 → 列名列表（与数据库实际结构一致）
+// 表名 → 列名列表（2026-09 与数据库真实 schema 对齐，通过 get_db_tables RPC 核验）
+const SIZE_COLS = ["size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180"];
+
 const TABLE_COLUMNS: Record<string, string[]> = {
-  inbound_records: ["id", "sale_id", "name", "manufacturer", "cost_price", "total_stock", "photo", "shelf_no", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "inbound_date", "season", "style_category", "notes", "created_at"],
-  sales_records: ["id", "sale_id", "product_name", "size", "quantity", "sell_price", "cost_price", "profit", "total_profit", "photo", "manufacturer", "shelf_no", "tracking_number", "order_time", "registration_date", "notes", "registrant", "member_id", "member_name", "created_at"],
-  return_records: ["id", "sale_id", "name", "size", "quantity", "member_id", "member_name", "return_time", "created_at"],
-  members: ["id", "name", "phone", "password", "role", "is_online", "last_online", "address", "recipient", "recipient_phone", "douyin", "created_at"],
-  model_library: ["id", "name", "photo_url", "created_at"],
+  inbound_records: ["id", "inbound_date", "sale_id", "manufacturer", "photo", "name", "total_stock", "shelf_no", ...SIZE_COLS, "cost_price", "season", "style_category", "notes", "created_at"],
+  sales_records: ["id", "registration_date", "sale_id", "photo", "product_name", "size", "quantity", "sell_price", "cost_price", "profit", "total_profit", "manufacturer", "notes", "order_time", "tracking_number", "registrant", "created_at", "shelf_no"],
+  return_records: ["id", "sale_id", "size", "quantity", "return_price", "remarks", "registrant", "created_at", "return_time"],
+  members: ["id", "name", "phone", "password", "role", "address", "recipient", "recipient_phone", "douyin", "created_at", "updated_at", "is_online", "last_online", "phone_verified"],
+  model_library: ["id", "name", "photo_url", "created_at", "updated_at", "sort_order"],
   model_usage: ["id", "member_id", "model_name", "created_at"],
-  accounts: ["id", "name", "type", "amount", "status", "created_at"],
-  live_selections: ["id", "sale_id", "name", "created_at"],
-  douyin_links: ["id", "name", "url", "created_at"],
-  pack_records: ["id", "member_id", "member_name", "created_at"],
-  pack_items: ["id", "pack_id", "sale_id", "name", "size", "quantity", "created_at"],
-  monthly_revenue: ["id", "month", "revenue", "cost", "profit", "created_at"],
-  transactions: ["id", "type", "amount", "description", "date", "created_at"],
-  category_data: ["id", "name", "value", "created_at"],
-  platform_revenue: ["id", "platform", "revenue", "created_at"],
-  settings: ["id", "key", "value", "created_at"],
-  links: ["id", "name", "url", "status", "created_at"],
-  web_orders: ["id", "member_id", "member_name", "customer", "address", "recipient", "recipient_phone", "sale_id", "size", "quantity", "sell_price", "total_price", "payment_status", "payment_method", "tracking_number", "shipping_status", "shipping_company", "created_at"],
-  "product-photos": ["id", "sale_id", "photo_url", "created_at"],
-  sales_summary: ["id", "sale_id", "name", "photo", "shelf_no", "manufacturer", "cost_price", "sell_price", "total_sold", "total_revenue", "sell_price_info", "sales_count", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "updated_at", "created_at"],
-  returns_summary: ["id", "sale_id", "name", "photo", "shelf_no", "manufacturer", "cost_price", "total_returned", "total_return_amount", "return_price_info", "return_count", "size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180", "updated_at", "created_at"],
-  sales_daily_stats: ["id", "date", "total_amount", "total_quantity", "total_profit", "shipping_fee", "platform_fee", "created_at"],
+  live_selections: ["id", "member_name", "sale_id", "created_at"],
+  live_sessions_news: ["id", "date", "hot_techniques", "hot_rooms", "retention_tips", "scripts", "category_insights", "raw_search_results", "created_at", "updated_at"],
+  live_shoot_scripts: ["id", "user_idea", "script_content", "created_at"],
+  live_track_news: ["id", "date", "hot_topics", "top_anchors", "douyin_hashtags", "category_insights", "raw_search_results", "created_at", "updated_at"],
+  douyin_links: ["id", "name", "live_url", "qr_code", "created_at"],
+  pack_records: ["id", "tracking_number", "status", "submitter", "packer", "created_at", "updated_at"],
+  pack_items: ["id", "pack_id", "sale_id", "photo", "product_name", "size", "quantity", "sell_price", "shelf_no", "order_time", "manufacturer", "created_at"],
+  payment_qr_codes: ["id", "type", "image_url", "description", "is_active", "created_at", "updated_at"],
+  product_display: ["sale_id", "sell_price", "created_at"],
   returns_daily_stats: ["id", "date", "total_returned", "created_at"],
+  returns_summary: ["sale_id", "photo", "name", "shelf_no", "manufacturer", ...SIZE_COLS, "total_returned", "return_price_info", "return_count", "updated_at", "created_at"],
+  sales_daily_stats: ["id", "date", "total_amount", "total_quantity", "total_profit", "created_at", "shipping_fee", "platform_fee"],
+  sales_summary: ["sale_id", "photo", "name", "shelf_no", "manufacturer", ...SIZE_COLS, "total_sold", "sell_price_info", "sales_count", "updated_at", "created_at"],
+  settings: ["key", "value", "updated_at"],
+  shipping_tracks: ["id", "order_id", "tracking_number", "status", "location", "time", "message", "created_at"],
+  sms_codes: ["id", "phone", "code", "type", "expires_at", "used", "created_at"],
+  web_orders: ["id", "customer", "address", "recipient", "recipient_phone", "sale_id", "size", "quantity", "sell_price", "total_price", "created_at", "payment_status", "payment_method", "member_id", "member_name", "tracking_number", "shipping_status", "shipping_company"],
+};
+
+// 文本类型列（可用 ilike 模糊搜索；real/numeric/timestamp/uuid/jsonb 列用 ilike 会报
+// "operator does not exist: real ~~* unknown" 等类型错误，故只对文本列模糊匹配）
+const TEXT_COLUMNS: Record<string, string[]> = {
+  inbound_records: ["sale_id", "manufacturer", "photo", "name", "shelf_no", "season", "style_category", "notes"],
+  sales_records: ["sale_id", "photo", "product_name", "manufacturer", "notes", "tracking_number", "registrant", "shelf_no"],
+  return_records: ["sale_id", "remarks", "registrant"],
+  members: ["name", "phone", "password", "role", "address", "recipient", "recipient_phone", "douyin"],
+  model_library: ["name", "photo_url"],
+  model_usage: ["member_id", "model_name"],
+  live_selections: ["member_name", "sale_id"],
+  live_sessions_news: ["date", "category_insights"],
+  live_shoot_scripts: ["user_idea", "script_content"],
+  live_track_news: ["date", "category_insights"],
+  douyin_links: ["name", "live_url", "qr_code"],
+  pack_records: ["tracking_number", "status", "submitter", "packer"],
+  pack_items: ["sale_id", "photo", "product_name", "shelf_no", "order_time", "manufacturer"],
+  payment_qr_codes: ["type", "image_url", "description"],
+  product_display: ["sale_id"],
+  returns_daily_stats: [],
+  returns_summary: ["sale_id", "photo", "name", "shelf_no", "manufacturer"],
+  sales_daily_stats: [],
+  sales_summary: ["sale_id", "photo", "name", "shelf_no", "manufacturer"],
+  settings: ["key"],
+  shipping_tracks: ["tracking_number", "status", "location", "time", "message"],
+  sms_codes: ["phone", "code", "type"],
+  web_orders: ["customer", "address", "recipient", "recipient_phone", "sale_id", "payment_status", "payment_method", "member_id", "member_name", "tracking_number", "shipping_status", "shipping_company"],
+};
+
+// 数字类型列（筛选值为数字时用 eq 精确匹配）
+const NUMERIC_COLUMNS: Record<string, string[]> = {
+  inbound_records: ["cost_price", "total_stock", ...SIZE_COLS],
+  sales_records: ["size", "quantity", "sell_price", "cost_price", "profit", "total_profit"],
+  return_records: ["size", "quantity", "return_price"],
+  model_library: ["sort_order"],
+  pack_items: ["pack_id", "size", "quantity", "sell_price"],
+  product_display: ["sell_price"],
+  returns_daily_stats: ["total_returned"],
+  returns_summary: ["total_returned", "return_count", ...SIZE_COLS],
+  sales_daily_stats: ["total_amount", "total_quantity", "total_profit", "shipping_fee", "platform_fee"],
+  sales_summary: ["total_sold", "sales_count", ...SIZE_COLS],
+  shipping_tracks: ["order_id"],
+  web_orders: ["size", "quantity", "sell_price", "total_price"],
 };
 
 // GET: 获取表数据（分页 + 排序 + 筛选）
+// 缓存: 表 → 实际可用的筛选列（硬编码定义可能与真实 schema 漂移，探测后自动修正）
+const availableFilterCols: Record<string, { text: string[]; num: string[] }> = {};
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -50,26 +99,70 @@ export async function GET(request: NextRequest) {
     }
     const ascending = order === "asc";
 
-    let query = supabase.from(table).select("*", { count: "exact" });
-
-    if (filter) {
-      const filterConditions = columnNames
-        .filter((col) => col !== "id" && col !== "created_at" && col !== "updated_at")
-        .map((col) => `${col}.ilike.%${filter}%`)
-        .join(",");
-      if (filterConditions) {
-        query = query.or(filterConditions);
-      }
+    // 初始化该表的可用筛选列缓存
+    if (!availableFilterCols[table]) {
+      availableFilterCols[table] = {
+        text: (TEXT_COLUMNS[table] || []).filter((c) => columnNames.includes(c)),
+        num: (NUMERIC_COLUMNS[table] || []).filter((c) => columnNames.includes(c)),
+      };
     }
 
-    const sortCol = columnNames.includes(sort) ? sort : "created_at";
-    query = query.order(sortCol, { ascending });
-
+    const trimmed = filter.trim();
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
-    query = query.range(from, to);
 
-    const { data, error, count } = await query;
+    // 整数类型列（size/quantity/count 等），小数筛选值对其 eq 匹配会报
+    // "invalid input syntax for type integer"，故小数时跳过这些列
+    const isIntCol = (c: string) =>
+      /^(size|quantity|.*_count|total_sold|total_returned|total_stock|total_quantity|sort_order|pack_id|order_id)/.test(c);
+
+    let currentSortCol = columnNames.includes(sort) ? sort : "created_at";
+
+    // 构建查询（闭包引用可变的列缓存与排序列，失败剔除后可重建重试）
+    const buildQuery = () => {
+      let query = supabase.from(table).select("*", { count: "exact" });
+      if (filter) {
+        // 文本列用 ilike 模糊匹配；数字列在筛选值为数字时用 eq 精确匹配
+        // （对 real/numeric/timestamp 等非文本列用 ilike 会触发 "operator does not exist" 类型错误）
+        const cols = availableFilterCols[table];
+        const conditions = cols.text.map((col) => `${col}.ilike.%${filter}%`);
+        if (trimmed && /^-?\d+$/.test(trimmed)) {
+          for (const col of cols.num) conditions.push(`${col}.eq.${trimmed}`);
+        } else if (trimmed && /^-?\d+\.\d+$/.test(trimmed)) {
+          for (const col of cols.num) {
+            if (!isIntCol(col)) conditions.push(`${col}.eq.${trimmed}`);
+          }
+        }
+        if (conditions.length > 0) {
+          query = query.or(conditions.join(","));
+        }
+      }
+      return query.order(currentSortCol, { ascending }).range(from, to);
+    };
+
+    let { data, error, count } = await buildQuery();
+
+    // 硬编码列定义与真实 schema 漂移时（如列实际不存在），从错误信息提取列名修正后重试：
+    // - 筛选列不存在 → 从可用列缓存剔除
+    // - 排序列不存在（如 settings 表无 created_at）→ 降级到首列排序
+    let retries = 0;
+    let sortDowngraded = false;
+    while (error && retries < 6 && /column .+ does not exist/.test(error.message || "")) {
+      const m = (error.message || "").match(/column [^.]+\.(\w+) does not exist/);
+      if (!m) break;
+      const bad = m[1];
+      if (bad === currentSortCol) {
+        if (sortDowngraded) break;
+        currentSortCol = columnNames[0] || "id";
+        sortDowngraded = true;
+      } else {
+        const cols = availableFilterCols[table];
+        cols.text = cols.text.filter((c) => c !== bad);
+        cols.num = cols.num.filter((c) => c !== bad);
+      }
+      ({ data, error, count } = await buildQuery());
+      retries++;
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });

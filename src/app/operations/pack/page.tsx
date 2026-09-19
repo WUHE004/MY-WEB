@@ -308,7 +308,7 @@ export default function PackPage() {
       {activeTab === "find" && (
         <div>
           {/* 固定顶部: 面单输入框 + 相机/查找按钮 + 副标题, 仅下方商品卡片滚动 */}
-          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-4 sm:-mt-6 lg:-mt-8 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-4 sm:mb-6 bg-white">
+          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-2 sm:-mt-3 lg:-mt-4 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-4 sm:mb-6 bg-white">
             <div>
               <div className="flex gap-2">
                 <div className="relative flex-1">
@@ -505,7 +505,7 @@ export default function PackPage() {
       {activeTab === "pack" && (
         <div>
           {/* 固定顶部: 面单查找框 + 筛选按钮, 仅面单文件夹列表滚动 */}
-          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-4 sm:-mt-6 lg:-mt-8 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-3 sm:mb-4 bg-white">
+          <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:-mx-8 xl:-mx-10 -mt-2 sm:-mt-3 lg:-mt-4 px-4 sm:px-6 lg:px-8 xl:px-10 pt-1 pb-2 mb-3 sm:mb-4 bg-white">
             {/* 面单查找框（与找货同款, 查已提交记录） */}
             <div>
               <div className="flex gap-2">

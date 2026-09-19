@@ -37,11 +37,21 @@ function getStock(record: InboundRecord, size: number): number {
   return Number(record[key]) || 0;
 }
 
+// 默认面单号: "多多"+当天日期(如 多多20260919), 与清洗数据的多多面单号格式一致
+// 拍照/相册扫描识别到面单号时会整体替换该默认值
+function defaultPddTracking(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `多多${y}${m}${day}`;
+}
+
 export default function SalesPage() {
   const [sellPrice, setSellPrice] = useState("");
   const [notes, setNotes] = useState("");
   const [orderTime, setOrderTime] = useState("");
-  const [trackingNumber, setTrackingNumber] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState(() => defaultPddTracking());
   const [sizes, setSizes] = useState<Record<number, number>>(
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
@@ -408,7 +418,7 @@ export default function SalesPage() {
         setSellPriceFound(false);
         setNotes("");
         setOrderTime("");
-        setTrackingNumber("");
+        setTrackingNumber(defaultPddTracking());
         setNotFound(false);
         setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
       } else {

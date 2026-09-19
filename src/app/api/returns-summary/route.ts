@@ -99,8 +99,20 @@ export async function upsertReturnsSummary(saleId: string) {
 }
 
 // GET: 获取退货总表数据
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // ?sale_id=xxx 时只返回该编号单条，用于补录等场景的轻量查询
+    const sid = request.nextUrl.searchParams.get("sale_id")?.trim().toUpperCase();
+    if (sid) {
+      const { data, error } = await supabase
+        .from("returns_summary")
+        .select("*")
+        .eq("sale_id", sid);
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json(data || []);
+    }
     let allData: Record<string, unknown>[] = [];
     let page = 0;
     const pageSize = 1000;
