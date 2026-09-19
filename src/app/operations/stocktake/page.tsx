@@ -1,125 +1,106 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   ArrowLeft,
-  ClipboardCheck,
   Loader2,
-  ChevronDown,
-  ChevronUp,
-  Play,
-  CheckCircle2,
-  Trash2,
-  AlertTriangle,
+  ChevronRight,
+  Warehouse,
+  Layers,
   Package,
-  History,
+  Truck,
+  Crosshair,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
 
-interface StocktakeItem {
-  id: number;
-  stocktake_id: number;
+const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
+const DEFAULT_SHELF_DATA: Record<string, number[]> = { A: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], B: [1, 2], C: [1, 2, 3, 4, 5] };
+const NO_ZONE = "未分区";
+
+interface StockItem {
   sale_id: string;
-  shelf_no: string;
   name: string;
   photo: string;
-  size: number;
-  expected_qty: number;
-  counted_qty: number | null;
+  shelf_no: string;
+  manufacturer: string;
+  cost_price: number;
+  inbound_date: string;
+  sizes: { size: number; qty: number }[];
 }
 
-interface Stocktake {
-  id: number;
-  status: "in_progress" | "completed";
+interface Calibration {
+  id: string;
+  sale_id: string;
+  name: string;
+  photo: string;
+  shelf_no: string;
+  calibrations: { size: number; old_qty: number; new_qty: number }[];
   created_by: string;
-  note: string;
-  total_items: number;
-  counted_items: number;
-  gain_total: number;
-  loss_total: number;
   created_at: string;
-  completed_at: string | null;
 }
 
-// 货架号 → 分组键（"A-1-2" → "A-1"；空 → 未分区）
-function shelfGroup(shelfNo: string): string {
-  const s = (shelfNo || "").trim();
-  if (!s) return "未分区";
-  const parts = s.split("-");
-  if (parts.length >= 2) return `${parts[0]}-${parts[1]}`;
-  return s;
+// 货架号解析（兼容 双横线/单横线/缺排横线 三种历史格式）
+function parseShelfNo(s: string): { l1: string; l2: string; l3: string } | null {
+  const t = (s || "").trim();
+  if (!t) return null;
+  let m = t.match(/^([^-]+)-(\d+)--(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
+  m = t.match(/^([^-]+)-(\d+)-(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
+  m = t.match(/^([A-Za-z一-鿿]+)(\d+)-(\d+)$/);
+  if (m) return { l1: m[1].toUpperCase(), l2: m[2], l3: m[3] };
+  return null;
 }
 
-// 分组排序键（字母升序 + 数字升序，未分区排最后）
-function shelfGroupSortKey(g: string): [string, number] {
-  if (g === "未分区") return ["￿￿￿", 999999];
-  const m = g.match(/^([A-Za-z]+)-(\d+)$/);
-  if (m) return [m[1].toUpperCase(), Number(m[2])];
-  return [g.toUpperCase(), 0];
-}
-
-function fmtTime(iso: string | null): string {
-  if (!iso) return "";
+function fmtDate(v: string): string {
+  if (!v) return "-";
   try {
-    return new Date(iso).toLocaleString("zh-CN", {
-      timeZone: "Asia/Shanghai",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return new Date(v).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "/");
   } catch {
-    return iso;
+    return v;
   }
 }
 
 export default function StocktakePage() {
   const [loading, setLoading] = useState(true);
-  const [stocktake, setStocktake] = useState<Stocktake | null>(null);
-  const [items, setItems] = useState<StocktakeItem[]>([]);
-  const [lastCompleted, setLastCompleted] = useState<Stocktake | null>(null);
-  const [history, setHistory] = useState<Stocktake[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [completing, setCompleting] = useState(false);
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [shelfData, setShelfData] = useState<Record<string, number[]>>(DEFAULT_SHELF_DATA);
+  const [calibrations, setCalibrations] = useState<Calibration[]>([]);
 
-  const readOnly = stocktake?.status === "completed";
+  // 层级导航: zone(分区) → shelf(货架) → layer(层)
+  const [zone, setZone] = useState<string>("");
+  const [shelf, setShelf] = useState<string>(""); // 货架号数字部分, 如 "1"
+  const [layer, setLayer] = useState<string>(""); // 层, 如 "2"
 
-  const load = useCallback(async (viewId?: number) => {
+  // 搬货弹窗
+  const [moveItem, setMoveItem] = useState<StockItem | null>(null);
+  const [moveL1, setMoveL1] = useState("");
+  const [moveL2, setMoveL2] = useState("");
+  const [moveL3, setMoveL3] = useState("");
+  const [moving, setMoving] = useState(false);
+
+  // 校准弹窗
+  const [calItem, setCalItem] = useState<StockItem | null>(null);
+  const [calValues, setCalValues] = useState<Record<number, string>>({});
+  const [calSubmitting, setCalSubmitting] = useState(false);
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const url = viewId ? `/api/stocktake?id=${viewId}` : "/api/stocktake";
-      const res = await authFetch(url);
+      const res = await authFetch("/api/stocktake");
       const data = await res.json();
       if (!res.ok) {
         showToast(data.error || "加载失败", "error");
         return;
       }
-      if (viewId) {
-        setStocktake(data.stocktake);
-        setItems(data.items || []);
-      } else if (data.stocktake) {
-        setStocktake(data.stocktake);
-        setItems(data.items || []);
-        setLastCompleted(null);
-        // 默认展开第一组
-        const groups = groupItems(data.items || []);
-        if (groups.length > 0) setExpanded(new Set([groups[0].key]));
-      } else {
-        setStocktake(null);
-        setItems([]);
-        setLastCompleted(data.lastCompleted || null);
+      setItems(data.items || []);
+      if (data.shelf_data && typeof data.shelf_data === "object") {
+        setShelfData(data.shelf_data as Record<string, number[]>);
       }
-      // 历史列表
-      const hres = await authFetch("/api/stocktake?history=1");
-      if (hres.ok) {
-        const hdata = await hres.json();
-        setHistory(Array.isArray(hdata) ? hdata : []);
-      }
+      setCalibrations(data.calibrations || []);
     } catch {
       showToast("网络错误", "error");
     } finally {
@@ -131,467 +112,450 @@ export default function StocktakePage() {
     load();
   }, [load]);
 
-  // 按货架分组
-  function groupItems(list: StocktakeItem[]) {
-    const map = new Map<string, StocktakeItem[]>();
-    for (const it of list) {
-      const g = shelfGroup(it.shelf_no);
-      if (!map.has(g)) map.set(g, []);
-      map.get(g)!.push(it);
+  // ---------- 分组计算 ----------
+  const itemShelf = useMemo(() => {
+    const map = new Map<string, { l1: string; l2: string; l3: string } | null>();
+    for (const it of items) {
+      if (!map.has(it.sale_id)) map.set(it.sale_id, parseShelfNo(it.shelf_no));
     }
-    const groups = Array.from(map.entries()).map(([key, list]) => ({
-      key,
-      items: list.sort((a, b) => a.sale_id.localeCompare(b.sale_id)),
-    }));
-    groups.sort((a, b) => {
-      const [ap, an] = shelfGroupSortKey(a.key);
-      const [bp, bn] = shelfGroupSortKey(b.key);
-      return ap === bp ? an - bn : ap < bp ? -1 : 1;
+    return map;
+  }, [items]);
+
+  // 分区列表: 货架设置中的排 ∪ 商品实际出现的排 + 未分区(排最后)
+  const zones = useMemo(() => {
+    const set = new Set<string>(Object.keys(shelfData));
+    for (const parsed of itemShelf.values()) {
+      if (parsed) set.add(parsed.l1);
+    }
+    const list = Array.from(set).sort((a, b) => a.localeCompare(b, "zh"));
+    if (items.some((it) => !itemShelf.get(it.sale_id))) list.push(NO_ZONE);
+    return list;
+  }, [shelfData, itemShelf, items]);
+
+  // 当前区的货架列表: 设置中的货架号 ∪ 该区商品实际货架号
+  const shelves = useMemo(() => {
+    if (!zone) return [];
+    const set = new Set<number>();
+    if (zone !== NO_ZONE) {
+      for (const n of shelfData[zone] || []) set.add(n);
+    }
+    for (const [sid, parsed] of itemShelf) {
+      if (parsed && parsed.l1 === zone) set.add(Number(parsed.l2));
+    }
+    return Array.from(set).filter((n) => n > 0).sort((a, b) => a - b);
+  }, [zone, shelfData, itemShelf]);
+
+  // 各货架商品数
+  const shelfCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [sid, parsed] of itemShelf) {
+      if (!parsed || parsed.l1 !== zone) continue;
+      const key = parsed.l2;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [itemShelf, zone]);
+
+  // 当前货架的层商品数
+  const layerCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!zone || !shelf) return map;
+    for (const [sid, parsed] of itemShelf) {
+      if (!parsed || parsed.l1 !== zone || parsed.l2 !== shelf) continue;
+      map.set(parsed.l3, (map.get(parsed.l3) || 0) + 1);
+    }
+    return map;
+  }, [itemShelf, zone, shelf]);
+
+  // 当前层的商品
+  const layerItems = useMemo(() => {
+    if (!zone || !shelf || !layer) return [];
+    return items.filter((it) => {
+      const p = itemShelf.get(it.sale_id);
+      return !!p && p.l1 === zone && p.l2 === shelf && p.l3 === layer;
     });
-    return groups;
-  }
+  }, [items, itemShelf, zone, shelf, layer]);
 
-  const groups = useMemo(() => groupItems(items), [items]);
+  // 未分区的商品
+  const noZoneItems = useMemo(
+    () => items.filter((it) => !itemShelf.get(it.sale_id)),
+    [items, itemShelf]
+  );
 
-  // 进度：按款计（该款所有尺码行都已填实点数）
-  const progress = useMemo(() => {
-    const bySid = new Map<string, { total: number; counted: number }>();
-    for (const it of items) {
-      const cur = bySid.get(it.sale_id) || { total: 0, counted: 0 };
-      cur.total++;
-      if (it.counted_qty !== null) cur.counted++;
-      bySid.set(it.sale_id, cur);
+  // ---------- 搬货 ----------
+  const openMove = async (it: StockItem) => {
+    setMoveItem(it);
+    setMoveL1("");
+    setMoveL2("");
+    setMoveL3("");
+    // 每次打开重新拉取货架设置, 同步入库登记新增的货架
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.shelf_data && typeof data.shelf_data === "object") {
+          setShelfData(data.shelf_data as Record<string, number[]>);
+        }
+      }
+    } catch { /* 拉取失败用当前缓存 */ }
+    // 回填现有货架号
+    const p = parseShelfNo(it.shelf_no);
+    if (p) {
+      setMoveL1(p.l1);
+      setMoveL2(p.l2);
+      setMoveL3(p.l3);
     }
-    let done = 0;
-    for (const v of bySid.values()) if (v.counted === v.total) done++;
-    return { done, total: bySid.size };
-  }, [items]);
+  };
 
-  // 差异汇总（进行中实时 / 完成后读单据字段）
-  const diffSummary = useMemo(() => {
-    let gain = 0;
-    let loss = 0;
-    let countedRows = 0;
-    const bigDiffs: StocktakeItem[] = [];
-    for (const it of items) {
-      if (it.counted_qty === null) continue;
-      countedRows++;
-      const d = it.counted_qty - it.expected_qty;
-      if (d > 0) gain += d;
-      else if (d < 0) loss += -d;
-      if (Math.abs(d) >= 10) bigDiffs.push(it);
+  const saveMove = async () => {
+    if (!moveItem || !moveL1 || !moveL2 || !moveL3 || moving) return;
+    setMoving(true);
+    try {
+      const shelfNo = `${moveL1}-${moveL2}-${moveL3}`;
+      const res = await authFetch("/api/stocktake", {
+        method: "PUT",
+        body: JSON.stringify({ sale_id: moveItem.sale_id, shelf_no: shelfNo }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error || "搬货失败", "error");
+        return;
+      }
+      showToast(`${moveItem.sale_id} 已搬到 ${shelfNo}`, "success");
+      setMoveItem(null);
+      // 本地更新货架号并重新分组
+      setItems((prev) =>
+        prev.map((it) => (it.sale_id === moveItem.sale_id ? { ...it, shelf_no: shelfNo } : it))
+      );
+    } catch {
+      showToast("网络错误", "error");
+    } finally {
+      setMoving(false);
     }
-    return { gain, loss, countedRows, bigDiffs: bigDiffs.slice(0, 10) };
-  }, [items]);
+  };
 
-  const startStocktake = async () => {
-    if (creating) return;
-    if (!confirm("确定开始新盘点吗？\n将快照当前全量库存，按货架分区清点。")) return;
-    setCreating(true);
+  // ---------- 校准 ----------
+  const openCalibrate = (it: StockItem) => {
+    setCalItem(it);
+    setCalValues({});
+  };
+
+  const submitCalibrate = async () => {
+    if (!calItem || calSubmitting) return;
+    const cals = calItem.sizes
+      .map((s) => ({
+        size: s.size,
+        old_qty: s.qty,
+        new_qty: calValues[s.size] === undefined || calValues[s.size] === "" ? s.qty : Math.max(0, Math.floor(Number(calValues[s.size]))),
+      }))
+      .filter((c) => c.new_qty !== c.old_qty);
+    if (cals.length === 0) {
+      showToast("没有需要校准的尺码（填入与现有数量不同的数字）", "error");
+      return;
+    }
+    setCalSubmitting(true);
     try {
       const name = localStorage.getItem("member_name") || "";
       const res = await authFetch("/api/stocktake", {
         method: "POST",
-        body: JSON.stringify({ created_by: name }),
+        body: JSON.stringify({
+          sale_id: calItem.sale_id,
+          name: calItem.name,
+          photo: calItem.photo,
+          shelf_no: calItem.shelf_no,
+          calibrations: cals,
+          created_by: name,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
-        showToast(data.error || "创建失败", "error");
+        showToast(data.error || "提交失败", "error");
         return;
       }
-      showToast(`盘点单 #${data.stocktake_id} 已创建，共 ${data.total_items} 条尺码明细`, "success");
-      await load();
+      showToast(`已提交 ${calItem.sale_id} 的库存校准（${cals.map((c) => `${c.size}码 ${c.old_qty}→${c.new_qty}`).join("、")}），请到管理栏处理`, "success");
+      setCalItem(null);
+      // 更新本地待办数
+      const cres = await authFetch("/api/stocktake?calibrations=1");
+      if (cres.ok) {
+        const cdata = await cres.json();
+        setCalibrations(cdata.calibrations || []);
+      }
     } catch {
       showToast("网络错误", "error");
     } finally {
-      setCreating(false);
+      setCalSubmitting(false);
     }
-  };
-
-  const saveCount = async (item: StocktakeItem, raw: string) => {
-    const v = raw.trim() === "" ? null : Math.max(0, Math.floor(Number(raw)));
-    if (v !== null && Number.isNaN(v)) return;
-    // 本地立即更新
-    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, counted_qty: v } : it)));
-    try {
-      const res = await authFetch("/api/stocktake", {
-        method: "PUT",
-        body: JSON.stringify({ item_id: item.id, counted_qty: v }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        showToast(data.error || "保存失败", "error");
-      }
-    } catch {
-      showToast("网络错误", "error");
-    }
-  };
-
-  const completeStocktake = async () => {
-    if (!stocktake || completing) return;
-    setCompleting(true);
-    try {
-      const res = await authFetch("/api/stocktake", {
-        method: "PATCH",
-        body: JSON.stringify({ stocktake_id: stocktake.id }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "完成失败", "error");
-        return;
-      }
-      setShowCompleteModal(false);
-      showToast(`盘点完成：已点 ${data.counted_items}/${data.total_items} 行，盘盈 +${data.gain_total}，盘亏 -${data.loss_total}`, "success");
-      await load();
-    } catch {
-      showToast("网络错误", "error");
-    } finally {
-      setCompleting(false);
-    }
-  };
-
-  const deleteStocktake = async () => {
-    if (!stocktake) return;
-    try {
-      const res = await authFetch(`/api/stocktake?id=${stocktake.id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || "作废失败", "error");
-        return;
-      }
-      setShowDeleteModal(false);
-      showToast("已作废盘点单", "success");
-      await load();
-    } catch {
-      showToast("网络错误", "error");
-    }
-  };
-
-  const toggleGroup = (key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
   };
 
   // ---------- 渲染 ----------
-
   if (loading) {
     return (
       <PageWrapper>
-        <div className="flex items-center justify-center py-20">
+        <div className="flex flex-col items-center justify-center py-20 gap-2">
           <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+          <p className="text-sm font-bold text-gray-400">正在加载库存数据...</p>
         </div>
       </PageWrapper>
     );
   }
 
-  // 首页：无进行中盘点
-  if (!stocktake) {
-    return (
-      <PageWrapper>
-        <div className="flex items-center gap-3 mb-4">
-          <Link href="/links" className="neo-btn bg-white p-2" aria-label="返回">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h1 className="text-xl lg:text-2xl font-extrabold text-gray-900">库存盘点</h1>
-        </div>
+  const inZoneView = !shelf && !layer;
+  const inShelfView = !!shelf && !layer;
+  const inLayerView = !!shelf && !!layer;
 
-        {/* 上次盘点 */}
-        {lastCompleted ? (
-          <div className="mb-4 rounded-2xl border-2 border-gray-900 bg-white p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-            <p className="text-xs font-bold text-gray-500 mb-2">上次盘点</p>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-gray-900">
-              <span>#{lastCompleted.id}</span>
-              <span>{fmtTime(lastCompleted.completed_at || lastCompleted.created_at)}</span>
-              {lastCompleted.created_by && <span className="text-gray-500">{lastCompleted.created_by}</span>}
-            </div>
-            <div className="mt-2 flex gap-3 text-sm font-extrabold">
-              <span className="text-[#4CD964]">盘盈 +{lastCompleted.gain_total}</span>
-              <span className="text-[#FF6B7A]">盘亏 -{lastCompleted.loss_total}</span>
-              <span className="text-gray-500">已点 {lastCompleted.counted_items}/{lastCompleted.total_items} 行</span>
-            </div>
-          </div>
-        ) : (
-          <div className="mb-4 rounded-2xl border-2 border-gray-900 bg-gray-50 p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
-            <p className="text-sm font-bold text-gray-500">还没有盘点记录，从第一次盘点开始吧</p>
-          </div>
-        )}
-
-        {/* 开始新盘点 */}
-        <button
-          onClick={startStocktake}
-          disabled={creating}
-          className="mb-6 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-gray-900 bg-[#4CD964] px-4 py-4 text-base font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
-        >
-          {creating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Play className="h-5 w-5" />}
-          {creating ? "正在快照库存..." : "开始新盘点"}
-        </button>
-
-        {/* 历史列表 */}
-        <div className="mb-2 flex items-center gap-2">
-          <History className="h-4 w-4 text-gray-500" />
-          <h2 className="text-sm font-extrabold text-gray-700">历史盘点</h2>
-        </div>
-        {history.length === 0 ? (
-          <p className="text-sm text-gray-400 font-medium py-4">暂无记录</p>
-        ) : (
-          <div className="space-y-2">
-            {history.map((h) => (
-              <button
-                key={h.id}
-                onClick={() => load(h.id)}
-                className="flex w-full items-center justify-between rounded-2xl border-2 border-gray-900 bg-white px-4 py-3 text-left shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-              >
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">
-                    #{h.id} · {fmtTime(h.completed_at || h.created_at)}
-                    {h.created_by ? <span className="text-gray-400 font-bold"> · {h.created_by}</span> : null}
-                  </p>
-                  <p className="text-xs font-bold text-gray-500 mt-0.5">
-                    已点 {h.counted_items}/{h.total_items} 行
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-0.5">
-                  <span className="text-xs font-extrabold text-[#4CD964]">+{h.gain_total}</span>
-                  <span className="text-xs font-extrabold text-[#FF6B7A]">-{h.loss_total}</span>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </PageWrapper>
-    );
-  }
-
-  // 盘点工作台（进行中 / 查看历史）
   return (
     <PageWrapper>
-      {/* 顶部 */}
+      {/* 标题行 */}
       <div className="mb-3 flex items-center gap-3">
-        <Link
-          href={readOnly ? "/operations/stocktake" : "/links"}
-          className="neo-btn bg-white p-2"
-          aria-label="返回"
-          onClick={(e) => {
-            if (readOnly) {
-              e.preventDefault();
-              load();
-            }
-          }}
-        >
+        <Link href="/links" className="neo-btn bg-white p-2" aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-lg lg:text-2xl font-extrabold text-gray-900 truncate">
-            盘点 #{stocktake.id}
-            {readOnly ? (
-              <span className="ml-2 rounded-lg border-2 border-gray-900 bg-gray-200 px-2 py-0.5 text-xs font-extrabold text-gray-700">已完成</span>
-            ) : (
-              <span className="ml-2 rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-2 py-0.5 text-xs font-extrabold text-gray-900">进行中</span>
-            )}
-          </h1>
-          <p className="text-xs font-bold text-gray-500">
-            {fmtTime(stocktake.created_at)}
-            {stocktake.created_by ? ` · ${stocktake.created_by}` : ""}
-            {readOnly && stocktake.completed_at ? ` · 完成 ${fmtTime(stocktake.completed_at)}` : ""}
-          </p>
-        </div>
-      </div>
-
-      {/* 进度条（sticky） */}
-      <div className="sticky top-0 z-30 -mx-4 mb-3 bg-white px-4 py-2 border-b-2 border-gray-900">
-        <div className="flex items-center gap-3">
-          <div className="h-3 flex-1 overflow-hidden rounded-full border-2 border-gray-900 bg-gray-100">
-            <div
-              className="h-full bg-[#4CD964] transition-all"
-              style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
-            />
-          </div>
-          <span className="whitespace-nowrap text-xs font-extrabold text-gray-900">
-            已点 {progress.done}/{progress.total} 款
+        <h1 className="text-xl lg:text-2xl font-extrabold text-gray-900">库存盘点</h1>
+        {calibrations.length > 0 && (
+          <span className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white">
+            校准待办 {calibrations.length}
           </span>
+        )}
+      </div>
+
+      {/* 分区按钮条（sticky 置顶, 左右滑动, 不参与上下滚动） */}
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:mx-0 mb-3 bg-white px-4 sm:px-6 lg:px-0 py-2 border-b-2 border-gray-900">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar" style={{ scrollbarWidth: "none" }}>
+          {zones.map((z) => (
+            <button
+              key={z}
+              onClick={() => { setZone(z); setShelf(""); setLayer(""); }}
+              className={`flex shrink-0 items-center gap-1 rounded-xl border-[3px] border-gray-900 px-4 py-2 text-sm font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
+                zone === z ? "bg-[#9B59B6] text-white" : "bg-white text-gray-700"
+              }`}
+            >
+              <Warehouse className="h-4 w-4" />
+              {z === NO_ZONE ? z : `${z}区`}
+            </button>
+          ))}
         </div>
-        {!readOnly && (
-          <div className="mt-1 flex gap-3 text-[11px] font-extrabold">
-            <span className="text-[#4CD964]">盘盈 +{diffSummary.gain}</span>
-            <span className="text-[#FF6B7A]">盘亏 -{diffSummary.loss}</span>
-            <span className="text-gray-400">已填 {diffSummary.countedRows}/{items.length} 行</span>
-          </div>
-        )}
-        {readOnly && (
-          <div className="mt-1 flex gap-3 text-[11px] font-extrabold">
-            <span className="text-[#4CD964]">盘盈 +{stocktake.gain_total}</span>
-            <span className="text-[#FF6B7A]">盘亏 -{stocktake.loss_total}</span>
-            <span className="text-gray-400">已点 {stocktake.counted_items}/{stocktake.total_items} 行</span>
-          </div>
-        )}
       </div>
 
-      {/* 货架分组 */}
-      <div className="space-y-3 pb-24">
-        {groups.map((g) => {
-          const gDone = g.items.filter((it) => it.counted_qty !== null).length;
-          const open = expanded.has(g.key);
-          return (
-            <div key={g.key} className="rounded-2xl border-2 border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
-              <button
-                onClick={() => toggleGroup(g.key)}
-                className="flex w-full items-center justify-between bg-[#9B59B6] px-4 py-3 text-white"
-              >
-                <span className="flex items-center gap-2">
-                  <Package className="h-4 w-4" />
-                  <span className="text-base font-extrabold">货架 {g.key}</span>
-                  <span className="rounded-lg bg-white/90 px-1.5 py-0.5 text-xs font-extrabold text-gray-900">
-                    {gDone}/{g.items.length} 行
-                  </span>
-                </span>
-                {open ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+      {/* 面包屑 */}
+      {zone && (
+        <div className="mb-3 flex items-center gap-1 text-sm font-extrabold text-gray-500">
+          <button onClick={() => { setShelf(""); setLayer(""); }} className={`hover:text-gray-900 ${inZoneView ? "text-gray-900" : ""}`}>
+            {zone === NO_ZONE ? NO_ZONE : `${zone}区`}
+          </button>
+          {shelf && (
+            <>
+              <ChevronRight className="h-4 w-4" />
+              <button onClick={() => setLayer("")} className={`hover:text-gray-900 ${inShelfView ? "text-gray-900" : ""}`}>
+                {zone}{shelf} 货架
               </button>
-              {open && (
-                <div className="divide-y-2 divide-gray-100">
-                  {g.items.map((it) => (
-                    <div key={it.id} className="flex gap-3 p-3">
-                      {/* 图片 */}
-                      <div className="w-20 shrink-0">
-                        {it.photo ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={it.photo}
-                            alt={it.name}
-                            className="aspect-[4/5] w-full rounded-lg border-2 border-gray-900 object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="flex aspect-[4/5] w-full items-center justify-center rounded-lg border-2 border-gray-300 bg-gray-100">
-                            <Package className="h-6 w-6 text-gray-300" />
-                          </div>
-                        )}
-                      </div>
-                      {/* 编号 + 名称 + 尺码输入 */}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-base font-extrabold text-gray-900 truncate">{it.sale_id}</p>
-                        <p className="mb-2 text-xs font-bold text-gray-500 truncate">{it.name || "未命名"}</p>
-                        <SizeInput it={it} readOnly={readOnly} onSave={saveCount} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {groups.length === 0 && (
-          <p className="py-8 text-center text-sm font-bold text-gray-400">无明细数据</p>
-        )}
-      </div>
+            </>
+          )}
+          {layer && (
+            <>
+              <ChevronRight className="h-4 w-4" />
+              <span className="text-gray-900">第 {layer} 层</span>
+            </>
+          )}
+        </div>
+      )}
 
-      {/* 底部操作栏（仅进行中） */}
-      {!readOnly && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 border-t-2 border-gray-900 bg-white px-4 py-3">
-          <div className="mx-auto flex max-w-[1600px] gap-3">
+      {/* 未选中分区 */}
+      {!zone && (
+        <div className="rounded-2xl border-2 border-gray-900 bg-gray-50 p-6 text-center">
+          <p className="text-sm font-bold text-gray-500">点击上方分区按钮开始浏览货架库存</p>
+        </div>
+      )}
+
+      {/* 视图1: 货架大分区卡片 */}
+      {zone && inZoneView && zone !== NO_ZONE && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+          {shelves.map((n) => (
             <button
-              onClick={() => setShowDeleteModal(true)}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border-2 border-gray-900 bg-white px-4 py-3 text-sm font-extrabold text-gray-700 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              key={n}
+              onClick={() => setShelf(String(n))}
+              className="flex flex-col items-center gap-1 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF]"
             >
-              <Trash2 className="h-4 w-4" />
-              作废
+              <Warehouse className="h-7 w-7 text-[#9B59B6]" />
+              <span className="text-lg font-extrabold text-gray-900">{zone}{n}</span>
+              <span className="text-xs font-bold text-gray-400">{shelfCounts.get(String(n)) || 0} 款商品</span>
             </button>
-            <button
-              onClick={() => setShowCompleteModal(true)}
-              className="flex flex-[2] items-center justify-center gap-1.5 rounded-2xl border-2 border-gray-900 bg-[#4CD964] px-4 py-3 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              完成盘点（{progress.done}/{progress.total} 款）
-            </button>
+          ))}
+          {shelves.length === 0 && (
+            <p className="col-span-full py-8 text-center text-sm font-bold text-gray-400">该分区暂无货架</p>
+          )}
+        </div>
+      )}
+
+      {/* 未分区商品直接列出 */}
+      {zone === NO_ZONE && inZoneView && (
+        <div>
+          <p className="mb-2 text-sm font-bold text-gray-500">共 {noZoneItems.length} 款未分配货架</p>
+          <div className="space-y-2">
+            {noZoneItems.map((it) => (
+              <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
+            ))}
           </div>
         </div>
       )}
 
-      {/* 完成确认弹窗 */}
-      {showCompleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowCompleteModal(false)}>
-          <div
-            className="w-full max-w-md rounded-2xl border-2 border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="mb-3 flex items-center gap-2 text-lg font-extrabold text-gray-900">
-              <ClipboardCheck className="h-5 w-5" />
-              确认完成盘点？
-            </h3>
-            <div className="mb-3 space-y-1 rounded-xl bg-gray-50 p-3 text-sm font-bold text-gray-700">
-              <p>已清点 <span className="font-extrabold text-gray-900">{diffSummary.countedRows}</span> / {items.length} 行尺码明细</p>
-              <p className="text-[#4CD964]">盘盈合计 +{diffSummary.gain} 件</p>
-              <p className="text-[#FF6B7A]">盘亏合计 -{diffSummary.loss} 件</p>
-            </div>
-            {diffSummary.bigDiffs.length > 0 && (
-              <div className="mb-3 rounded-xl border-2 border-[#FF6B7A] bg-[#FFF0F2] p-3">
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-extrabold text-[#FF6B7A]">
-                  <AlertTriangle className="h-4 w-4" />
-                  大差异提醒（差异 ≥ 10 件，请复核）
-                </p>
-                {diffSummary.bigDiffs.map((d) => (
-                  <p key={d.id} className="text-xs font-bold text-gray-700">
-                    {d.sale_id} · {d.size}码：系统 {d.expected_qty} → 实点 {d.counted_qty}
-                  </p>
-                ))}
-              </div>
+      {/* 视图2: 层列表 */}
+      {inShelfView && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+          {DEFAULT_LAYERS.map((n) => (
+            <button
+              key={n}
+              onClick={() => setLayer(String(n))}
+              disabled={(layerCounts.get(String(n)) || 0) === 0}
+              className="flex flex-col items-center gap-1 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF] disabled:opacity-40 disabled:shadow-none"
+            >
+              <Layers className="h-7 w-7 text-[#9B59B6]" />
+              <span className="text-lg font-extrabold text-gray-900">第 {n} 层</span>
+              <span className="text-xs font-bold text-gray-400">{layerCounts.get(String(n)) || 0} 款商品</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 视图3: 该层商品卡片 */}
+      {inLayerView && (
+        <div>
+          <p className="mb-2 text-sm font-bold text-gray-500">共 {layerItems.length} 款商品</p>
+          <div className="space-y-2">
+            {layerItems.map((it) => (
+              <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
+            ))}
+            {layerItems.length === 0 && (
+              <p className="py-8 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
             )}
-            {progress.done < progress.total && (
-              <p className="mb-3 text-xs font-bold text-gray-500">
-                还有 {progress.total - progress.done} 款未清点完成，完成后未清点的尺码将不参与差异统计。
-              </p>
-            )}
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowCompleteModal(false)}
-                className="flex-1 rounded-xl border-2 border-gray-900 bg-white px-4 py-2.5 text-sm font-extrabold text-gray-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-              >
-                再点点
-              </button>
-              <button
-                onClick={completeStocktake}
-                disabled={completing}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border-2 border-gray-900 bg-[#4CD964] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
-              >
-                {completing && <Loader2 className="h-4 w-4 animate-spin" />}
-                确认完成
-              </button>
-            </div>
           </div>
         </div>
       )}
 
-      {/* 作废确认弹窗 */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDeleteModal(false)}>
+      {/* 搬货弹窗: 三级级联选择（排/货架号/层, 与入库登记同款） */}
+      {moveItem && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setMoveItem(null)}>
           <div
-            className="w-full max-w-sm rounded-2xl border-2 border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-2 flex items-center gap-2 text-lg font-extrabold text-gray-900">
-              <Trash2 className="h-5 w-5 text-[#FF6B7A]" />
-              作废盘点单 #{stocktake.id}？
-            </h3>
-            <p className="mb-4 text-sm font-bold text-gray-500">
-              已清点的 {diffSummary.countedRows} 行数据将全部丢弃，此操作不可恢复。
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
+                <Truck className="h-5 w-5" />
+                搬货 - {moveItem.sale_id}
+              </h3>
+              <button onClick={() => setMoveItem(null)} className="rounded-lg p-1 hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <p className="mb-3 truncate text-xs font-bold text-gray-400">
+              {moveItem.name || "未命名"} · 当前货架: {moveItem.shelf_no || "无"}
             </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteModal(false)}
-                className="flex-1 rounded-xl border-2 border-gray-900 bg-white px-4 py-2.5 text-sm font-extrabold text-gray-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            <div className="flex gap-1.5">
+              <select
+                value={moveL1}
+                onChange={(e) => { setMoveL1(e.target.value); setMoveL2(""); setMoveL3(""); }}
+                className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none"
               >
-                取消
-              </button>
-              <button
-                onClick={deleteStocktake}
-                className="flex-1 rounded-xl border-2 border-gray-900 bg-[#FF6B7A] px-4 py-2.5 text-sm font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                <option value="">一排</option>
+                {(() => {
+                  const keys = Object.keys(shelfData);
+                  const opts = moveL1 && !keys.includes(moveL1) ? [...keys, moveL1] : keys;
+                  return opts.map((k) => <option key={k} value={k}>{k}</option>);
+                })()}
+              </select>
+              <select
+                value={moveL2}
+                onChange={(e) => { setMoveL2(e.target.value); setMoveL3(""); }}
+                disabled={!moveL1}
+                className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none disabled:opacity-40"
               >
-                确认作废
+                <option value="">货架号</option>
+                {(() => {
+                  const nums = (shelfData[moveL1] || []).map(String);
+                  const opts = moveL2 && !nums.includes(moveL2) ? [...nums, moveL2] : nums;
+                  return opts.map((n) => <option key={n} value={n}>{n}</option>);
+                })()}
+              </select>
+              <select
+                value={moveL3}
+                onChange={(e) => setMoveL3(e.target.value)}
+                disabled={!moveL2}
+                className="flex-1 min-w-0 h-9 px-1.5 text-xs font-bold bg-white border-[2px] border-gray-900 rounded-lg outline-none disabled:opacity-40"
+              >
+                <option value="">层</option>
+                {DEFAULT_LAYERS.map((n) => <option key={n} value={String(n)}>{n}</option>)}
+              </select>
+            </div>
+            <button
+              onClick={saveMove}
+              disabled={!moveL1 || !moveL2 || !moveL3 || moving}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
+            >
+              {moving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+              保存新货架位置
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 校准弹窗: 每尺码现有数量 + 校准数量 */}
+      {calItem && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setCalItem(null)}>
+          <div
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
+                <Crosshair className="h-5 w-5" />
+                库存校准 - {calItem.sale_id}
+              </h3>
+              <button onClick={() => setCalItem(null)} className="rounded-lg p-1 hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
               </button>
             </div>
+            <p className="mb-3 truncate text-xs font-bold text-gray-400">
+              {calItem.name || "未命名"} · {calItem.shelf_no || "无货架"}
+            </p>
+            <div className="mb-3 space-y-2">
+              {calItem.sizes.map((s) => {
+                const v = calValues[s.size] ?? "";
+                const newQty = v === "" ? s.qty : Math.max(0, Math.floor(Number(v) || 0));
+                const diff = newQty - s.qty;
+                return (
+                  <div key={s.size} className="flex items-center gap-2">
+                    <span className="flex w-24 shrink-0 items-center justify-center rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-2 py-1.5 text-xs font-extrabold text-gray-900">
+                      {s.size}码 现有{s.qty}
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={v}
+                      onChange={(e) => setCalValues((prev) => ({ ...prev, [s.size]: e.target.value }))}
+                      placeholder="校准数量"
+                      className="w-28 rounded-lg border-2 border-gray-900 bg-white px-2 py-1.5 text-center text-base font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] outline-none focus:bg-[#FFF9E0]"
+                    />
+                    {v !== "" && diff !== 0 && (
+                      <span className={`text-xs font-extrabold ${diff > 0 ? "text-[#4CD964]" : "text-[#FF6B7A]"}`}>
+                        {diff > 0 ? `+${diff}` : diff}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mb-3 text-[11px] font-bold text-gray-400">
+              提交后会作为待办显示在桌面端管理栏，处理完对应记录后待办自动消失。
+            </p>
+            <button
+              onClick={submitCalibrate}
+              disabled={calSubmitting}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
+            >
+              {calSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crosshair className="h-4 w-4" />}
+              提交校准
+            </button>
           </div>
         </div>
       )}
@@ -599,53 +563,90 @@ export default function StocktakePage() {
   );
 }
 
-// 单行尺码输入（系统数量 + 实点输入框，差异着色）
-function SizeInput({
+// 商品小卡片（参考管理栏总表样式, 适当缩小）
+function ItemCard({
   it,
-  readOnly,
-  onSave,
+  onMove,
+  onCalibrate,
 }: {
-  it: StocktakeItem;
-  readOnly: boolean;
-  onSave: (item: StocktakeItem, raw: string) => void;
+  it: StockItem;
+  onMove: (it: StockItem) => void;
+  onCalibrate: (it: StockItem) => void;
 }) {
-  const [val, setVal] = useState(it.counted_qty === null ? "" : String(it.counted_qty));
-
-  // 外部数据刷新时同步
-  useEffect(() => {
-    setVal(it.counted_qty === null ? "" : String(it.counted_qty));
-  }, [it.counted_qty]);
-
-  const diff = it.counted_qty === null ? null : it.counted_qty - it.expected_qty;
-  const diffColor = diff === null || diff === 0 ? "" : diff > 0 ? "text-[#4CD964]" : "text-[#FF6B7A]";
-
   return (
-    <div className="flex items-center gap-2">
-      {/* 系统数量（黄色块） */}
-      <span className="flex shrink-0 items-center gap-1 rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-2 py-1.5">
-        <span className="text-xs font-extrabold text-gray-900">{it.size}码</span>
-        <span className="text-xs font-extrabold text-gray-900">系统{it.expected_qty}</span>
-      </span>
-      {/* 实点输入框 */}
-      <div className="relative w-24">
-        <input
-          type="number"
-          inputMode="numeric"
-          min={0}
-          disabled={readOnly}
-          value={readOnly ? (it.counted_qty ?? "—") : val}
-          onChange={(e) => setVal(e.target.value)}
-          onBlur={(e) => !readOnly && onSave(it, e.target.value)}
-          placeholder="实点"
-          className="w-full rounded-lg border-2 border-gray-900 bg-white px-2 py-1.5 text-center text-base font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] outline-none focus:bg-[#FFF9E0] disabled:shadow-none disabled:bg-gray-50"
-        />
+    <div className="rounded-2xl border-[3px] border-gray-900 bg-white p-2.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+      <div className="flex gap-2.5">
+        {/* 图片 */}
+        <div className="w-20 shrink-0">
+          {it.photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={it.photo}
+              alt={it.name}
+              className="aspect-[4/5] w-full rounded-lg border-2 border-gray-900 object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-lg border-2 border-gray-300 bg-gray-100">
+              <Package className="h-6 w-6 text-gray-300" />
+            </div>
+          )}
+        </div>
+        {/* 信息区 */}
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-extrabold text-gray-900 truncate">{it.sale_id}</p>
+          <p className="text-xs font-bold text-gray-500 truncate">{it.name || "未命名"}</p>
+          {/* 信息格子（参考总表两列格子, 缩小版） */}
+          <div className="mt-1 grid grid-cols-2 divide-x-2 divide-y-2 divide-gray-200 border-2 border-gray-200 rounded-lg overflow-hidden text-[11px] font-bold">
+            <div className="bg-gray-50 px-1.5 py-1">
+              <span className="text-gray-400">进价 </span>
+              <span className="font-extrabold text-gray-900">¥{it.cost_price}</span>
+            </div>
+            <div className="bg-gray-50 px-1.5 py-1 truncate">
+              <span className="text-gray-400">厂家 </span>
+              <span className="text-gray-700">{it.manufacturer || "-"}</span>
+            </div>
+            <div className="bg-gray-50 px-1.5 py-1">
+              <span className="text-gray-400">入库 </span>
+              <span className="text-gray-700">{fmtDate(it.inbound_date)}</span>
+            </div>
+            <div className="bg-gray-50 px-1.5 py-1">
+              <span className="text-gray-400">货架 </span>
+              <span className="text-gray-700">{it.shelf_no || "-"}</span>
+            </div>
+          </div>
+        </div>
       </div>
-      {/* 差异 */}
-      {diff !== null && diff !== 0 && (
-        <span className={`text-xs font-extrabold ${diffColor}`}>
-          {diff > 0 ? `+${diff}` : diff}
-        </span>
-      )}
+      {/* 尺码数量（黄色块） */}
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {it.sizes.map((s) => (
+          <span
+            key={s.size}
+            className={`rounded-md border-2 border-gray-900 px-1.5 py-0.5 text-xs font-extrabold ${
+              s.qty > 0 ? "bg-[#FFC93C] text-gray-900" : s.qty < 0 ? "bg-[#FF6B7A] text-white" : "bg-gray-100 text-gray-400"
+            }`}
+          >
+            {s.size}码 · {s.qty}
+          </span>
+        ))}
+      </div>
+      {/* 操作按钮 */}
+      <div className="mt-2 flex gap-2">
+        <button
+          onClick={() => onMove(it)}
+          className="flex flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#4A90E2] px-3 py-1.5 text-xs font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+        >
+          <Truck className="h-3.5 w-3.5" />
+          搬货
+        </button>
+        <button
+          onClick={() => onCalibrate(it)}
+          className="flex flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-3 py-1.5 text-xs font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+        >
+          <Crosshair className="h-3.5 w-3.5" />
+          校准
+        </button>
+      </div>
     </div>
   );
 }

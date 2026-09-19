@@ -146,6 +146,15 @@ body {
   padding: 2px 12px;
 }
 
+/* 横向滚动容器隐藏滚动条（库存盘点分区按钮条等） */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .highlight-blue {
   background-color: #4A90E2;
   color: white;

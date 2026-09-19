@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useDeferredValue } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
@@ -199,6 +199,40 @@ export default function FinancePage() {
     };
   }, []);
   const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate" | "stock" | "inbound">("");
+
+  // 库存盘点提交的校准待办（桌面端标题右侧展示, 点击填入搜索筛选, 处理完删除）
+  const [calibList, setCalibList] = useState<Array<{
+    id: string;
+    sale_id: string;
+    name: string;
+    shelf_no: string;
+    calibrations: Array<{ size: number; old_qty: number; new_qty: number }>;
+    created_at: string;
+  }>>([]);
+  const [showCalibMenu, setShowCalibMenu] = useState(false);
+  const loadCalibrations = async () => {
+    try {
+      const res = await authFetch("/api/stocktake?calibrations=1");
+      if (res.ok) {
+        const data = await res.json();
+        setCalibList(Array.isArray(data.calibrations) ? data.calibrations : []);
+      }
+    } catch { /* 静默失败, 不影响主页面 */ }
+  };
+  useEffect(() => { loadCalibrations(); }, []);
+  const removeCalibration = async (id: string) => {
+    setCalibList((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await authFetch(`/api/stocktake?id=${id}`, { method: "DELETE" });
+    } catch { /* 已本地移除, 失败下次刷新恢复 */ }
+  };
+  const applyCalibrationFilter = (saleId: string) => {
+    setSearch(saleId);
+    setShowCalibMenu(false);
+    // 跳到总表视图保证筛选结果可见
+    if (viewMode !== "summary") switchView("summary");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   // 明细弹窗
   const [detailType, setDetailType] = useState<"sales" | "returns" | null>(null);
@@ -1036,8 +1070,48 @@ export default function FinancePage() {
       <div className="sticky top-0 z-30 lg:static lg:z-auto -mx-4 sm:-mx-6 lg:mx-0 -mt-4 sm:-mt-6 lg:mt-0 px-4 sm:px-6 lg:px-0 pt-1 pb-3 lg:pb-0 bg-white lg:bg-transparent">
       {/* Header + 视图切换按钮 (移动端隐藏标题, 四按钮拉宽占满) */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-        <h1 className="hidden lg:block text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
+        <h1 className="hidden lg:flex items-center gap-3 text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
           <span className={highlightClass}>{viewTitle}</span>
+          {/* 库存校准待办: 单条直接显示文字, 多条下拉列表; 点击填入搜索筛选, × 删除 */}
+          {calibList.length === 1 && (
+            <span className="flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] px-2.5 py-1 text-sm font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <Crosshair className="h-4 w-4 shrink-0" />
+              <button onClick={() => applyCalibrationFilter(calibList[0].sale_id)} className="hover:underline" title="点击填入搜索筛选">
+                校准 {calibList[0].sale_id}
+                {calibList[0].calibrations.map((c) => ` ${c.size}码${c.old_qty}→${c.new_qty}`).join(" ")}
+              </button>
+              <button onClick={() => removeCalibration(calibList[0].id)} className="rounded p-0.5 hover:bg-black/10" title="处理完成, 删除待办">
+                <X className="h-4 w-4" />
+              </button>
+            </span>
+          )}
+          {calibList.length > 1 && (
+            <span className="relative flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] px-2.5 py-1 text-sm font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+              <Crosshair className="h-4 w-4 shrink-0" />
+              <button onClick={() => setShowCalibMenu(!showCalibMenu)} className="hover:underline">
+                库存校准待办 {calibList.length}
+              </button>
+              <ChevronDown className={`h-4 w-4 transition-transform ${showCalibMenu ? "rotate-180" : ""}`} />
+              {showCalibMenu && (
+                <span className="absolute left-0 top-full z-50 mt-2 block w-[380px] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  {calibList.map((c) => (
+                    <span key={c.id} className="flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 hover:bg-[#FFF9E0]">
+                      <button onClick={() => applyCalibrationFilter(c.sale_id)} className="min-w-0 flex-1 text-left" title="点击填入搜索筛选">
+                        <span className="text-sm font-extrabold text-gray-900">{c.sale_id}</span>
+                        <span className="ml-2 text-xs font-bold text-gray-500">
+                          {c.calibrations.map((x) => `${x.size}码 ${x.old_qty}→${x.new_qty}`).join(" · ")}
+                        </span>
+                        <span className="block truncate text-[11px] font-bold text-gray-400">{c.shelf_no || "无货架"}</span>
+                      </button>
+                      <button onClick={() => removeCalibration(c.id)} className="shrink-0 rounded-lg p-1 hover:bg-black/10" title="处理完成, 删除待办">
+                        <X className="h-4 w-4 text-gray-500" />
+                      </button>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </span>
+          )}
         </h1>
         <div className="flex gap-1.5 sm:gap-2 w-full lg:w-auto lg:shrink-0">
           <button onClick={() => switchView("summary")}
