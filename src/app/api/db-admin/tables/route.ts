@@ -38,7 +38,7 @@ const TABLE_LABEL_MAP: Record<string, string> = {
   settings: "系统设置", web_orders: "网页下单",
   sales_summary: "销售汇总", returns_summary: "退货汇总",
   product_display: "商品展示", payment_qr_codes: "付款码",
-  live_sessions_news: "直播场次资讯", live_track_news: "直播赛道资讯", live_shoot_scripts: "直播拍摄脚本",
+  live_track_news: "直播赛道资讯", live_shoot_scripts: "直播拍摄脚本",
   shipping_tracks: "物流轨迹", sms_codes: "短信验证码",
   accounts: "账户管理", monthly_revenue: "月度营收", transactions: "交易记录",
   category_data: "分类数据", platform_revenue: "平台营收", links: "快捷链接",

@@ -12,7 +12,7 @@ import {
   Banknote,
   TrendingUp,
   Video,
-  Radio,
+  ClipboardCheck,
   FileSpreadsheet,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -243,7 +243,7 @@ export default function LinksPage() {
           <span className="highlight-pink">运营操作台</span>
         </h1>
         <p className="hidden lg:block text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
-          赛道资讯 · 直播数据 · 数据清洗
+          赛道资讯 · 库存盘点 · 数据清洗
         </p>
         <div className="grid grid-cols-3 gap-3 lg:gap-6">
           <motion.a
@@ -259,16 +259,16 @@ export default function LinksPage() {
             <span className="hidden lg:block text-xs text-white/90 font-medium">童装母婴赛道每日资讯</span>
           </motion.a>
           <motion.a
-            href="/live/sessions"
+            href="/operations/stocktake"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.1 }}
             className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#9B59B6]"
             style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
           >
-            <Radio className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
-            <span className="text-xs lg:text-base font-extrabold text-white">直播资讯</span>
-            <span className="hidden lg:block text-xs text-white/90 font-medium">直播间每场数据分析</span>
+            <ClipboardCheck className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
+            <span className="text-xs lg:text-base font-extrabold text-white">库存盘点</span>
+            <span className="hidden lg:block text-xs text-white/90 font-medium">按货架分区清点库存</span>
           </motion.a>
           <motion.a
             href="/operations/data-clean"

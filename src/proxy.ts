@@ -48,6 +48,7 @@ const AUTH_REQUIRED_METHOD_PATHS: Array<{ method: string; path: string }> = [
 const OPERATOR_PATHS = new Set([
   "/api/sync-summary",
   "/api/import",
+  "/api/stocktake",
 ]);
 
 function extractToken(request: NextRequest): string | null {
