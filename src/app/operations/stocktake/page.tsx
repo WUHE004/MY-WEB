@@ -6,11 +6,14 @@ import {
   Loader2,
   ChevronRight,
   Warehouse,
-  Layers,
   Package,
   Truck,
   Crosshair,
   X,
+  Folder,
+  FolderOpen,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -70,10 +73,10 @@ export default function StocktakePage() {
   const [shelfData, setShelfData] = useState<Record<string, number[]>>(DEFAULT_SHELF_DATA);
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
 
-  // 层级导航: zone(分区) → shelf(货架) → layer(层)
+  // 层级导航: zone(分区) → shelf(货架); 层以文件夹折叠形式展开/收回
   const [zone, setZone] = useState<string>("");
   const [shelf, setShelf] = useState<string>(""); // 货架号数字部分, 如 "1"
-  const [layer, setLayer] = useState<string>(""); // 层, 如 "2"
+  const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set()); // 展开的层, key = "货架-层"
 
   // 搬货弹窗
   const [moveItem, setMoveItem] = useState<StockItem | null>(null);
@@ -145,36 +148,57 @@ export default function StocktakePage() {
     return Array.from(set).filter((n) => n > 0).sort((a, b) => a - b);
   }, [zone, shelfData, itemShelf]);
 
-  // 各货架商品数
-  const shelfCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const [sid, parsed] of itemShelf) {
-      if (!parsed || parsed.l1 !== zone) continue;
-      const key = parsed.l2;
-      map.set(key, (map.get(key) || 0) + 1);
-    }
-    return map;
-  }, [itemShelf, zone]);
-
-  // 当前货架的层商品数
-  const layerCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!zone || !shelf) return map;
-    for (const [sid, parsed] of itemShelf) {
-      if (!parsed || parsed.l1 !== zone || parsed.l2 !== shelf) continue;
-      map.set(parsed.l3, (map.get(parsed.l3) || 0) + 1);
-    }
-    return map;
-  }, [itemShelf, zone, shelf]);
-
-  // 当前层的商品
-  const layerItems = useMemo(() => {
-    if (!zone || !shelf || !layer) return [];
-    return items.filter((it) => {
+  // 各货架统计（款数 + 件数）
+  const shelfStats = useMemo(() => {
+    const map = new Map<string, { count: number; pieces: number }>();
+    for (const it of items) {
       const p = itemShelf.get(it.sale_id);
-      return !!p && p.l1 === zone && p.l2 === shelf && p.l3 === layer;
+      if (!p || p.l1 !== zone) continue;
+      const cur = map.get(p.l2) || { count: 0, pieces: 0 };
+      cur.count++;
+      cur.pieces += it.sizes.reduce((s, x) => s + x.qty, 0);
+      map.set(p.l2, cur);
+    }
+    return map;
+  }, [items, itemShelf, zone]);
+
+  // 当前货架的层统计（款数 + 件数）
+  const layerStats = useMemo(() => {
+    const map = new Map<string, { count: number; pieces: number }>();
+    if (!zone || !shelf) return map;
+    for (const it of items) {
+      const p = itemShelf.get(it.sale_id);
+      if (!p || p.l1 !== zone || p.l2 !== shelf) continue;
+      const cur = map.get(p.l3) || { count: 0, pieces: 0 };
+      cur.count++;
+      cur.pieces += it.sizes.reduce((s, x) => s + x.qty, 0);
+      map.set(p.l3, cur);
+    }
+    return map;
+  }, [items, itemShelf, zone, shelf]);
+
+  // 指定层的商品
+  const getLayerItems = useCallback(
+    (layerNo: string) => {
+      if (!zone || !shelf) return [];
+      return items.filter((it) => {
+        const p = itemShelf.get(it.sale_id);
+        return !!p && p.l1 === zone && p.l2 === shelf && p.l3 === layerNo;
+      });
+    },
+    [items, itemShelf, zone, shelf]
+  );
+
+  // 切换层文件夹展开/收回
+  const toggleLayer = (layerNo: string) => {
+    const key = `${shelf}-${layerNo}`;
+    setExpandedLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
-  }, [items, itemShelf, zone, shelf, layer]);
+  };
 
   // 未分区的商品
   const noZoneItems = useMemo(
@@ -299,18 +323,19 @@ export default function StocktakePage() {
     );
   }
 
-  const inZoneView = !shelf && !layer;
-  const inShelfView = !!shelf && !layer;
-  const inLayerView = !!shelf && !!layer;
+  const inZoneView = !shelf;
+  const inShelfView = !!shelf;
 
   return (
     <PageWrapper>
-      {/* 标题行 */}
+      {/* 标题行（标题带背景, 参考管理栏顶部标题样式） */}
       <div className="mb-3 flex items-center gap-3">
         <Link href="/links" className="neo-btn bg-white p-2" aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-xl lg:text-2xl font-extrabold text-gray-900">库存盘点</h1>
+        <h1 className="text-xl lg:text-2xl font-extrabold text-gray-900">
+          <span className="highlight-purple">库存盘点</span>
+        </h1>
         {calibrations.length > 0 && (
           <span className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white">
             校准待办 {calibrations.length}
@@ -318,13 +343,13 @@ export default function StocktakePage() {
         )}
       </div>
 
-      {/* 分区按钮条（sticky 置顶, 左右滑动, 不参与上下滚动） */}
-      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:mx-0 mb-3 bg-white px-4 sm:px-6 lg:px-0 py-2 border-b-2 border-gray-900">
-        <div className="flex gap-2 overflow-x-auto no-scrollbar" style={{ scrollbarWidth: "none" }}>
+      {/* 分区按钮条（sticky 置顶, 左右滑动, 不参与上下滚动; 底部留投影空间防截断） */}
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:mx-0 mb-2 bg-white px-4 sm:px-6 lg:px-0 pt-2 pb-1 border-b-2 border-gray-900">
+        <div className="flex gap-2 overflow-x-auto overflow-y-hidden no-scrollbar pb-[3px]">
           {zones.map((z) => (
             <button
               key={z}
-              onClick={() => { setZone(z); setShelf(""); setLayer(""); }}
+              onClick={() => { setZone(z); setShelf(""); setExpandedLayers(new Set()); }}
               className={`flex shrink-0 items-center gap-1 rounded-xl border-[3px] border-gray-900 px-4 py-2 text-sm font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
                 zone === z ? "bg-[#9B59B6] text-white" : "bg-white text-gray-700"
               }`}
@@ -339,21 +364,13 @@ export default function StocktakePage() {
       {/* 面包屑 */}
       {zone && (
         <div className="mb-3 flex items-center gap-1 text-sm font-extrabold text-gray-500">
-          <button onClick={() => { setShelf(""); setLayer(""); }} className={`hover:text-gray-900 ${inZoneView ? "text-gray-900" : ""}`}>
+          <button onClick={() => { setShelf(""); setExpandedLayers(new Set()); }} className={`hover:text-gray-900 ${inZoneView ? "text-gray-900" : ""}`}>
             {zone === NO_ZONE ? NO_ZONE : `${zone}区`}
           </button>
           {shelf && (
             <>
               <ChevronRight className="h-4 w-4" />
-              <button onClick={() => setLayer("")} className={`hover:text-gray-900 ${inShelfView ? "text-gray-900" : ""}`}>
-                {zone}{shelf} 货架
-              </button>
-            </>
-          )}
-          {layer && (
-            <>
-              <ChevronRight className="h-4 w-4" />
-              <span className="text-gray-900">第 {layer} 层</span>
+              <span className="text-gray-900">{zone}{shelf} 货架</span>
             </>
           )}
         </div>
@@ -366,20 +383,26 @@ export default function StocktakePage() {
         </div>
       )}
 
-      {/* 视图1: 货架大分区卡片 */}
+      {/* 视图1: 货架大分区卡片（左大字货架名 + 款数/件数, 右图标, 参考操作栏按钮样式） */}
       {zone && inZoneView && zone !== NO_ZONE && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-          {shelves.map((n) => (
-            <button
-              key={n}
-              onClick={() => setShelf(String(n))}
-              className="flex flex-col items-center gap-1 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF]"
-            >
-              <Warehouse className="h-7 w-7 text-[#9B59B6]" />
-              <span className="text-lg font-extrabold text-gray-900">{zone}{n}</span>
-              <span className="text-xs font-bold text-gray-400">{shelfCounts.get(String(n)) || 0} 款商品</span>
-            </button>
-          ))}
+          {shelves.map((n) => {
+            const st = shelfStats.get(String(n)) || { count: 0, pieces: 0 };
+            return (
+              <button
+                key={n}
+                onClick={() => { setShelf(String(n)); setExpandedLayers(new Set()); }}
+                className="flex w-full items-center justify-between gap-2 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-3.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF]"
+              >
+                <div className="min-w-0 text-left">
+                  <span className="block text-xl font-extrabold leading-tight text-gray-900">货架{zone}{n}</span>
+                  <span className="mt-0.5 block text-sm font-extrabold text-[#9B59B6]">{st.count} 款</span>
+                  <span className="mt-0.5 block text-xs font-bold text-gray-400">{st.pieces} 件</span>
+                </div>
+                <Warehouse className="h-8 w-8 shrink-0 text-[#9B59B6]" />
+              </button>
+            );
+          })}
           {shelves.length === 0 && (
             <p className="col-span-full py-8 text-center text-sm font-bold text-gray-400">该分区暂无货架</p>
           )}
@@ -398,36 +421,46 @@ export default function StocktakePage() {
         </div>
       )}
 
-      {/* 视图2: 层列表 */}
+      {/* 视图2: 层文件夹列表（点击下拉显示商品, 再点击收回） */}
       {inShelfView && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
-          {DEFAULT_LAYERS.map((n) => (
-            <button
-              key={n}
-              onClick={() => setLayer(String(n))}
-              disabled={(layerCounts.get(String(n)) || 0) === 0}
-              className="flex flex-col items-center gap-1 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF] disabled:opacity-40 disabled:shadow-none"
-            >
-              <Layers className="h-7 w-7 text-[#9B59B6]" />
-              <span className="text-lg font-extrabold text-gray-900">第 {n} 层</span>
-              <span className="text-xs font-bold text-gray-400">{layerCounts.get(String(n)) || 0} 款商品</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* 视图3: 该层商品卡片 */}
-      {inLayerView && (
-        <div>
-          <p className="mb-2 text-sm font-bold text-gray-500">共 {layerItems.length} 款商品</p>
-          <div className="space-y-2">
-            {layerItems.map((it) => (
-              <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
-            ))}
-            {layerItems.length === 0 && (
-              <p className="py-8 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
-            )}
-          </div>
+        <div className="space-y-2.5">
+          {DEFAULT_LAYERS.map((n) => {
+            const key = `${shelf}-${n}`;
+            const st = layerStats.get(String(n)) || { count: 0, pieces: 0 };
+            const open = expandedLayers.has(key);
+            const list = open ? getLayerItems(String(n)) : [];
+            return (
+              <div key={n} className="overflow-hidden rounded-2xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                <button
+                  onClick={() => toggleLayer(String(n))}
+                  disabled={st.count === 0}
+                  className={`flex w-full items-center justify-between gap-2 px-4 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    open ? "bg-[#F3E8FF]" : "bg-white hover:bg-gray-50"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {open ? <FolderOpen className="h-5 w-5 shrink-0 text-[#9B59B6]" /> : <Folder className="h-5 w-5 shrink-0 text-[#9B59B6]" />}
+                    <span className="text-base font-extrabold text-gray-900">第 {n} 层</span>
+                    <span className="rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-1.5 py-0.5 text-xs font-extrabold text-gray-900">
+                      {st.count} 款
+                    </span>
+                    <span className="text-xs font-bold text-gray-400">{st.pieces} 件</span>
+                  </span>
+                  {open ? <ChevronUp className="h-5 w-5 shrink-0 text-gray-500" /> : <ChevronDown className="h-5 w-5 shrink-0 text-gray-500" />}
+                </button>
+                {open && (
+                  <div className="space-y-2 border-t-[3px] border-gray-900 p-2.5">
+                    {list.map((it) => (
+                      <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
+                    ))}
+                    {list.length === 0 && (
+                      <p className="py-4 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
