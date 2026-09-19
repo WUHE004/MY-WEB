@@ -39,6 +39,10 @@ const DEFAULT_MANUFACTURERS = [
 
 const SIZE_OPTIONS = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
+// 无尺码分类(母婴/日用/配饰等)的库存统一存放在 180 尺码下
+// (与售出清洗"无尺码填180"对齐, 避免入库在80、售出在180导致库存对不上)
+const NO_SIZE_STORE = 180;
+
 const SEASON_CATEGORIES = ["春季", "夏季", "秋季", "冬季", "四季通用"];
 
 // 含尺码的款式分类
@@ -782,19 +786,19 @@ export default function InboundPage() {
         photo: photo || "",
         name: name.trim(),
         manufacturer,
-        size_80: isNoSizeStyle ? standardSize : (sizes[80] || 0),
-        size_90: sizes[90] || 0,
-        size_95: sizes[95] || 0,
-        size_100: sizes[100] || 0,
-        size_105: sizes[105] || 0,
-        size_110: sizes[110] || 0,
-        size_120: sizes[120] || 0,
-        size_130: sizes[130] || 0,
-        size_140: sizes[140] || 0,
-        size_150: sizes[150] || 0,
-        size_160: sizes[160] || 0,
-        size_170: sizes[170] || 0,
-        size_180: sizes[180] || 0,
+        size_80: isNoSizeStyle ? 0 : (sizes[80] || 0),
+        size_90: isNoSizeStyle ? 0 : (sizes[90] || 0),
+        size_95: isNoSizeStyle ? 0 : (sizes[95] || 0),
+        size_100: isNoSizeStyle ? 0 : (sizes[100] || 0),
+        size_105: isNoSizeStyle ? 0 : (sizes[105] || 0),
+        size_110: isNoSizeStyle ? 0 : (sizes[110] || 0),
+        size_120: isNoSizeStyle ? 0 : (sizes[120] || 0),
+        size_130: isNoSizeStyle ? 0 : (sizes[130] || 0),
+        size_140: isNoSizeStyle ? 0 : (sizes[140] || 0),
+        size_150: isNoSizeStyle ? 0 : (sizes[150] || 0),
+        size_160: isNoSizeStyle ? 0 : (sizes[160] || 0),
+        size_170: isNoSizeStyle ? 0 : (sizes[170] || 0),
+        size_180: isNoSizeStyle ? standardSize : (sizes[180] || 0),
         shelf_no: getShelfNo(),
         cost_price: Number(costPrice),
         season,
@@ -930,9 +934,9 @@ export default function InboundPage() {
 
   const handleRestockSubmit = async () => {
     if (!restockProduct) return;
-    // 无尺码分类时只统计 size_80（标码），有尺码时统计全部
+    // 无尺码分类时只统计 size_180（标码），有尺码时统计全部
     const totalRestock = isRestockNoSize
-      ? restockSizes[80] || 0
+      ? restockSizes[NO_SIZE_STORE] || 0
       : Object.values(restockSizes).reduce((sum, v) => sum + v, 0);
     if (totalRestock === 0) {
       alert("请输入补录数量");
@@ -956,9 +960,9 @@ export default function InboundPage() {
         inbound_date: new Date().toISOString(),
       };
       for (const s of SIZE_OPTIONS) {
-        // 无尺码分类时，只有 size_80 写入补录数量，其他尺码为 0
+        // 无尺码分类时，只有 size_180 写入补录数量，其他尺码为 0
         if (isRestockNoSize) {
-          record[`size_${s}`] = s === 80 ? restockSizes[80] || 0 : 0;
+          record[`size_${s}`] = s === NO_SIZE_STORE ? restockSizes[NO_SIZE_STORE] || 0 : 0;
         } else {
           record[`size_${s}`] = restockSizes[s] || 0;
         }
@@ -2253,7 +2257,7 @@ export default function InboundPage() {
                         {isRestockNoSize ? "标码补录数量" : "补录数量"}
                       </label>
                       <span className="text-xs lg:text-sm font-bold text-[#7B61FF]">
-                        本次补录: {isRestockNoSize ? restockSizes[80] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件
+                        本次补录: {isRestockNoSize ? restockSizes[NO_SIZE_STORE] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件
                       </span>
                     </div>
                     {isRestockNoSize ? (
@@ -2262,12 +2266,12 @@ export default function InboundPage() {
                         <div className="w-40 rounded-xl border-[3px] border-gray-900 bg-white p-3">
                           <div className="text-center mb-2">
                             <span className="text-sm font-extrabold text-gray-900">标码</span>
-                            <p className="text-xs text-gray-500">当前 {(restockProduct._sizeTotals as Record<number, number>)[80] || 0} 件</p>
+                            <p className="text-xs text-gray-500">当前 {(restockProduct._sizeTotals as Record<number, number>)[NO_SIZE_STORE] || 0} 件</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => updateRestockSize(80, -1)}
+                              onClick={() => updateRestockSize(NO_SIZE_STORE, -1)}
                               className="flex h-9 w-9 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
                             >
                               <Minus className="h-4 w-4" />
@@ -2275,15 +2279,15 @@ export default function InboundPage() {
                             <input
                               type="text"
                               inputMode="numeric"
-                              value={restockSizes[80] || 0}
-                              onChange={(e) => setRestockSizeValue(80, e.target.value)}
+                              value={restockSizes[NO_SIZE_STORE] || 0}
+                              onChange={(e) => setRestockSizeValue(NO_SIZE_STORE, e.target.value)}
                               className={`w-full text-center text-lg font-extrabold border-none outline-none bg-transparent ${
-                                (restockSizes[80] || 0) > 0 ? "text-[#7B61FF]" : "text-gray-300"
+                                (restockSizes[NO_SIZE_STORE] || 0) > 0 ? "text-[#7B61FF]" : "text-gray-300"
                               }`}
                             />
                             <button
                               type="button"
-                              onClick={() => updateRestockSize(80, 1)}
+                              onClick={() => updateRestockSize(NO_SIZE_STORE, 1)}
                               className="flex h-9 w-9 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
                             >
                               <Plus className="h-4 w-4" />
@@ -2348,10 +2352,10 @@ export default function InboundPage() {
               <div className="p-4 lg:p-5 border-t-[2px] border-gray-200">
                 <button
                   onClick={handleRestockSubmit}
-                  disabled={restockSubmitting || (isRestockNoSize ? (restockSizes[80] || 0) === 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0) === 0)}
+                  disabled={restockSubmitting || (isRestockNoSize ? (restockSizes[NO_SIZE_STORE] || 0) === 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0) === 0)}
                   className="w-full py-3 text-sm lg:text-base font-extrabold text-white rounded-xl border-[3px] border-gray-900 bg-[#7B61FF] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {restockSubmitting ? "提交中..." : `确认补录 ${isRestockNoSize ? restockSizes[80] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件`}
+                  {restockSubmitting ? "提交中..." : `确认补录 ${isRestockNoSize ? restockSizes[NO_SIZE_STORE] || 0 : Object.values(restockSizes).reduce((sum, v) => sum + v, 0)} 件`}
                 </button>
               </div>
             )}
