@@ -110,6 +110,18 @@ function extractCode(text: string, size?: string): string {
   return "";
 }
 
+/** 判断是否为"可疑编号"行: 纯数字编号且未从标题尾部直接命中
+ * (尾部无3位数字匹配, 或尾部匹配与尺码相同而走了回退), 编号取自全文首个匹配,
+ * 如 "234...-120（建议100身高以内）"(编号234) 这类纯数字编号开头格式, 需人工比对确认 */
+function isSuspectCode(text: string, size: string, code: string): boolean {
+  if (!code || !/^\d+$/.test(code) || !size) return false;
+  const t = String(text ?? "");
+  if (!t.includes("-")) return false;
+  const tail = t.split("-").pop() || "";
+  const mt = tail.match(/(?<!\d)\d{3}(?!\d)/g);
+  return !mt || mt.length === 0 || mt[0] === size;
+}
+
 /** 提取拼多多商品规格中的尺码: 扫描全部数字, 返回第一个属于有效尺码的数字
  * (如 "桃色,9# 110"→110, "灰色,130"→130, "蓝色,23#"→无有效尺码返回空) */
 function extractPddSize(spec: string): string {
@@ -332,14 +344,16 @@ function isErrorRow(row: CleanRow): boolean {
   return !(row[0] && row[2] && row[3] && row[5]);
 }
 
-/** 清洗结果行背景色: 缺编号(红) > 缺尺码(黄) > 缺售价(橙) > 缺面单号(蓝) > 斑马纹
- * sizeFilled: 批量追加填入尺码的行, 保留黄色标记以提示原本缺尺码 */
-function rowBg(row: CleanRow, idx: number, selected: boolean, sizeFilled?: Set<number>): string {
+/** 清洗结果行背景色: 缺编号(红) > 缺尺码(黄) > 缺售价(橙) > 缺面单号(蓝) > 可疑编号(紫) > 斑马纹
+ * sizeFilled: 批量追加填入尺码的行, 保留黄色标记以提示原本缺尺码
+ * suspectRows: 可疑编号行(纯数字编号未从尾部直接命中), 提示人工比对 */
+function rowBg(row: CleanRow, idx: number, selected: boolean, sizeFilled?: Set<number>, suspectRows?: Set<number>): string {
   if (selected) return "bg-[#3375e6] text-white";
   if (!row[3]) return "bg-[#f8d7da]";
   if (!row[0] || sizeFilled?.has(idx)) return "bg-[#fff3cd]";
   if (!row[2]) return "bg-[#ffd9c0]";
   if (!row[5]) return "bg-[#d9e7fd]";
+  if (suspectRows?.has(idx)) return "bg-[#e6dcf5]";
   return idx % 2 === 1 ? "bg-gray-50" : "bg-white";
 }
 
@@ -388,6 +402,8 @@ export default function DataCleanPage() {
   const [manualSize, setManualSize] = useState("");
   // 批量填入过尺码的行索引(保留黄色背景提示原本缺尺码)
   const [sizeFilled, setSizeFilled] = useState<Set<number>>(new Set());
+  // 可疑编号行索引(纯数字编号未从标题尾部直接命中, 需人工比对)
+  const [suspectRows, setSuspectRows] = useState<Set<number>>(new Set());
 
   const sourceFilesRef = useRef<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -425,6 +441,8 @@ export default function DataCleanPage() {
     const ok: string[] = [];
     const failed: FailedFile[] = [];
     const sources = new Set<SourceType>();
+    // 可疑编号行索引(纯数字编号未从标题尾部直接命中)
+    const suspectIdx = new Set<number>();
     // 拼多多无面单号, 统一为 多多+当天日期(如 多多20260902)
     const pad2 = (n: number) => String(n).padStart(2, "0");
     const now = new Date();
@@ -463,7 +481,9 @@ export default function DataCleanPage() {
             const tracking = exprInfo ? exprInfo.split("-", 1)[0].trim() : "";
             orig.push({ file: file.name, vals: [text, qty, price, payTime, exprInfo] });
             const size = extractSize(text);
-            clean.push([size, qty, price, extractCode(text, size), payTime, tracking]);
+            const code = extractCode(text, size);
+            if (isSuspectCode(text, size, code)) suspectIdx.add(clean.length);
+            clean.push([size, qty, price, code, payTime, tracking]);
           }
         }
         ok.push(file.name);
@@ -481,6 +501,7 @@ export default function DataCleanPage() {
     setSelectedIdx(-1);
     setEditing(null);
     setSizeFilled(new Set());
+    setSuspectRows(suspectIdx);
     setSourceDisplay(supported.length === 1 ? supported[0].name : `已拖入 ${supported.length} 个表格文件`);
     setLoading(false);
   }, []);
@@ -570,6 +591,15 @@ export default function DataCleanPage() {
       next[idx] = row as CleanRow;
       return next;
     });
+    // 手动编辑过编号视为已人工确认, 清除可疑标记
+    if (col === 3) {
+      setSuspectRows((prev) => {
+        if (!prev.has(idx)) return prev;
+        const next = new Set(prev);
+        next.delete(idx);
+        return next;
+      });
+    }
     setEditing(null);
   };
 
@@ -857,7 +887,7 @@ export default function DataCleanPage() {
                         <tr
                           key={idx}
                           onClick={() => setSelectedIdx(idx)}
-                          className={`cursor-pointer ${rowBg(row, idx, selected, sizeFilled)}`}
+                          className={`cursor-pointer ${rowBg(row, idx, selected, sizeFilled, suspectRows)}`}
                         >
                           {row.map((cell, col) => (
                             <td
@@ -901,6 +931,7 @@ export default function DataCleanPage() {
             <span className="px-2 py-1 rounded bg-[#fff3cd] text-gray-800 border border-gray-400">缺尺码</span>
             <span className="px-2 py-1 rounded bg-[#ffd9c0] text-gray-800 border border-gray-400">缺售价</span>
             <span className="px-2 py-1 rounded bg-[#d9e7fd] text-gray-800 border border-gray-400">缺面单号</span>
+            <span className="px-2 py-1 rounded bg-[#e6dcf5] text-gray-800 border border-gray-400">可疑编号(请人工比对)</span>
             <span className="px-2 py-1 rounded bg-[#3375e6] text-white border border-gray-900">选中行</span>
           </div>
         )}
