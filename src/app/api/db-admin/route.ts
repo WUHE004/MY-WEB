@@ -127,7 +127,15 @@ export async function GET(request: NextRequest) {
         const cols = availableFilterCols[table];
         const conditions = cols.text.map((col) => `${col}.ilike.%${filter}%`);
         if (trimmed && /^-?\d+$/.test(trimmed)) {
-          for (const col of cols.num) conditions.push(`${col}.eq.${trimmed}`);
+          // int4 范围外的长数字（如 15 位面单号）跳过 integer 列，避免 "out of range for type integer"；
+          // 超过 1e15 的超大数字连 real 列也跳过；文本列的 ilike 模糊匹配不受影响
+          const n = Number(trimmed);
+          const inInt4 = Number.isFinite(n) && n >= -2147483648 && n <= 2147483647;
+          const safeReal = Number.isFinite(n) && Math.abs(n) <= 1e15;
+          for (const col of cols.num) {
+            if (isIntCol(col) ? !inInt4 : !safeReal) continue;
+            conditions.push(`${col}.eq.${trimmed}`);
+          }
         } else if (trimmed && /^-?\d+\.\d+$/.test(trimmed)) {
           for (const col of cols.num) {
             if (!isIntCol(col)) conditions.push(`${col}.eq.${trimmed}`);
