@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 每次构建生成唯一时间戳，内联到前端页面与 /api/version，
+  // 页面每 60 秒对比一次，不一致则清缓存并强刷（强制全员使用最新部署版本）
+  env: {
+    NEXT_PUBLIC_BUILD_TS: String(Math.floor(Date.now() / 1000)),
+  },
   // sharp 的 libvips 二进制（.so）通过 dlopen 动态加载，文件追踪无法自动发现，
   // 需显式包含进 serverless 函数包，否则 Vercel 上报 ERR_DLOPEN_FAILED: libvips-cpp.so
   outputFileTracingIncludes: {

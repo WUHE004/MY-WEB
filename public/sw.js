@@ -1,6 +1,8 @@
 // Service Worker - 版本化缓存策略
 // 版本号变更后浏览器会自动更新 SW 并清除旧缓存
-const SW_VERSION = "v1.2.0";
+// v2.0.0: 强制更新版本 —— 旧版本用户打开页面时 SW 自动升级,
+// 激活后清空全部历史缓存(含所有旧命名的缓存), 配合页面 60 秒版本心跳彻底摆脱旧版本
+const SW_VERSION = "v2.0.0";
 const STATIC_CACHE = `static-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const IMG_CACHE = `img-${SW_VERSION}`;
