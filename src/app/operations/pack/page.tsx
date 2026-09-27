@@ -81,6 +81,10 @@ export default function PackPage() {
   const [searched, setSearched] = useState(false);
   const [searching, setSearching] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  // 找齐/挂起提交锁: 请求未返回前禁止重复提交, 防止同面单号生成多份记录
+  const [submittingFind, setSubmittingFind] = useState(false);
+  // 找齐动画: 面单回缩成文件夹向右飞出, 结束后清理状态
+  const [flyOut, setFlyOut] = useState(false);
 
   const [packRecords, setPackRecords] = useState<PackRecord[]>([]);
   const [packFilter, setPackFilter] = useState<PackFilter>("");
@@ -169,6 +173,8 @@ export default function PackPage() {
   const handleSearch = () => doSearch(trackingNumber);
 
   const handleSubmitFind = async (status: "found" | "suspended") => {
+    if (submittingFind) return; // 提交中忽略重复点击
+    setSubmittingFind(true);
     const submitter = localStorage.getItem("member_name") || "未知";
     try {
       const res = await fetch("/api/pack", {
@@ -184,10 +190,21 @@ export default function PackPage() {
         }),
       });
       if (res.ok) {
-        alert(status === "found" ? "已标记为找齐" : "已挂起");
-        setSearchResults([]); setSearched(false); setTrackingNumber(""); fetchPackRecords();
+        if (status === "found") {
+          // 找齐: 无弹窗, 面单回缩成文件夹向右飞出后清理
+          setFlyOut(true);
+          window.setTimeout(() => {
+            setFlyOut(false);
+            setSearchResults([]); setSearched(false); setTrackingNumber("");
+            fetchPackRecords();
+          }, 950);
+        } else {
+          alert("已挂起");
+          setSearchResults([]); setSearched(false); setTrackingNumber(""); fetchPackRecords();
+        }
       } else { const err = await res.json(); alert("操作失败: " + (err.error || "未知错误")); }
     } catch { alert("网络错误，请重试"); }
+    finally { setSubmittingFind(false); }
   };
 
   const handlePackAction = async (recordId: number, status: string) => {
@@ -377,7 +394,7 @@ export default function PackPage() {
           )}
 
           {searchResults.length > 0 && (
-            <div>
+            <div className={flyOut ? "pack-fly-out" : ""}>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
                 {searchResults.map((item, index) => (
                   <div key={index} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
@@ -489,10 +506,10 @@ export default function PackPage() {
                 ))}
               </div>
               <div className="flex gap-3 sm:gap-4">
-                <button onClick={() => handleSubmitFind("found")} disabled={matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
+                <button onClick={() => handleSubmitFind("found")} disabled={submittingFind || flyOut || matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
                   <CheckCircle className="h-4 w-4" /><span>货已找齐</span>
                 </button>
-                <button onClick={() => handleSubmitFind("suspended")} disabled={matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
+                <button onClick={() => handleSubmitFind("suspended")} disabled={submittingFind || flyOut || matchedTrackingNumbers.length > 1} className="flex items-center justify-center gap-1.5 flex-1 py-2.5 sm:py-3 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:hover:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] disabled:hover:translate-y-0 disabled:cursor-not-allowed">
                   <PauseCircle className="h-4 w-4" /><span>挂起</span>
                 </button>
               </div>

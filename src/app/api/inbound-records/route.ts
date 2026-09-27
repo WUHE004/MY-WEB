@@ -119,13 +119,85 @@ export async function POST(request: NextRequest) {
 }
 
 // PUT: 编辑入库记录
+// 优先按行 id 精确更新(同编号多条入库记录时避免全行覆盖); 未提供 id 时按 sale_id 更新
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { sale_id, ...fields } = body;
+    const { sale_id, id, size_totals, ...fields } = body;
 
-    if (!sale_id) {
-      return NextResponse.json({ error: "sale_id 不能为空" }, { status: 400 });
+    if (!sale_id && !id) {
+      return NextResponse.json({ error: "sale_id 或 id 不能为空" }, { status: 400 });
+    }
+
+    // 错库存行内修正: 按编号设置每尺码入库总量(跨行分摊增减, 最新行优先), 用于总表错库存补充行直接改库存
+    if (size_totals && typeof size_totals === "object" && sale_id) {
+      const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+      const targets: Record<number, number> = {};
+      for (const s of SIZES) {
+        const v = size_totals[String(s)];
+        if (v !== undefined && v !== null && v !== "") targets[s] = Math.max(0, Number(v) || 0);
+      }
+      if (Object.keys(targets).length === 0) {
+        return NextResponse.json({ error: "没有需要调整的尺码" }, { status: 400 });
+      }
+
+      const sizeCols = "id," + SIZES.map((s) => `size_${s}`).join(",");
+      const { data: rows, error: fetchErr } = await supabase
+        .from("inbound_records")
+        .select(sizeCols)
+        .eq("sale_id", sale_id)
+        .order("id", { ascending: false });
+
+      if (fetchErr) {
+        return NextResponse.json({ error: fetchErr.message }, { status: 400 });
+      }
+      const rowList = (rows || []) as unknown as Record<string, unknown>[];
+      if (rowList.length === 0) {
+        return NextResponse.json({ error: "该编号没有入库记录" }, { status: 400 });
+      }
+
+      // 计算每行需要变更的尺码值
+      const updates: { id: number; changes: Record<string, number> }[] = rowList.map((r) => ({ id: Number(r.id), changes: {} }));
+      for (const s of Object.keys(targets).map(Number)) {
+        const col = `size_${s}`;
+        const current = rowList.reduce((sum, r) => sum + (Number(r[col]) || 0), 0);
+        const delta = targets[s] - current;
+
+        if (delta > 0) {
+          // 增加: 优先加到已有该尺码的最新一行, 否则加到最新一行
+          const idx = rowList.findIndex((r) => (Number(r[col]) || 0) > 0);
+          const t = idx >= 0 ? idx : 0;
+          updates[t].changes[col] = (Number(rowList[t][col]) || 0) + delta;
+        } else if (delta < 0) {
+          // 减少: 从最新行开始逐行扣减, 不低于0
+          let need = -delta;
+          for (let i = 0; i < rowList.length && need > 0; i++) {
+            const have = Number(rowList[i][col]) || 0;
+            if (have <= 0) continue;
+            const take = Math.min(have, need);
+            updates[i].changes[col] = have - take;
+            need -= take;
+          }
+        }
+      }
+
+      // 应用更新并重算每行 total_stock
+      for (const u of updates) {
+        if (Object.keys(u.changes).length === 0) continue;
+        const orig = rowList.find((r) => Number(r.id) === u.id) as Record<string, unknown>;
+        let total = 0;
+        const updateData: Record<string, unknown> = { ...u.changes };
+        for (const s of SIZES) {
+          total += u.changes[`size_${s}`] !== undefined ? u.changes[`size_${s}`] : Number(orig[`size_${s}`]) || 0;
+        }
+        updateData.total_stock = total;
+        const { error: updErr } = await supabase.from("inbound_records").update(updateData).eq("id", u.id);
+        if (updErr) {
+          return NextResponse.json({ error: updErr.message }, { status: 400 });
+        }
+      }
+
+      return NextResponse.json({ message: "入库尺码已修正", sale_id, adjusted: Object.keys(targets).length });
     }
 
     // 计算 total_stock
@@ -153,12 +225,12 @@ export async function PUT(request: NextRequest) {
 
     if (totalStock > 0 || Object.keys(updateData).some((k) => k.startsWith("size_"))) {
       // 如果修改了尺码，需要重新计算 total_stock
-      // 先获取现有记录中未修改的尺码值
-      const { data: existing } = await supabase
-        .from("inbound_records")
-        .select("size_80,size_90,size_95,size_100,size_105,size_110,size_120,size_130,size_140,size_150,size_160,size_170,size_180")
-        .eq("sale_id", sale_id)
-        .maybeSingle();
+      // 先获取现有记录中未修改的尺码值（优先按 id 精确取行；否则按 sale_id 取第一行, limit(1) 避免多行报错）
+      const sizeCols = "size_80,size_90,size_95,size_100,size_105,size_110,size_120,size_130,size_140,size_150,size_160,size_170,size_180";
+      const fetchExisting = id
+        ? supabase.from("inbound_records").select(sizeCols).eq("id", id).maybeSingle()
+        : supabase.from("inbound_records").select(sizeCols).eq("sale_id", sale_id).limit(1).maybeSingle();
+      const { data: existing } = await fetchExisting;
 
       let calculatedTotal = totalStock;
       if (existing) {
@@ -176,10 +248,10 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "没有需要更新的字段" }, { status: 400 });
     }
 
-    const { error } = await supabase
-      .from("inbound_records")
-      .update(updateData)
-      .eq("sale_id", sale_id);
+    const updateQuery = supabase.from("inbound_records").update(updateData);
+    const { error } = id
+      ? await updateQuery.eq("id", id)
+      : await updateQuery.eq("sale_id", sale_id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

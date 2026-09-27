@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   ArrowLeft,
   Loader2,
   ChevronRight,
   Warehouse,
+  Rows4,
   Package,
   Truck,
   Crosshair,
@@ -14,8 +15,13 @@ import {
   FolderOpen,
   ChevronUp,
   ChevronDown,
+  QrCode,
+  Download,
+  Lock,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
+import QRCode from "qrcode";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
 
@@ -58,15 +64,6 @@ function parseShelfNo(s: string): { l1: string; l2: string; l3: string } | null 
   return null;
 }
 
-function fmtDate(v: string): string {
-  if (!v) return "-";
-  try {
-    return new Date(v).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).replace(/\//g, "/");
-  } catch {
-    return v;
-  }
-}
-
 export default function StocktakePage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<StockItem[]>([]);
@@ -77,6 +74,14 @@ export default function StocktakePage() {
   const [zone, setZone] = useState<string>("");
   const [shelf, setShelf] = useState<string>(""); // 货架号数字部分, 如 "1"
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set()); // 展开的层, key = "货架-层"
+
+  // 扫码直达货架的权限拦截提示
+  const [qrDenied, setQrDenied] = useState<"" | "login" | "role">("");
+
+  // 货架二维码弹窗
+  const [qrShelf, setQrShelf] = useState(""); // 货架号数字部分
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [qrLoading, setQrLoading] = useState(false);
 
   // 搬货弹窗
   const [moveItem, setMoveItem] = useState<StockItem | null>(null);
@@ -112,6 +117,25 @@ export default function StocktakePage() {
   }, []);
 
   useEffect(() => {
+    // 扫码直达货架: /operations/stocktake?zone=A&shelf=1（二维码贴在货架上, 扫码直接打开该货架盘点）
+    const params = new URLSearchParams(window.location.search);
+    const z = params.get("zone");
+    const s = params.get("shelf");
+    if (z && s) {
+      const token = localStorage.getItem("member_token");
+      if (!token) {
+        setQrDenied("login");
+        setLoading(false);
+        return;
+      }
+      if ((localStorage.getItem("member_role") || "") !== "admin") {
+        setQrDenied("role");
+        setLoading(false);
+        return;
+      }
+      setZone(z);
+      setShelf(s);
+    }
     load();
   }, [load]);
 
@@ -311,7 +335,92 @@ export default function StocktakePage() {
     }
   };
 
+  // ---------- 货架二维码 ----------
+  // 生成单个货架的二维码图片（含货架名 + 层数, 可下载后用快递面单纸打印贴在货架上）
+  const openQr = async (shelfNo: string) => {
+    setQrShelf(shelfNo);
+    setQrDataUrl("");
+    setQrLoading(true);
+    try {
+      const url = `${window.location.origin}/operations/stocktake?zone=${encodeURIComponent(zone)}&shelf=${encodeURIComponent(shelfNo)}`;
+      const qr = await QRCode.toDataURL(url, {
+        width: 320,
+        margin: 1,
+        errorCorrectionLevel: "M",
+        color: { dark: "#000000", light: "#FFFFFF" },
+      });
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = reject;
+        img.src = qr;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = 400;
+      canvas.height = 500;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 不可用");
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, 400, 500);
+      ctx.fillStyle = "#171717";
+      ctx.textAlign = "center";
+      // 货架名
+      ctx.font = "bold 60px 'Microsoft YaHei', 'PingFang SC', sans-serif";
+      ctx.fillText(`${zone}${shelfNo}`, 200, 84);
+      // 二维码
+      ctx.drawImage(img, 40, 110, 320, 320);
+      // 层数
+      ctx.font = "bold 38px 'Microsoft YaHei', 'PingFang SC', sans-serif";
+      ctx.fillText(`共 ${DEFAULT_LAYERS.length} 层`, 200, 478);
+      setQrDataUrl(canvas.toDataURL("image/png"));
+    } catch {
+      showToast("生成二维码失败", "error");
+    } finally {
+      setQrLoading(false);
+    }
+  };
+
+  const downloadQr = () => {
+    if (!qrDataUrl) return;
+    const a = document.createElement("a");
+    a.href = qrDataUrl;
+    a.download = `货架${zone}${qrShelf}二维码.png`;
+    a.click();
+  };
+
   // ---------- 渲染 ----------
+  // 扫码进入但未登录 / 权限不足的提示页
+  if (qrDenied) {
+    return (
+      <PageWrapper>
+        <div className="flex min-h-[60vh] flex-col items-center justify-center">
+          <div className="w-full max-w-xs rounded-2xl border-[3px] border-gray-900 bg-white p-6 text-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+            <div
+              className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl border-2 border-gray-900 ${
+                qrDenied === "login" ? "bg-[#FFC93C]" : "bg-[#FF6B7A]"
+              }`}
+            >
+              {qrDenied === "login" ? <Lock className="h-6 w-6 text-gray-900" /> : <ShieldAlert className="h-6 w-6 text-white" />}
+            </div>
+            <p className="text-lg font-extrabold text-gray-900">
+              {qrDenied === "login" ? "先登录吧" : "权限不足，请联系管理员"}
+            </p>
+            <div className="mt-4 flex gap-2">
+              {qrDenied === "login" && (
+                <Link href="/login" className="neo-btn flex-1 bg-[#9B59B6] px-3 py-2 text-sm text-white">
+                  去登录
+                </Link>
+              )}
+              <Link href="/" className="neo-btn flex-1 bg-white px-3 py-2 text-sm text-gray-900">
+                返回首页
+              </Link>
+            </div>
+          </div>
+        </div>
+      </PageWrapper>
+    );
+  }
+
   if (loading) {
     return (
       <PageWrapper>
@@ -328,79 +437,92 @@ export default function StocktakePage() {
 
   return (
     <PageWrapper>
-      {/* 标题行（标题带背景, 参考管理栏顶部标题样式） */}
-      <div className="mb-3 flex items-center gap-3">
-        <Link href="/links" className="neo-btn bg-white p-2" aria-label="返回">
+      {/* 标题行（标题带背景, 与返回按钮同高） */}
+      <div className="mb-3 flex items-stretch gap-3">
+        <Link href="/links" className="neo-btn flex items-center bg-white p-2" aria-label="返回">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-xl lg:text-2xl font-extrabold text-gray-900">
-          <span className="highlight-purple">库存盘点</span>
+        <h1 className="flex items-stretch text-2xl font-extrabold text-gray-900">
+          <span className="highlight-purple flex items-center">库存盘点</span>
         </h1>
         {calibrations.length > 0 && (
-          <span className="rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white">
+          <span className="self-center rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white">
             校准待办 {calibrations.length}
           </span>
         )}
       </div>
 
-      {/* 分区按钮条（sticky 置顶, 左右滑动, 不参与上下滚动; 底部留投影空间防截断） */}
-      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:mx-0 mb-2 bg-white px-4 sm:px-6 lg:px-0 pt-2 pb-1 border-b-2 border-gray-900">
+      {/* 顶部固定区: 分区按钮条 + 级联路径小字（置于横线上方, 滚动时固定） */}
+      <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 lg:mx-0 mb-2 bg-white px-4 sm:px-6 lg:px-0 pt-2 pb-2 border-b-2 border-gray-900">
         <div className="flex gap-2 overflow-x-auto overflow-y-hidden no-scrollbar pb-[3px]">
           {zones.map((z) => (
             <button
               key={z}
               onClick={() => { setZone(z); setShelf(""); setExpandedLayers(new Set()); }}
-              className={`flex shrink-0 items-center gap-1 rounded-xl border-[3px] border-gray-900 px-4 py-2 text-sm font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
-                zone === z ? "bg-[#9B59B6] text-white" : "bg-white text-gray-700"
+              className={`flex shrink-0 items-center gap-1.5 rounded-xl border-[3px] px-4 py-2 font-bold text-xs lg:text-sm transition-all ${
+                zone === z
+                  ? "border-gray-900 bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
+                  : "border-gray-300 bg-white text-gray-600 hover:border-gray-900"
               }`}
             >
-              <Warehouse className="h-4 w-4" />
+              <Rows4 className="h-4 w-4" />
               {z === NO_ZONE ? z : `${z}区`}
             </button>
           ))}
         </div>
+        {/* 级联路径: A区 ＞ A1货架 */}
+        {zone && (
+          <div className="mt-1 flex items-center gap-1 text-sm font-extrabold text-gray-500">
+            <button onClick={() => { setShelf(""); setExpandedLayers(new Set()); }} className={`hover:text-gray-900 ${inZoneView ? "text-gray-900" : ""}`}>
+              {zone === NO_ZONE ? NO_ZONE : `${zone}区`}
+            </button>
+            {shelf && (
+              <>
+                <ChevronRight className="h-4 w-4" />
+                <span className="text-gray-900">{zone}{shelf} 货架</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* 面包屑 */}
-      {zone && (
-        <div className="mb-3 flex items-center gap-1 text-sm font-extrabold text-gray-500">
-          <button onClick={() => { setShelf(""); setExpandedLayers(new Set()); }} className={`hover:text-gray-900 ${inZoneView ? "text-gray-900" : ""}`}>
-            {zone === NO_ZONE ? NO_ZONE : `${zone}区`}
-          </button>
-          {shelf && (
-            <>
-              <ChevronRight className="h-4 w-4" />
-              <span className="text-gray-900">{zone}{shelf} 货架</span>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* 未选中分区 */}
+      {/* 未选中分区（线条标识, 无外框） */}
       {!zone && (
-        <div className="rounded-2xl border-2 border-gray-900 bg-gray-50 p-6 text-center">
+        <div className="flex items-center justify-center gap-3 py-8">
+          <span className="h-[3px] w-12 rounded-full bg-gray-300" />
           <p className="text-sm font-bold text-gray-500">点击上方分区按钮开始浏览货架库存</p>
+          <span className="h-[3px] w-12 rounded-full bg-gray-300" />
         </div>
       )}
 
-      {/* 视图1: 货架大分区卡片（左大字货架名 + 款数/件数, 右图标, 参考操作栏按钮样式） */}
+      {/* 视图1: 货架大分区卡片（左大字货架名 + 款数/件数, 右二维码按钮） */}
       {zone && inZoneView && zone !== NO_ZONE && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
           {shelves.map((n) => {
             const st = shelfStats.get(String(n)) || { count: 0, pieces: 0 };
             return (
-              <button
-                key={n}
-                onClick={() => { setShelf(String(n)); setExpandedLayers(new Set()); }}
-                className="flex w-full items-center justify-between gap-2 rounded-2xl border-[3px] border-gray-900 bg-white px-4 py-3.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none hover:bg-[#F3E8FF]"
-              >
-                <div className="min-w-0 text-left">
-                  <span className="block text-xl font-extrabold leading-tight text-gray-900">货架{zone}{n}</span>
-                  <span className="mt-0.5 block text-sm font-extrabold text-[#9B59B6]">{st.count} 款</span>
-                  <span className="mt-0.5 block text-xs font-bold text-gray-400">{st.pieces} 件</span>
-                </div>
-                <Warehouse className="h-8 w-8 shrink-0 text-[#9B59B6]" />
-              </button>
+              <div key={n} className="flex w-full overflow-hidden rounded-2xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                <button
+                  onClick={() => { setShelf(String(n)); setExpandedLayers(new Set()); }}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 px-4 py-3.5 text-left transition-colors hover:bg-[#F3E8FF] active:bg-[#F3E8FF]"
+                >
+                  <div className="min-w-0">
+                    <span className="block text-xl font-extrabold leading-tight text-gray-900">{zone}{n}</span>
+                    <span className="mt-0.5 block text-sm font-extrabold text-[#9B59B6]">{st.count} 款</span>
+                    <span className="mt-0.5 block text-xs font-bold text-gray-400">{st.pieces} 件</span>
+                  </div>
+                  <Warehouse className="h-8 w-8 shrink-0 text-[#9B59B6]" />
+                </button>
+                <button
+                  onClick={() => openQr(String(n))}
+                  title="货架二维码"
+                  aria-label={`货架${zone}${n}二维码`}
+                  className="flex w-11 shrink-0 flex-col items-center justify-center gap-1 border-l-[3px] border-gray-900 bg-white transition-colors hover:bg-[#F3E8FF]"
+                >
+                  <QrCode className="h-5 w-5 text-gray-900" />
+                  <span className="text-[10px] font-extrabold text-gray-700">码</span>
+                </button>
+              </div>
             );
           })}
           {shelves.length === 0 && (
@@ -413,7 +535,7 @@ export default function StocktakePage() {
       {zone === NO_ZONE && inZoneView && (
         <div>
           <p className="mb-2 text-sm font-bold text-gray-500">共 {noZoneItems.length} 款未分配货架</p>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {noZoneItems.map((it) => (
               <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
             ))}
@@ -421,7 +543,7 @@ export default function StocktakePage() {
         </div>
       )}
 
-      {/* 视图2: 层文件夹列表（点击下拉显示商品, 再点击收回） */}
+      {/* 视图2: 层文件夹列表（点击下拉显示商品, 再点击收回; 桌面端一行3个商品卡片） */}
       {inShelfView && (
         <div className="space-y-2.5">
           {DEFAULT_LAYERS.map((n) => {
@@ -449,12 +571,12 @@ export default function StocktakePage() {
                   {open ? <ChevronUp className="h-5 w-5 shrink-0 text-gray-500" /> : <ChevronDown className="h-5 w-5 shrink-0 text-gray-500" />}
                 </button>
                 {open && (
-                  <div className="space-y-2 border-t-[3px] border-gray-900 p-2.5">
+                  <div className="grid grid-cols-1 gap-2 border-t-[3px] border-gray-900 p-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     {list.map((it) => (
                       <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
                     ))}
                     {list.length === 0 && (
-                      <p className="py-4 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
+                      <p className="col-span-full py-4 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
                     )}
                   </div>
                 )}
@@ -592,11 +714,52 @@ export default function StocktakePage() {
           </div>
         </div>
       )}
+
+      {/* 货架二维码弹窗: 预览 + 下载（打印贴货架, 扫码直达该货架盘点） */}
+      {qrShelf && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setQrShelf("")}>
+          <div
+            className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
+                <QrCode className="h-5 w-5" />
+                货架二维码 - {zone}{qrShelf}
+              </h3>
+              <button onClick={() => setQrShelf("")} className="rounded-lg p-1 hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <p className="mb-3 text-xs font-bold text-gray-400">
+              扫码直达该货架盘点 · 共 {DEFAULT_LAYERS.length} 层 · 下载后可用快递面单纸打印贴在货架上
+            </p>
+            <div className="flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white p-3">
+              {qrLoading ? (
+                <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
+              ) : qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrDataUrl} alt={`货架${zone}${qrShelf}二维码`} className="w-full max-w-[260px]" />
+              ) : (
+                <p className="py-10 text-sm font-bold text-gray-400">二维码生成失败</p>
+              )}
+            </div>
+            <button
+              onClick={downloadQr}
+              disabled={!qrDataUrl}
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] px-4 py-2.5 text-sm font-extrabold text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              下载二维码
+            </button>
+          </div>
+        </div>
+      )}
     </PageWrapper>
   );
 }
 
-// 商品小卡片（参考管理栏总表样式, 适当缩小）
+// 商品小卡片（尺码数量 150:15 格式, 搬货/校准按钮在卡片右侧）
 function ItemCard({
   it,
   onMove,
@@ -606,11 +769,16 @@ function ItemCard({
   onMove: (it: StockItem) => void;
   onCalibrate: (it: StockItem) => void;
 }) {
+  const totalPieces = it.sizes.reduce((s, x) => s + x.qty, 0);
   return (
-    <div className="rounded-2xl border-[3px] border-gray-900 bg-white p-2.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+    <div className="relative rounded-2xl border-[3px] border-gray-900 bg-white p-2.5 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+      {/* 件数角标（卡片右上角） */}
+      <span className="absolute right-2 top-2 z-10 rounded-md border-2 border-gray-900 bg-[#9B59B6] px-1.5 py-0.5 text-[11px] font-extrabold leading-none text-white">
+        {totalPieces}件
+      </span>
       <div className="flex gap-2.5">
         {/* 图片 */}
-        <div className="w-20 shrink-0">
+        <div className="w-24 shrink-0">
           {it.photo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -621,36 +789,34 @@ function ItemCard({
             />
           ) : (
             <div className="flex aspect-[4/5] w-full items-center justify-center rounded-lg border-2 border-gray-300 bg-gray-100">
-              <Package className="h-6 w-6 text-gray-300" />
+              <Package className="h-7 w-7 text-gray-300" />
             </div>
           )}
         </div>
-        {/* 信息区 */}
+        {/* 信息区（标题/名称/进价） + 操作按钮（图片右边, 尺码上面） */}
         <div className="min-w-0 flex-1">
-          <p className="text-base font-extrabold text-gray-900 truncate">{it.sale_id}</p>
-          <p className="text-xs font-bold text-gray-500 truncate">{it.name || "未命名"}</p>
-          {/* 信息格子（参考总表两列格子, 缩小版） */}
-          <div className="mt-1 grid grid-cols-2 divide-x-2 divide-y-2 divide-gray-200 border-2 border-gray-200 rounded-lg overflow-hidden text-[11px] font-bold">
-            <div className="bg-gray-50 px-1.5 py-1">
-              <span className="text-gray-400">进价 </span>
-              <span className="font-extrabold text-gray-900">¥{it.cost_price}</span>
-            </div>
-            <div className="bg-gray-50 px-1.5 py-1 truncate">
-              <span className="text-gray-400">厂家 </span>
-              <span className="text-gray-700">{it.manufacturer || "-"}</span>
-            </div>
-            <div className="bg-gray-50 px-1.5 py-1">
-              <span className="text-gray-400">入库 </span>
-              <span className="text-gray-700">{fmtDate(it.inbound_date)}</span>
-            </div>
-            <div className="bg-gray-50 px-1.5 py-1">
-              <span className="text-gray-400">货架 </span>
-              <span className="text-gray-700">{it.shelf_no || "-"}</span>
-            </div>
+          <p className="truncate pr-14 text-lg font-extrabold leading-tight text-gray-900">{it.sale_id}</p>
+          <p className="truncate pr-14 text-xs font-bold text-gray-500">{it.name || "未命名"}</p>
+          <p className="text-xs font-extrabold text-gray-900">进价 ¥{it.cost_price}</p>
+          <div className="mt-1.5 flex gap-2">
+            <button
+              onClick={() => onMove(it)}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#4A90E2] text-xs font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              <Truck className="h-3.5 w-3.5" />
+              搬货
+            </button>
+            <button
+              onClick={() => onCalibrate(it)}
+              className="flex h-9 flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#FFC93C] text-xs font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              <Crosshair className="h-3.5 w-3.5" />
+              校准
+            </button>
           </div>
         </div>
       </div>
-      {/* 尺码数量（黄色块） */}
+      {/* 尺码数量（卡片最下一排展开）: 150:15 */}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {it.sizes.map((s) => (
           <span
@@ -659,26 +825,9 @@ function ItemCard({
               s.qty > 0 ? "bg-[#FFC93C] text-gray-900" : s.qty < 0 ? "bg-[#FF6B7A] text-white" : "bg-gray-100 text-gray-400"
             }`}
           >
-            {s.size}码 · {s.qty}
+            {s.size}:{s.qty}
           </span>
         ))}
-      </div>
-      {/* 操作按钮 */}
-      <div className="mt-2 flex gap-2">
-        <button
-          onClick={() => onMove(it)}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#4A90E2] px-3 py-1.5 text-xs font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-        >
-          <Truck className="h-3.5 w-3.5" />
-          搬货
-        </button>
-        <button
-          onClick={() => onCalibrate(it)}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg border-2 border-gray-900 bg-[#FFC93C] px-3 py-1.5 text-xs font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-        >
-          <Crosshair className="h-3.5 w-3.5" />
-          校准
-        </button>
       </div>
     </div>
   );

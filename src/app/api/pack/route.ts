@@ -31,7 +31,7 @@ export async function GET() {
   }
 }
 
-// POST: 创建打包记录
+// POST: 创建打包记录(同面单号未发货记录幂等去重: 重复提交时更新原记录并替换明细)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -41,11 +41,66 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "面单号不能为空" }, { status: 400 });
     }
 
-    // 创建打包记录
+    const tn = tracking_number.trim();
+    const buildItems = (packId: number) =>
+      items && Array.isArray(items) && items.length > 0
+        ? items.map((item: Record<string, unknown>) => ({
+            pack_id: packId,
+            sale_id: item.sale_id || "",
+            photo: item.photo || "",
+            product_name: item.product_name || "",
+            size: Number(item.size) || 0,
+            quantity: Number(item.quantity) || 0,
+            sell_price: Number(item.sell_price) || 0,
+            shelf_no: item.shelf_no || "",
+            order_time: item.order_time || "",
+            manufacturer: item.manufacturer || "",
+          }))
+        : [];
+
+    // 幂等去重: 同面单号已有未发货(pending/found/suspended)记录时, 更新该记录并替换明细, 不再重复新建
+    const { data: existing } = await supabase
+      .from("pack_records")
+      .select("id")
+      .eq("tracking_number", tn)
+      .in("status", ["pending", "found", "suspended"])
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      const rid = existing[0].id;
+      const { data: record, error: updErr } = await supabase
+        .from("pack_records")
+        .update({ status: status || "pending", submitter: submitter || "", updated_at: new Date().toISOString() })
+        .eq("id", rid)
+        .select()
+        .single();
+
+      if (updErr) {
+        return NextResponse.json({ error: updErr.message }, { status: 400 });
+      }
+
+      // 替换明细: 先删旧再插新
+      const { error: delErr } = await supabase.from("pack_items").delete().eq("pack_id", rid);
+      if (delErr) {
+        return NextResponse.json({ error: delErr.message }, { status: 400 });
+      }
+      const newItems = buildItems(rid);
+      if (newItems.length > 0) {
+        const { error: itemsErr } = await supabase.from("pack_items").insert(newItems);
+        if (itemsErr) {
+          return NextResponse.json({ error: itemsErr.message }, { status: 400 });
+        }
+      }
+
+      return NextResponse.json({ ...record, items: items || [] }, { status: 200 });
+    }
+
+    // 新建打包记录
     const { data: record, error: recordErr } = await supabase
       .from("pack_records")
       .insert({
-        tracking_number: tracking_number.trim(),
+        tracking_number: tn,
         status: status || "pending",
         submitter: submitter || "",
         packer: "",
@@ -58,20 +113,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 插入关联商品
-    if (items && Array.isArray(items) && items.length > 0) {
-      const packItems = items.map((item: Record<string, unknown>) => ({
-        pack_id: record.id,
-        sale_id: item.sale_id || "",
-        photo: item.photo || "",
-        product_name: item.product_name || "",
-        size: Number(item.size) || 0,
-        quantity: Number(item.quantity) || 0,
-        sell_price: Number(item.sell_price) || 0,
-        shelf_no: item.shelf_no || "",
-        order_time: item.order_time || "",
-        manufacturer: item.manufacturer || "",
-      }));
-
+    const packItems = buildItems(record.id);
+    if (packItems.length > 0) {
       const { error: itemsErr } = await supabase.from("pack_items").insert(packItems);
       if (itemsErr) {
         return NextResponse.json({ error: itemsErr.message }, { status: 400 });

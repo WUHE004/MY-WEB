@@ -65,7 +65,9 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js?v=1.2.0').then((reg) => {
+                  navigator.serviceWorker.register('/sw.js?v=2.0.0').then((reg) => {
+                    // 每次打开页面立即检查一次 SW 更新
+                    reg.update().catch(() => {});
                     // 检测新版本 SW，自动激活
                     reg.addEventListener('updatefound', () => {
                       const newWorker = reg.installing;
@@ -78,12 +80,45 @@ export default function RootLayout({
                       }
                     });
                   }).catch(() => {});
-                  // 新 SW 激活后自动刷新页面
+                  // 新 SW 激活后自动刷新页面（加锁防止连续刷新）
+                  let refreshing = false;
                   navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (refreshing) return;
+                    refreshing = true;
                     window.location.reload();
                   });
                 });
               }
+              // 版本心跳：服务端部署新版本后，已打开的旧页面在 60 秒内自动强刷到最新版
+              (function () {
+                var BV = "${process.env.NEXT_PUBLIC_BUILD_TS || ""}";
+                if (!BV) return;
+                var lastTry = 0;
+                function hardRefresh() {
+                  var now = Date.now();
+                  if (now - lastTry < 60000) return; // 防刷新风暴：60 秒内只触发一次
+                  lastTry = now;
+                  var done = false;
+                  var reload = function () { if (!done) { done = true; window.location.reload(); } };
+                  setTimeout(reload, 3000); // 兜底：清理卡住时 3 秒后也强制刷新
+                  var clearCaches = ('caches' in window)
+                    ? caches.keys().then(function (keys) { return Promise.all(keys.map(function (k) { return caches.delete(k); })); })
+                    : Promise.resolve();
+                  var unregisterSW = ('serviceWorker' in navigator)
+                    ? navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })
+                    : Promise.resolve();
+                  clearCaches.then(unregisterSW).then(reload).catch(reload);
+                }
+                function checkVersion() {
+                  fetch('/api/version', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+                    if (d && d.v && d.v !== BV) hardRefresh();
+                  }).catch(function () {});
+                }
+                setInterval(checkVersion, 60000);
+                document.addEventListener('visibilitychange', function () {
+                  if (!document.hidden) setTimeout(checkVersion, 500);
+                });
+              })();
             `,
           }}
         />

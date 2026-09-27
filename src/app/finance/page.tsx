@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo, useDeferredValue } from "react";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair } from "lucide-react";
+import { useState, useEffect, useMemo, useDeferredValue, Fragment } from "react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { authFetch } from "@/lib/auth-fetch";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -42,6 +42,10 @@ interface SummaryRow {
   manufacturer: string;
   photo: string;
   shelf_no: string;
+  // 最新入库日期 / 最近售卖登记日期(桌面表格展示) + 每尺码入库量(错库存对照)
+  inbound_date?: string;
+  last_order_time?: string;
+  inbound_sizes?: Record<string, number>;
   [sizeKey: string]: unknown;
 }
 
@@ -134,19 +138,16 @@ function FilterTag({ label, active, onClick, value }: { label: string; active: b
   );
 }
 
-// 筛选选项按钮
-function FilterOption({ label, color, active, onClick }: { label: string; color: "red" | "yellow" | "green" | "blue" | "gray"; active: boolean; onClick: () => void }) {
-  const colorMap: Record<string, string> = {
-    red: active ? "bg-red-500 text-white border-red-500" : "border-red-500 text-red-500 hover:bg-red-50",
-    yellow: active ? "bg-yellow-500 text-white border-yellow-500" : "border-yellow-500 text-yellow-600 hover:bg-yellow-50",
-    green: active ? "bg-green-500 text-white border-green-500" : "border-green-500 text-green-600 hover:bg-green-50",
-    blue: active ? "bg-blue-500 text-white border-blue-500" : "border-blue-500 text-blue-600 hover:bg-blue-50",
-    gray: active ? "bg-gray-900 text-white border-gray-900" : "border-gray-900 text-gray-700 hover:bg-gray-50",
-  };
+// 筛选选项按钮（黑字黑框, 选中黑底白字）
+function FilterOption({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className={`h-8 inline-flex items-center px-3 rounded-lg border-[2px] text-xs font-bold transition-all whitespace-nowrap ${colorMap[color]}`}
+      className={`h-8 inline-flex items-center px-3 rounded-lg border-[2px] text-xs font-bold transition-all whitespace-nowrap ${
+        active
+          ? "bg-gray-900 text-white border-gray-900"
+          : "bg-white border-gray-900 text-gray-900 hover:bg-gray-100"
+      }`}
     >
       {label}
     </button>
@@ -170,6 +171,9 @@ export default function FinancePage() {
   const [stockFilter, setStockFilter] = useState<string>("");
   const [valueFilter, setValueFilter] = useState<string>("");
   const [errorFilter, setErrorFilter] = useState(false);
+  // 错库存行内修正: 尺码输入值(键 `${sale_id}|${尺码}`) + 保存中标记
+  const [errorSizeEdits, setErrorSizeEdits] = useState<Record<string, string>>({});
+  const [savingErrorSizes, setSavingErrorSizes] = useState<string | null>(null);
   const [uninboundFilter, setUninboundFilter] = useState(false);
   // 新增筛选：库存预警 / 热销排行 / 退货分析 / 厂家
   const [alertFilter, setAlertFilter] = useState<string>("");
@@ -179,6 +183,15 @@ export default function FinancePage() {
   // 总表筛选/排序下拉菜单
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+  // 直播选品模式: 总表卡片右上角渠道角标变为选品按钮
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [liveSelectedIds, setLiveSelectedIds] = useState<Set<string>>(new Set());
+  // 直播改价: sale_id → 新售价(存于 settings.live_prices, 直播选品卡片角标显示)
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
+  const [priceEditProduct, setPriceEditProduct] = useState<{ sale_id: string; name: string; sellPrice: number } | null>(null);
+  const [priceInput, setPriceInput] = useState("");
+  // 今日(北京时间)选品数, 选品模式按钮按日期刷新计数
+  const [liveTodayCount, setLiveTodayCount] = useState(0);
   // 移动端滚动时收起统计卡片(平滑过渡), 回到顶部再展开
   const [statsCollapsed, setStatsCollapsed] = useState(false);
   useEffect(() => {
@@ -198,7 +211,133 @@ export default function FinancePage() {
       document.documentElement.style.overflowAnchor = "";
     };
   }, []);
-  const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate" | "stock" | "inbound">("");
+  const [sortBy, setSortBy] = useState<"" | "sales" | "profitRate" | "returnRate" | "stock" | "inbound" | "inboundTime">("");
+  // 排序方向: true=从大到小(首次点击默认), false=从小到大(再点击一次切换)
+  const [sortDesc, setSortDesc] = useState(true);
+
+  // ===== 直播选品模式 =====
+  // 拉取当前全部选品编号(任意成员)
+  const fetchLiveSelections = async () => {
+    try {
+      const res = await fetch("/api/live-selections", { cache: "no-store" });
+      const data = await res.json();
+      if (Array.isArray(data.selections)) {
+        const rows = data.selections as { sale_id: string; created_at: string }[];
+        // 选品状态与计数均按日期刷新: 只看今天(北京时间)的选品, 今日未选的商品按钮保持高亮
+        const bj = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+        const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+        const todayRows = rows.filter((s) => s.created_at && bj(s.created_at) === today);
+        setLiveSelectedIds(new Set(todayRows.map((s) => s.sale_id)));
+        setLiveTodayCount(todayRows.length);
+      }
+      if (data.prices && typeof data.prices === "object") {
+        setLivePrices(data.prices as Record<string, number>);
+      }
+    } catch { /* ignore */ }
+  };
+  // 选品模式开启时拉取并每 3 秒同步(多端实时看到彼此的选品)
+  useEffect(() => {
+    if (!selectionMode) return;
+    fetchLiveSelections();
+    const t = setInterval(fetchLiveSelections, 3000);
+    return () => clearInterval(t);
+  }, [selectionMode]);
+  // 切换某商品的选品状态: 高亮→灰(选品), 灰→高亮(取消并从直播选品删除)
+  const toggleLiveSelection = async (saleId: string) => {
+    if (typeof window !== "undefined" && (localStorage.getItem("member_role") || "") !== "admin") {
+      showToast("仅管理员可以选品", "error");
+      return;
+    }
+    const isOn = liveSelectedIds.has(saleId);
+    setLiveSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (isOn) next.delete(saleId);
+      else next.add(saleId);
+      return next;
+    });
+    try {
+      await fetch("/api/live-selections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member_name: localStorage.getItem("member_name") || "未知设备",
+          sale_id: saleId,
+          action: isOn ? "remove" : "add",
+        }),
+      });
+    } catch {
+      showToast("选品同步失败，请重试", "error");
+    }
+    fetchLiveSelections();
+  };
+  // 打开改价弹窗(仅管理员)
+  const openPriceEdit = (p: { sale_id: string; name: string; sellPrice: number }) => {
+    if (typeof window !== "undefined" && (localStorage.getItem("member_role") || "") !== "admin") {
+      showToast("仅管理员可以改价", "error");
+      return;
+    }
+    setPriceEditProduct(p);
+    setPriceInput(livePrices[p.sale_id] != null ? String(livePrices[p.sale_id]) : "");
+  };
+  // 保存直播改价(空值=清除改价), 存入 settings.live_prices, 直播选品卡片角标显示
+  const saveLivePrice = async (saleId: string, val: string) => {
+    const num = val.trim() === "" ? null : Number(val);
+    if (num !== null && (Number.isNaN(num) || num < 0)) {
+      showToast("请输入正确的价格", "error");
+      return;
+    }
+    setLivePrices((prev) => {
+      const next = { ...prev };
+      if (num === null) delete next[saleId];
+      else next[saleId] = num;
+      return next;
+    });
+    try {
+      await fetch("/api/live-selections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member_name: localStorage.getItem("member_name") || "未知设备",
+          sale_id: saleId,
+          action: "price",
+          price: num,
+        }),
+      });
+    } catch {
+      showToast("改价同步失败，请重试", "error");
+    }
+    fetchLiveSelections();
+  };
+  // 改价选品: 直接选品并提交改价(弹窗主按钮)
+  const confirmPriceSelect = async () => {
+    if (!priceEditProduct) return;
+    const val = priceInput.trim();
+    const num = Number(val);
+    if (val === "" || Number.isNaN(num) || num < 0) {
+      showToast("请输入正确的价格", "error");
+      return;
+    }
+    const member_name = localStorage.getItem("member_name") || "未知设备";
+    // 无条件提交选品: 本地 liveSelectedIds 每3秒才轮询一次, 可能滞后(如别处刚取消选品),
+    // 误判为已选会跳过提交导致"只改价没选品"; 服务端对同编号同天去重, 重复提交幂等无害
+    let addOk = true;
+    try {
+      const res = await fetch("/api/live-selections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_name, sale_id: priceEditProduct.sale_id, action: "add" }),
+      });
+      if (!res.ok) addOk = false;
+    } catch {
+      addOk = false;
+    }
+    if (!addOk) {
+      showToast("选品同步失败，请重试", "error");
+      return;
+    }
+    await saveLivePrice(priceEditProduct.sale_id, val);
+    setPriceEditProduct(null);
+  };
 
   // 库存盘点提交的校准待办（桌面端标题右侧展示, 点击填入搜索筛选, 处理完删除）
   const [calibList, setCalibList] = useState<Array<{
@@ -707,6 +846,43 @@ export default function FinancePage() {
   };
   const hasErrorStock = (row: SummaryRow) => ALL_SIZES.some((s) => Number(row[`size_${s}`]) < 0);
 
+  // 错库存行内修正: 把改动过的尺码总量提交到入库记录(跨行分摊), 保存后刷新总表
+  const saveErrorSizes = async (saleId: string) => {
+    const size_totals: Record<string, number> = {};
+    ALL_SIZES.forEach((s) => {
+      const v = errorSizeEdits[`${saleId}|${s}`];
+      if (v !== undefined && v !== "") size_totals[String(s)] = Math.max(0, Number(v) || 0);
+    });
+    if (Object.keys(size_totals).length === 0) {
+      showToast("请先修改需要调整的尺码数量", "error");
+      return;
+    }
+    setSavingErrorSizes(saleId);
+    try {
+      const res = await fetch("/api/inbound-records", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sale_id: saleId, size_totals }),
+      });
+      if (res.ok) {
+        showToast("入库尺码已修正", "success");
+        setErrorSizeEdits((prev) => {
+          const next = { ...prev };
+          ALL_SIZES.forEach((s) => { delete next[`${saleId}|${s}`]; });
+          return next;
+        });
+        fetchSummary();
+      } else {
+        const err = await res.json();
+        showToast(err.error || "修正失败", "error");
+      }
+    } catch {
+      showToast("网络错误，请重试", "error");
+    } finally {
+      setSavingErrorSizes(null);
+    }
+  };
+
   // ===== 筛选逻辑（使用防抖后的 debouncedSearch）=====
   const filteredSummary = useMemo(() => {
     let result = data;
@@ -772,29 +948,50 @@ export default function FinancePage() {
     if (manufacturerFilter) {
       result = result.filter((r) => (r.manufacturer || "未知") === manufacturerFilter);
     }
-    // 排序
+    // 排序（sortDesc=true 从大到小 / false 从小到大; 同一排序再点一次切换方向）
+    const dirMul = sortDesc ? -1 : 1;
     if (sortBy === "sales") {
-      result = [...result].sort((a, b) => (b.sold_total || 0) - (a.sold_total || 0));
+      result = [...result].sort((a, b) => ((b.sold_total || 0) - (a.sold_total || 0)) * dirMul);
     } else if (sortBy === "profitRate") {
       // 利润率 = 利润 / 销售额（销售额 = 售价 × 已售）
       const rate = (r: SummaryRow) => {
         const revenue = (r.sell_price || 0) * (r.sold_total || 0);
         return revenue > 0 ? (r.profits || 0) / revenue : 0;
       };
-      result = [...result].sort((a, b) => rate(b) - rate(a));
+      result = [...result].sort((a, b) => (rate(b) - rate(a)) * dirMul);
     } else if (sortBy === "returnRate") {
       // 退货率 = 退货数 / 已售数
       const rate = (r: SummaryRow) => (r.sold_total || 0) > 0 ? (r.return_total || 0) / (r.sold_total || 0) : (r.return_total || 0) > 0 ? 1 : 0;
-      result = [...result].sort((a, b) => rate(b) - rate(a));
+      result = [...result].sort((a, b) => (rate(b) - rate(a)) * dirMul);
     } else if (sortBy === "stock") {
-      // 按剩余库存降序
-      result = [...result].sort((a, b) => (b.remaining || 0) - (a.remaining || 0));
+      // 按库存量排序（默认从大到小）
+      result = [...result].sort((a, b) => ((b.remaining || 0) - (a.remaining || 0)) * dirMul);
     } else if (sortBy === "inbound") {
-      // 按入库总量降序
-      result = [...result].sort((a, b) => (b.inbound_total || 0) - (a.inbound_total || 0));
+      // 按入库量排序（默认从大到小）
+      result = [...result].sort((a, b) => ((b.inbound_total || 0) - (a.inbound_total || 0)) * dirMul);
+    } else if (sortBy === "inboundTime") {
+      // 按入库时间排序（取最新入库日期; 默认从新到旧, 无日期排最后）
+      const dateMap = new Map<string, number>();
+      for (const r of inboundData) {
+        const d = r.inbound_date;
+        if (!d) continue;
+        const t = new Date(d).getTime();
+        if (!isNaN(t)) {
+          const sid = (r.sale_id || "").toUpperCase();
+          if (t > (dateMap.get(sid) || 0)) dateMap.set(sid, t);
+        }
+      }
+      const t = (r: SummaryRow) => dateMap.get((r.sale_id || "").toUpperCase()) || 0;
+      result = [...result].sort((a, b) => {
+        const ta = t(a), tb = t(b);
+        if (ta === 0 && tb === 0) return 0;
+        if (ta === 0) return 1; // 无入库日期排最后
+        if (tb === 0) return -1;
+        return (tb - ta) * dirMul;
+      });
     }
     return result;
-  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sortBy]);
+  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sortBy, sortDesc, inboundData]);
 
   // 厂家列表（用于筛选选项）
   const manufacturerList = useMemo(() => {
@@ -1367,55 +1564,55 @@ export default function FinancePage() {
               {showFilterMenu && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
-                  <div className="absolute left-0 top-full mt-2 z-50 w-[320px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
+                  <div className="absolute left-0 lg:left-auto lg:right-0 top-full mt-2 z-50 w-[340px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
                     {/* 剩余库存 */}
                     <div className="mb-3">
                       <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">剩余库存</p>
                       <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="尾货" color="yellow" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
-                        <FilterOption label="不足5手" color="red" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="5手以上" color="blue" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label="10手以上" color="green" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
+                        <FilterOption label="尾货" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
+                        <FilterOption label="<5手" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="5-10手" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label=">10手" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
                       </div>
                     </div>
                     {/* 库存价值 */}
                     <div className="mb-3">
                       <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存价值</p>
                       <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="0-100" color="green" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
-                        <FilterOption label="101-300" color="blue" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
-                        <FilterOption label="301-500" color="yellow" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
-                        <FilterOption label="500以上" color="red" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
+                        <FilterOption label="0-100" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
+                        <FilterOption label="101-300" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
+                        <FilterOption label="301-500" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
+                        <FilterOption label=">500" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
                       </div>
                     </div>
                     {/* 库存预警 */}
                     <div className="mb-3">
                       <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存预警</p>
                       <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="缺货 (≤0)" color="red" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
-                        <FilterOption label="低库存 (1-4)" color="yellow" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="中等 (5-20)" color="blue" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label="积压 (>50)" color="gray" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
+                        <FilterOption label="缺货≤0" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
+                        <FilterOption label="1-4" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="5-20" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label=">50" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
                       </div>
                     </div>
                     {/* 热销排行 */}
                     <div className="mb-3">
                       <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">热销排行</p>
                       <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="销量 Top 10" color="red" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
-                        <FilterOption label="销量 Top 30" color="yellow" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
-                        <FilterOption label="销量 Top 50" color="blue" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
-                        <FilterOption label="零销量" color="gray" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
+                        <FilterOption label="Top10" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
+                        <FilterOption label="Top30" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
+                        <FilterOption label="Top50" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
+                        <FilterOption label="零销量" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
                       </div>
                     </div>
                     {/* 退货分析 */}
                     <div className="mb-3">
                       <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">退货分析</p>
                       <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="无退货" color="green" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
-                        <FilterOption label="1-2 件" color="blue" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="3-5 件" color="yellow" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label="5 件以上" color="red" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
+                        <FilterOption label="无退货" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
+                        <FilterOption label="1-2件" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
+                        <FilterOption label="3-5件" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
+                        <FilterOption label=">5件" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
                       </div>
                     </div>
                     {/* 厂家（数量多，用下拉选择） */}
@@ -1432,6 +1629,16 @@ export default function FinancePage() {
                         ))}
                       </select>
                     </div>
+                    {/* 清空筛选（有筛选时显示在面板最下方） */}
+                    {activeFilterCount > 0 && (
+                      <button
+                        onClick={() => { clearAllFilters(); setShowFilterMenu(false); }}
+                        className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-900 hover:bg-gray-100 transition-all"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        清空筛选({activeFilterCount})
+                      </button>
+                    )}
                   </div>
                 </>
               )}
@@ -1451,7 +1658,7 @@ export default function FinancePage() {
                 排序
                 {sortBy && (
                   <span className="text-[10px] opacity-70">
-                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : sortBy === "returnRate" ? "退货率" : sortBy === "stock" ? "库存" : "入库"})
+                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : sortBy === "returnRate" ? "退货率" : sortBy === "stock" ? "库存量" : sortBy === "inbound" ? "入库量" : "入库时间"} {sortDesc ? "↓" : "↑"})
                   </span>
                 )}
                 <ChevronDown className={`h-3 w-3 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
@@ -1465,17 +1672,39 @@ export default function FinancePage() {
                       { v: "sales", label: "按销量" },
                       { v: "profitRate", label: "按利润率" },
                       { v: "returnRate", label: "按退货率" },
-                      { v: "stock", label: "按库存" },
-                      { v: "inbound", label: "按入库" },
+                      { v: "stock", label: "按库存量" },
+                      { v: "inbound", label: "按入库量" },
+                      { v: "inboundTime", label: "按入库时间" },
                     ] as const).map((o) => (
                       <button
                         key={o.v}
-                        onClick={() => { setSortBy(o.v); setShowSortMenu(false); }}
-                        className={`w-full text-left px-3 h-9 rounded-lg text-xs font-bold transition-all ${
+                        onClick={() => {
+                          if (!o.v) {
+                            setSortBy("");
+                            setShowSortMenu(false);
+                            return;
+                          }
+                          if (sortBy === o.v) {
+                            // 同一排序再点一次: 从大到小 ↔ 从小到大
+                            setSortDesc((d) => !d);
+                          } else {
+                            // 首次点击: 默认从大到小
+                            setSortBy(o.v);
+                            setSortDesc(true);
+                          }
+                          setShowSortMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-all ${
                           sortBy === o.v ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
                         }`}
                       >
-                        {o.label}
+                        <span>{o.label}</span>
+                        {o.v && (
+                          <span className="flex items-center gap-0.5">
+                            <ArrowUp className={`h-3 w-3 ${sortBy === o.v && !sortDesc ? "opacity-100" : "opacity-30"}`} />
+                            <ArrowDown className={`h-3 w-3 ${sortBy === o.v && sortDesc ? "opacity-100" : "opacity-30"}`} />
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1483,20 +1712,21 @@ export default function FinancePage() {
               )}
             </div>
 
-            {/* 错误库存（保留独立按钮） */}
+            {/* 错库存（保留独立按钮） */}
             <FilterTag
-              label="错误库存"
+              label="错库存"
               active={errorFilter}
               onClick={() => setErrorFilter(!errorFilter)}
             />
-            {activeFilterCount > 0 && (
-              <button
-                onClick={clearAllFilters}
-                className="h-11 inline-flex items-center gap-1 px-3 rounded-xl border-[2px] border-red-500 text-xs font-extrabold text-red-500 bg-white hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] transition-all whitespace-nowrap"
-              >
-                <X className="h-3 w-3" />清除({activeFilterCount})
-              </button>
-            )}
+            {/* 直播选品模式: 卡片角标变为选品按钮(计数=今天选品数, 按日期刷新) - 仅移动端显示 */}
+            <div className="lg:hidden">
+              <FilterTag
+                label="选品"
+                active={selectionMode}
+                value={`${liveTodayCount}款`}
+                onClick={() => setSelectionMode(!selectionMode)}
+              />
+            </div>
           </div>
         )}
 
@@ -1630,7 +1860,7 @@ export default function FinancePage() {
                     <th className="px-1.5 py-2 text-center font-extrabold text-base cursor-pointer hover:bg-gray-700" title="点击查看售卖明细">售出</th>
                     <th className="px-1.5 py-2 text-center font-extrabold text-base cursor-pointer hover:bg-gray-700" title="点击查看退货明细">退货</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">剩余</th>
-                    {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
+                    <th colSpan={ALL_SIZES.length} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">尺码</th>
                     <th className="px-2 py-2 text-center font-extrabold">厂家</th>
                     <th className="px-2 py-2 text-center font-extrabold">货架号</th>
                     <th className="px-2 py-2 text-center font-extrabold">进价</th>
@@ -1647,13 +1877,24 @@ export default function FinancePage() {
                     pagedSummary.map((row, idx) => {
                       const isError = hasErrorStock(row);
                       return (
-                        <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
+                        <Fragment key={row.sale_id}>
+                        {/* 每行商品的尺码列表头(80-180), 便于逐行对照 */}
+                        <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
+                          <td colSpan={6} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
+                          {ALL_SIZES.map((s) => (
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                          ))}
+                          <td colSpan={7} />
+                        </tr>
+                        <tr className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
                           <td className="px-2 py-2.5">
                             <HoverImage src={row.photo} alt="" />
                           </td>
-                          <td className="px-2 py-2.5 font-extrabold text-gray-900">
-                            <div>{row.sale_id}</div>
-                            {row.name && <div className="text-xs text-gray-400 font-normal">{row.name}</div>}
+                          <td className="px-2 py-1.5 font-extrabold text-gray-900 leading-tight">
+                            <div className="text-base">{row.sale_id}</div>
+                            {row.name && <div className="text-xs text-gray-400 font-normal leading-tight">{row.name}</div>}
+                            <div className="text-xs text-gray-400 font-normal leading-tight">入库 {row.inbound_date ? String(row.inbound_date).slice(0, 10).replace(/-/g, "/") : "-"}</div>
+                            <div className="text-xs text-gray-400 font-normal leading-tight">售卖 {row.last_order_time ? String(row.last_order_time).slice(0, 10).replace(/-/g, "/") : "-"}</div>
                           </td>
                           <td className="px-1.5 py-2.5 text-center font-bold">{row.inbound_total}</td>
                           <td className="px-1.5 py-2.5 text-center font-bold text-base text-green-600 cursor-pointer hover:underline hover:text-green-800"
@@ -1663,7 +1904,9 @@ export default function FinancePage() {
                           <td className="px-1.5 py-2.5 text-center font-extrabold text-blue-600">{row.remaining}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
-                            return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val < 0 ? "text-red-500 bg-red-100" : val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val}</td>);
+                            return (<td key={s} className={`w-12 px-1.5 py-2.5 text-center font-bold border-x border-gray-200 ${val < 0 ? "text-red-500 bg-red-100 text-base" : val > 0 ? "text-gray-900 text-base" : "text-gray-200"}`}>
+                              {val !== 0 ? val : <span className="text-xs">{val}</span>}
+                            </td>);
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.manufacturer || "-"}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.shelf_no || "-"}</td>
@@ -1673,6 +1916,37 @@ export default function FinancePage() {
                           <td className={`px-2 py-2.5 text-center font-bold text-xs ${(row.sell_price as number - row.cost_price as number) >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0)}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-gray-700">¥{fmt(row.inventory_value)}</td>
                         </tr>
+                        {/* 错库存筛选激活时: 尺码数量下方插入该编号的入库尺码数据, 可直接修改并保存(负尺码标注建议填补数量) */}
+                        {errorFilter && isError && (
+                          <tr className="border-b border-gray-200 bg-red-50/60">
+                            <td colSpan={6} className="px-2 py-1 text-right text-xs font-bold text-gray-400">入库尺码 ↓ 可直接修改</td>
+                            {ALL_SIZES.map((s) => {
+                              const inb = Number((row.inbound_sizes || {})[String(s)]) || 0;
+                              const main = Number(row[`size_${s}`]) || 0;
+                              return (
+                                <td key={s} className={`w-12 px-1 py-1 text-center border-x border-gray-200 ${main < 0 ? "bg-red-100" : ""}`}>
+                                  <input
+                                    type="number" min={0} defaultValue={inb}
+                                    onChange={(e) => setErrorSizeEdits((prev) => ({ ...prev, [`${row.sale_id}|${s}`]: e.target.value }))}
+                                    className={`w-full text-center text-xs font-bold rounded border px-0.5 py-0.5 outline-none focus:border-gray-900 ${main < 0 ? "border-red-300 text-red-500" : "border-gray-200 text-gray-400"}`}
+                                    title={main < 0 ? `库存${main}，建议填 ${inb + Math.abs(main)}` : undefined}
+                                  />
+                                  {main < 0 && <div className="text-[10px] font-bold text-red-400 leading-none mt-0.5">需+{Math.abs(main)}</div>}
+                                </td>
+                              );
+                            })}
+                            <td colSpan={7} className="px-2 py-1">
+                              <button
+                                onClick={() => saveErrorSizes(row.sale_id)}
+                                disabled={savingErrorSizes === row.sale_id}
+                                className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-[#4CD964] text-white text-xs font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-[1px] disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {savingErrorSizes === row.sale_id ? "保存中" : "保存"}
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })
                   )}
@@ -1700,7 +1974,7 @@ export default function FinancePage() {
                     <th className="px-2 py-2 text-left font-extrabold">图片</th>
                     <th className="px-2 py-2 text-left font-extrabold">售卖编号</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">总售出</th>
-                    {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
+                    <th colSpan={ALL_SIZES.length} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">尺码</th>
                     <th className="px-2 py-2 text-center font-extrabold">货架号</th>
                     <th className="px-2 py-2 text-center font-extrabold">售价</th>
                     <th className="px-2 py-2 text-center font-extrabold">进价</th>
@@ -1719,7 +1993,16 @@ export default function FinancePage() {
                       const cp = (summaryRow as Record<string, unknown>)?.cost_price as number || 0;
                       const rate = sp > 0 ? ((sp - cp) / sp) : 0;
                       return (
-                        <tr key={row.sale_id}
+                        <Fragment key={row.sale_id}>
+                        {/* 每行商品的尺码列表头(80-180), 便于逐行对照 */}
+                        <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                          <td colSpan={3} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
+                          {ALL_SIZES.map((s) => (
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                          ))}
+                          <td colSpan={5} />
+                        </tr>
+                        <tr
                           className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${uninboundFilter && !salesEditMode ? "cursor-pointer hover:bg-red-50" : ""}`}
                           onClick={uninboundFilter && !salesEditMode ? () => jumpToInbound(row) : undefined}
                         >
@@ -1736,7 +2019,7 @@ export default function FinancePage() {
                             const val = Number(row[`size_${s}`]) || 0;
                             if (salesEditMode) {
                               return (
-                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                <td key={s} className="w-12 px-0.5 py-1 text-center border-x border-gray-200">
                                   <input
                                     type="number" min="0"
                                     defaultValue={val || 0}
@@ -1752,7 +2035,7 @@ export default function FinancePage() {
                                 </td>
                               );
                             }
-                            return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
+                            return (<td key={s} className={`w-12 px-1.5 py-2.5 text-center font-bold border-x border-gray-200 ${val > 0 ? "text-gray-900 text-base" : "text-gray-200"}`}>{val > 0 ? val : <span className="text-xs">-</span>}</td>);
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.shelf_no || summaryRow?.shelf_no || "-"}</td>
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-red-500">¥{fmt(sp)}</td>
@@ -1762,6 +2045,7 @@ export default function FinancePage() {
                             {salesDateFilter || (row.last_order_time ? new Date(row.last_order_time).toLocaleDateString("zh-CN") : "-")}
                           </td>
                         </tr>
+                        </Fragment>
                       );
                     })
                   )}
@@ -1783,7 +2067,7 @@ export default function FinancePage() {
                     <th className="px-2 py-2 text-left font-extrabold">图片</th>
                     <th className="px-2 py-2 text-left font-extrabold">售卖编号</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">总退货</th>
-                    {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
+                    <th colSpan={ALL_SIZES.length} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">尺码</th>
                     <th className="px-2 py-2 text-center font-extrabold">货架号</th>
                     <th className="px-2 py-2 text-center font-extrabold">退货率</th>
                     <th className="px-2 py-2 text-center font-extrabold">最新退货时间</th>
@@ -1799,7 +2083,16 @@ export default function FinancePage() {
                       const soldTotal = summaryRow?.sold_total || 0;
                       const returnRate = soldTotal > 0 ? row.total / soldTotal : 0;
                       return (
-                        <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <Fragment key={row.sale_id}>
+                        {/* 每行商品的尺码列表头(80-180), 便于逐行对照 */}
+                        <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                          <td colSpan={3} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
+                          {ALL_SIZES.map((s) => (
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                          ))}
+                          <td colSpan={3} />
+                        </tr>
+                        <tr className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td className="px-2 py-2.5">
                             <HoverImage src={photo} alt="" />
                           </td>
@@ -1813,7 +2106,7 @@ export default function FinancePage() {
                             const val = Number(row[`size_${s}`]) || 0;
                             if (returnsEditMode) {
                               return (
-                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                <td key={s} className="w-12 px-0.5 py-1 text-center border-x border-gray-200">
                                   <input
                                     type="number" min="0"
                                     defaultValue={val || 0}
@@ -1829,7 +2122,7 @@ export default function FinancePage() {
                                 </td>
                               );
                             }
-                            return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
+                            return (<td key={s} className={`w-12 px-1.5 py-2.5 text-center font-bold border-x border-gray-200 ${val > 0 ? "text-gray-900 text-base" : "text-gray-200"}`}>{val > 0 ? val : <span className="text-xs">-</span>}</td>);
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">{row.shelf_no || summaryRow?.shelf_no || "-"}</td>
                           <td className={`px-2 py-2.5 text-center font-bold text-xs ${returnRate > 0.3 ? "text-red-500" : "text-gray-700"}`}>{pct(returnRate)}</td>
@@ -1837,6 +2130,7 @@ export default function FinancePage() {
                             {returnsDateFilter || (row.last_return_time ? new Date(row.last_return_time).toLocaleDateString("zh-CN") : "-")}
                           </td>
                         </tr>
+                        </Fragment>
                       );
                     })
                   )}
@@ -1858,7 +2152,7 @@ export default function FinancePage() {
                     <th className="px-2 py-2 text-left font-extrabold">图片</th>
                     <th className="px-2 py-2 text-left font-extrabold">售卖编号</th>
                     <th className="px-1.5 py-2 text-center font-extrabold">总入库</th>
-                    {ALL_SIZES.map((s) => (<th key={s} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">{s}</th>))}
+                    <th colSpan={ALL_SIZES.length} className="px-1.5 py-2 text-center font-extrabold border-x border-gray-700">尺码</th>
                     <th className="px-2 py-2 text-center font-extrabold">进价</th>
                     <th className="px-2 py-2 text-center font-extrabold">厂家</th>
                     <th className="px-2 py-2 text-center font-extrabold">货架号</th>
@@ -1878,7 +2172,16 @@ export default function FinancePage() {
                       const season = (row as Record<string, unknown>).season as string || "";
                       const styleCat = (row as Record<string, unknown>).style_category as string || "";
                       return (
-                        <tr key={row.sale_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                        <Fragment key={row.sale_id}>
+                        {/* 每行商品的尺码列表头(80-180), 便于逐行对照 */}
+                        <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
+                          <td colSpan={3} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
+                          {ALL_SIZES.map((s) => (
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                          ))}
+                          <td colSpan={6} />
+                        </tr>
+                        <tr className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td className="px-2 py-2.5">
                             {inboundEditMode ? (
                               <div className="flex flex-col gap-1 items-center">
@@ -1908,7 +2211,7 @@ export default function FinancePage() {
                             const val = Number(row[`size_${s}`]) || 0;
                             if (inboundEditMode) {
                               return (
-                                <td key={s} className="px-0.5 py-1 text-center border-x border-gray-200">
+                                <td key={s} className="w-12 px-0.5 py-1 text-center border-x border-gray-200">
                                   <input
                                     type="number" min="0"
                                     defaultValue={val || 0}
@@ -1922,7 +2225,7 @@ export default function FinancePage() {
                                 </td>
                               );
                             }
-                            return (<td key={s} className={`px-1.5 py-2.5 text-center font-bold text-xs border-x border-gray-200 ${val > 0 ? "text-gray-900" : "text-gray-300"}`}>{val || "-"}</td>);
+                            return (<td key={s} className={`w-12 px-1.5 py-2.5 text-center font-bold border-x border-gray-200 ${val > 0 ? "text-gray-900 text-base" : "text-gray-200"}`}>{val > 0 ? val : <span className="text-xs">-</span>}</td>);
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">
                             {inboundEditMode ? (
@@ -2012,6 +2315,7 @@ export default function FinancePage() {
                             {row.inbound_date ? new Date(row.inbound_date).toLocaleDateString("zh-CN") : "-"}
                           </td>
                         </tr>
+                        </Fragment>
                       );
                     })
                   )}
@@ -2071,12 +2375,35 @@ export default function FinancePage() {
                             <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
                             {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
                           </div>
-                          {row.sold_total > 0 && (
+                          {selectionMode ? (
+                            <div className="relative flex flex-col items-end gap-1 shrink-0">
+                              <button
+                                onClick={() => toggleLiveSelection(row.sale_id)}
+                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
+                                  liveSelectedIds.has(row.sale_id)
+                                    ? "border-gray-400 bg-gray-300 text-gray-500"
+                                    : "border-gray-900 bg-[#4A90E2] text-white hover:bg-[#3A80D2] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                                }`}
+                              >
+                                {liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
+                              </button>
+                              <button
+                                onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price })}
+                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
+                                  livePrices[row.sale_id] != null
+                                    ? "border-gray-900 bg-yellow-300 text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                                    : "border-gray-900 bg-white text-gray-700 hover:bg-gray-50"
+                                }`}
+                              >
+                                {livePrices[row.sale_id] != null ? `改价 ¥${livePrices[row.sale_id]}` : "改价"}
+                              </button>
+                            </div>
+                          ) : row.sold_total > 0 ? (
                             <div className="flex flex-col items-end gap-0.5 shrink-0">
                               <span className="rounded-md border-2 border-gray-900 bg-[#FF6B7A] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">多多{pddQty}</span>
                               <span className="rounded-md border-2 border-gray-900 bg-[#4CD964] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">抖音{dyQty}</span>
                             </div>
-                          )}
+                          ) : null}
                         </div>
                         {/* 规范格子: 每行两格, 隔行浅灰底 */}
                         <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
@@ -3006,6 +3333,75 @@ export default function FinancePage() {
                     ))}
                   </tbody>
                 </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 直播改价弹窗: 底部抽屉(库存盘点搬货同款), 主按钮=改价选品 */}
+      {priceEditProduct && (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setPriceEditProduct(null)}>
+          <div
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
+                <BadgeDollarSign className="h-5 w-5" />
+                改价 - {priceEditProduct.sale_id}
+              </h3>
+              <button onClick={() => setPriceEditProduct(null)} className="rounded-lg p-1 hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <p className="mb-3 truncate text-xs font-bold text-gray-400">
+              {priceEditProduct.name || "未命名"} · 当前售价: ¥{priceEditProduct.sellPrice}
+            </p>
+            <input
+              type="number" inputMode="decimal" min="0" step="0.1" autoFocus
+              value={priceInput}
+              onChange={(e) => setPriceInput(e.target.value)}
+              placeholder="新售价"
+              className="w-full h-12 px-3 text-lg font-extrabold rounded-xl border-[3px] border-gray-900 bg-white focus:outline-none focus:shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+            />
+            {/* 预选售价 */}
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["9.9", "19.9", "29.9", "15.9"].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setPriceInput(v)}
+                  className={`rounded-lg border-2 border-gray-900 px-3 py-1.5 text-sm font-extrabold transition-all ${
+                    priceInput === v
+                      ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                      : "bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  ¥{v}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={confirmPriceSelect}
+              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#FFD43B] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+            >
+              <Tag className="h-4 w-4" />
+              改价选品
+            </button>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => setPriceEditProduct(null)}
+                className="flex-1 h-9 rounded-xl border-2 border-gray-900 bg-white text-xs font-extrabold text-gray-700"
+              >
+                取消
+              </button>
+              {livePrices[priceEditProduct.sale_id] != null && (
+                <button
+                  onClick={() => { saveLivePrice(priceEditProduct.sale_id, ""); setPriceEditProduct(null); }}
+                  className="flex-1 h-9 rounded-xl border-2 border-gray-400 bg-white text-xs font-bold text-gray-500"
+                >
+                  清除改价
+                </button>
               )}
             </div>
           </div>

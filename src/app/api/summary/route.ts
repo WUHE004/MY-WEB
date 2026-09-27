@@ -18,6 +18,11 @@ interface SummaryRow {
   name: string;
   manufacturer: string;
   photo: string;
+  // 最新入库日期 / 最新售卖登记时间(直播选品卡片展示用)
+  inbound_date: string;
+  last_order_time: string;
+  // 每尺码入库量(错库存视图对照用), 如 { "150": 12 }
+  inbound_sizes: Record<string, number>;
   // per-size remaining
   [key: string]: unknown;
 }
@@ -71,10 +76,10 @@ export async function GET() {
     const [inboundRes, salesRes, returnRes] = await Promise.all([
       fetchAllRows(
         "inbound_records",
-        `sale_id,${sizeCols},cost_price,name,manufacturer,photo,shelf_no`,
+        `sale_id,${sizeCols},cost_price,name,manufacturer,photo,shelf_no,inbound_date`,
         "inbound_date"
       ),
-      fetchAllRows("sales_records", "sale_id,quantity,size,sell_price,tracking_number", "registration_date"),
+      fetchAllRows("sales_records", "sale_id,quantity,size,sell_price,tracking_number,registration_date", "registration_date"),
       fetchAllRows("return_records", "sale_id,quantity,size", "created_at"),
     ]);
 
@@ -108,12 +113,13 @@ export async function GET() {
       const sellPrice = Number(row.sell_price) || 0;
 
       // 累加：如果该 sale_id 已存在，则累加尺码数量；否则新建
-      if (summaryMap.has(saleId)) {
+        if (summaryMap.has(saleId)) {
         const existing = summaryMap.get(saleId)!;
         existing.inbound_total += rowTotal;
         existing.remaining += rowTotal;
         for (const s of SIZES) {
           existing[`size_${s}`] = (Number(existing[`size_${s}`]) || 0) + sizeCounts[`size_${s}`];
+          existing.inbound_sizes[String(s)] = (Number(existing.inbound_sizes[String(s)]) || 0) + sizeCounts[`size_${s}`];
         }
         // 基础信息：优先保留非空值（最新记录覆盖空字段）
         if (!existing.name && row.name) existing.name = row.name;
@@ -122,6 +128,9 @@ export async function GET() {
         if (!existing.shelf_no && row.shelf_no) existing.shelf_no = row.shelf_no;
         if (costPrice > 0) existing.cost_price = costPrice;
         if (sellPrice > 0) existing.sell_price = sellPrice;
+        // 最新入库日期
+        const inbDate = String(row.inbound_date || "");
+        if (inbDate && inbDate > String(existing.inbound_date || "")) existing.inbound_date = inbDate;
       } else {
         summaryMap.set(saleId, {
           sale_id: saleId,
@@ -138,6 +147,9 @@ export async function GET() {
           manufacturer: row.manufacturer || "",
           photo: row.photo || "",
           shelf_no: row.shelf_no || "",
+          inbound_date: String(row.inbound_date || ""),
+          last_order_time: "",
+          inbound_sizes: Object.fromEntries(SIZES.map((s) => [String(s), sizeCounts[`size_${s}`] || 0])),
           ...sizeCounts,
         });
       }
@@ -168,6 +180,9 @@ export async function GET() {
           manufacturer: "",
           photo: "",
           shelf_no: "",
+          inbound_date: "",
+          last_order_time: "",
+          inbound_sizes: {},
         });
       }
 
@@ -178,6 +193,9 @@ export async function GET() {
         entry.pdd_sold += qty;
       }
       if (sellPrice > 0) entry.sell_price = sellPrice;
+      // 最新售卖登记时间
+      const regDate = String(row.registration_date || "");
+      if (regDate && regDate > String(entry.last_order_time || "")) entry.last_order_time = regDate;
 
       // 减去对应尺码
       const sizeKey = `size_${size}`;
@@ -210,6 +228,9 @@ export async function GET() {
           manufacturer: "",
           photo: "",
           shelf_no: "",
+          inbound_date: "",
+          last_order_time: "",
+          inbound_sizes: {},
         });
       }
 
