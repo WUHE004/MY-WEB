@@ -281,7 +281,7 @@ export default function LinksPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.2 }}
             className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#FFC93C]"
-            style={{ boxShadow: "4px 4px 0px_0px_rgba(0,0,0,1)" }}
+            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
           >
             <FileSpreadsheet className="h-5 w-5 lg:h-10 lg:w-10 text-gray-900" />
             <span className="text-xs lg:text-base font-extrabold text-gray-900">数据清洗</span>

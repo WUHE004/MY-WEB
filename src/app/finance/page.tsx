@@ -2653,7 +2653,7 @@ export default function FinancePage() {
             {filteredReturns.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
-              filteredReturns.map((row) => {
+              pagedReturns.map((row) => {
                 const summaryRow = summaryBySaleId.get(row.sale_id);
                 const photo = summaryRow?.photo || "";
                 const soldTotal = summaryRow?.sold_total || 0;
@@ -3410,7 +3410,7 @@ export default function FinancePage() {
 
       {/* 图片大图预览（独立于明细弹窗，避免状态残留导致打开明细时误弹照片） */}
       <div
-        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4 transition-opacity duration-150 ${imgPreview ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}
         onClick={() => setImgPreview(null)}
       >
         <div className="relative max-w-[90vw] max-h-[90vh]">

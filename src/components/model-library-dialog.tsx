@@ -37,9 +37,10 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
     const name = newModelName.trim() || file.name.replace(/\.[^/.]+$/, "");
     setUploading(true);
 
-    try {
-      const reader = new FileReader();
-      reader.onload = async () => {
+    // 注意: 异步回调内的错误必须在回调内部捕获, 否则 setUploading(false) 永远不会执行, 按钮永久卡在"上传中"
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
         const base64 = reader.result as string;
 
         const fileName = `model-${Date.now()}-${file.name}`;
@@ -67,14 +68,19 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
         } else {
           alert("上传失败: " + (uploadData.error || "未知错误"));
         }
+      } catch (err) {
+        alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+      } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+      }
+    };
+    reader.onerror = () => {
+      alert("读取文件失败, 请重试");
       setUploading(false);
-    }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleDelete = async (id: string, name: string) => {

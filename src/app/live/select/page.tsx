@@ -83,6 +83,186 @@ const dayKey = (iso: string) => {
 
 const fmtDate = (d: string) => dayKey(d) || "-";
 
+// 商品卡片 - 一比一复刻管理栏总表卡片(渠道角标位置改为直播价角标)
+function ProductCard({
+  product,
+  editMode,
+  livePrices,
+  cancelSelection,
+  setPriceEditProduct,
+  setPriceInput,
+  setImgPreview,
+  isAdmin,
+  showToast,
+}: {
+  product: SummaryProduct & { _selectors: string[]; _livePrice: number | null; _ids: string[] };
+  editMode: boolean;
+  livePrices: Record<string, number>;
+  cancelSelection: (p: { sale_id: string; _ids: string[] }) => void;
+  setPriceEditProduct: (p: { sale_id: string; name: string; sellPrice: number } | null) => void;
+  setPriceInput: (v: string) => void;
+  setImgPreview: (v: string | null) => void;
+  isAdmin: () => boolean;
+  showToast: (msg: string, type?: "error" | "success") => void;
+}) {
+  const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
+  const profitRate = product.sell_price > 0 ? (product.sell_price - product.cost_price) / product.sell_price : 0;
+
+  return (
+    <div className="relative bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
+      {/* 编辑模式: 右上角变为 取消/改价 按钮(替换选品人角标) */}
+      {editMode ? (
+        <div className="absolute -top-2 -right-2 flex flex-col gap-1 z-10">
+          <button
+            onClick={() => cancelSelection(product)}
+            className="text-[10px] px-2 py-1 rounded-lg border-2 border-gray-900 bg-[#FF6B7A] text-white font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none whitespace-nowrap"
+          >
+            取消
+          </button>
+          <button
+            onClick={() => {
+              if (!isAdmin()) {
+                showToast("仅管理员可以编辑", "error");
+                return;
+              }
+              setPriceEditProduct({ sale_id: product.sale_id, name: product.name, sellPrice: product.sell_price });
+              setPriceInput(livePrices[product.sale_id] != null ? String(livePrices[product.sale_id]) : "");
+            }}
+            className="text-[10px] px-2 py-1 rounded-lg border-2 border-gray-900 bg-[#FFD43B] text-gray-900 font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none whitespace-nowrap"
+          >
+            改价
+          </button>
+        </div>
+      ) : (
+        /* 选品人角标 - 右上角(非编辑模式) */
+        product._selectors.length > 0 && (
+          <div className="absolute -top-1.5 -right-1.5 flex flex-col gap-0.5 z-10">
+            {product._selectors.map((name) => {
+              const c = getAdminColor(name);
+              return (
+                <span key={name} className={`text-[9px] px-1.5 py-0.5 rounded-full border-2 border-gray-900 ${c.bg} ${c.text} font-extrabold shadow-md whitespace-nowrap`}>
+                  {name}已选品
+                </span>
+              );
+            })}
+          </div>
+        )
+      )}
+      <div className="flex gap-2.5">
+        {/* 图片区域 */}
+        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+          {product.photo ? (
+            <img src={product.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <Package className="h-16 w-16 text-gray-300" />
+            </div>
+          )}
+        </div>
+        {/* 右侧规范化格子区 */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* 编号/名称 + 直播价角标(原渠道角标位置, 有改价才显示) */}
+          <div className="flex items-start justify-between gap-1">
+            <div className="min-w-0">
+              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{product.sale_id}</div>
+              {product.name && <div className="text-sm text-gray-500 truncate mt-1">{product.name}</div>}
+            </div>
+            {product._livePrice != null && (
+              <div className="flex flex-col items-center shrink-0 rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] px-2 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                <span className="text-[9px] leading-none font-extrabold text-white/90">直播价</span>
+                <span className="text-lg leading-tight font-extrabold text-white">¥{product._livePrice}</span>
+              </div>
+            )}
+          </div>
+          {/* 规范格子: 每行两格, 隔行浅灰底 */}
+          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+            <div className="flex divide-x-2 divide-gray-200">
+              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                <span className="font-extrabold text-[13px] text-green-600 truncate">{product.sold_total}</span>
+              </div>
+              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
+                <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
+              </div>
+            </div>
+            <div className="flex divide-x-2 divide-gray-200">
+              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                <span className="font-extrabold text-[13px] text-yellow-600 truncate">{product.return_total}</span>
+              </div>
+              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
+                <span className="font-extrabold text-[13px] text-yellow-600 truncate">{pct(returnRate)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">进价</span>
+                <span className="font-bold text-gray-700 truncate">¥{fmt(product.cost_price)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-red-500 shrink-0">售价</span>
+                <span className="font-extrabold text-red-500 truncate">¥{fmt(product.sell_price)}</span>
+              </div>
+            </div>
+            <div className="flex">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">入库时间</span>
+                <span className="font-medium text-gray-700 truncate">{fmtDate(product.inbound_date)}</span>
+              </div>
+            </div>
+            <div className="flex">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">售出时间</span>
+                <span className="font-medium text-gray-700 truncate">{fmtDate(product.last_order_time)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">货架号</span>
+                <span className="font-medium text-gray-700 truncate">{product.shelf_no || "-"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 尺码全宽5列换行显示 */}
+      <div className="mt-1.5 grid grid-cols-5 gap-1">
+        {ALL_SIZES.map((s) => {
+          const val = Number(product[`size_${s}`]) || 0;
+          return (
+            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+              val < 0 ? "bg-red-50 border-red-300 text-red-600" :
+              val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
+              "bg-white border-gray-200 text-gray-300"
+            }`}>{s}:{val}</span>
+          );
+        })}
+      </div>
+
+      {/* 入库/剩余/价值 均匀排开 */}
+      <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
+        <div>
+          <span className="text-gray-400">入库 </span>
+          <span className="font-extrabold text-blue-600">{product.inbound_total}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">剩余 </span>
+          <span className="font-extrabold text-gray-900">{product.remaining}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">价值 </span>
+          <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LiveSelectPage() {
   const [products, setProducts] = useState<SummaryProduct[]>([]);
   const [selections, setSelections] = useState<SelectionRow[]>([]);
@@ -453,165 +633,6 @@ export default function LiveSelectPage() {
       .sort((a, b) => b.count - a.count);
   }, [selections, memberName, todayKey]);
 
-  // 商品卡片 - 一比一复刻管理栏总表卡片(渠道角标位置改为直播价角标)
-  const ProductCard = ({ product }: { product: SummaryProduct & { _selectors: string[]; _livePrice: number | null; _ids: string[] } }) => {
-    const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
-    const profitRate = product.sell_price > 0 ? (product.sell_price - product.cost_price) / product.sell_price : 0;
-
-    return (
-      <div className="relative bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
-        {/* 编辑模式: 右上角变为 取消/改价 按钮(替换选品人角标) */}
-        {editMode ? (
-          <div className="absolute -top-2 -right-2 flex flex-col gap-1 z-10">
-            <button
-              onClick={() => cancelSelection(product)}
-              className="text-[10px] px-2 py-1 rounded-lg border-2 border-gray-900 bg-[#FF6B7A] text-white font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none whitespace-nowrap"
-            >
-              取消
-            </button>
-            <button
-              onClick={() => {
-                if (!isAdmin()) {
-                  showToast("仅管理员可以编辑", "error");
-                  return;
-                }
-                setPriceEditProduct({ sale_id: product.sale_id, name: product.name, sellPrice: product.sell_price });
-                setPriceInput(livePrices[product.sale_id] != null ? String(livePrices[product.sale_id]) : "");
-              }}
-              className="text-[10px] px-2 py-1 rounded-lg border-2 border-gray-900 bg-[#FFD43B] text-gray-900 font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none whitespace-nowrap"
-            >
-              改价
-            </button>
-          </div>
-        ) : (
-          /* 选品人角标 - 右上角(非编辑模式) */
-          product._selectors.length > 0 && (
-            <div className="absolute -top-1.5 -right-1.5 flex flex-col gap-0.5 z-10">
-              {product._selectors.map((name) => {
-                const c = getAdminColor(name);
-                return (
-                  <span key={name} className={`text-[9px] px-1.5 py-0.5 rounded-full border-2 border-gray-900 ${c.bg} ${c.text} font-extrabold shadow-md whitespace-nowrap`}>
-                    {name}已选品
-                  </span>
-                );
-              })}
-            </div>
-          )
-        )}
-        <div className="flex gap-2.5">
-          {/* 图片区域 */}
-          <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-            {product.photo ? (
-              <img src={product.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <Package className="h-16 w-16 text-gray-300" />
-              </div>
-            )}
-          </div>
-          {/* 右侧规范化格子区 */}
-          <div className="flex-1 min-w-0 flex flex-col">
-            {/* 编号/名称 + 直播价角标(原渠道角标位置, 有改价才显示) */}
-            <div className="flex items-start justify-between gap-1">
-              <div className="min-w-0">
-                <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{product.sale_id}</div>
-                {product.name && <div className="text-sm text-gray-500 truncate mt-1">{product.name}</div>}
-              </div>
-              {product._livePrice != null && (
-                <div className="flex flex-col items-center shrink-0 rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] px-2 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                  <span className="text-[9px] leading-none font-extrabold text-white/90">直播价</span>
-                  <span className="text-lg leading-tight font-extrabold text-white">¥{product._livePrice}</span>
-                </div>
-              )}
-            </div>
-            {/* 规范格子: 每行两格, 隔行浅灰底 */}
-            <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
-              <div className="flex divide-x-2 divide-gray-200">
-                <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
-                  <span className="font-extrabold text-[13px] text-green-600 truncate">{product.sold_total}</span>
-                </div>
-                <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
-                  <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
-                </div>
-              </div>
-              <div className="flex divide-x-2 divide-gray-200">
-                <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
-                  <span className="font-extrabold text-[13px] text-yellow-600 truncate">{product.return_total}</span>
-                </div>
-                <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
-                  <span className="font-extrabold text-[13px] text-yellow-600 truncate">{pct(returnRate)}</span>
-                </div>
-              </div>
-              <div className="flex bg-gray-100">
-                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0">进价</span>
-                  <span className="font-bold text-gray-700 truncate">¥{fmt(product.cost_price)}</span>
-                </div>
-              </div>
-              <div className="flex bg-gray-100">
-                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                  <span className="text-red-500 shrink-0">售价</span>
-                  <span className="font-extrabold text-red-500 truncate">¥{fmt(product.sell_price)}</span>
-                </div>
-              </div>
-              <div className="flex">
-                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0">入库时间</span>
-                  <span className="font-medium text-gray-700 truncate">{fmtDate(product.inbound_date)}</span>
-                </div>
-              </div>
-              <div className="flex">
-                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0">售出时间</span>
-                  <span className="font-medium text-gray-700 truncate">{fmtDate(product.last_order_time)}</span>
-                </div>
-              </div>
-              <div className="flex bg-gray-100">
-                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                  <span className="text-gray-500 shrink-0">货架号</span>
-                  <span className="font-medium text-gray-700 truncate">{product.shelf_no || "-"}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 尺码全宽5列换行显示 */}
-        <div className="mt-1.5 grid grid-cols-5 gap-1">
-          {ALL_SIZES.map((s) => {
-            const val = Number(product[`size_${s}`]) || 0;
-            return (
-              <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
-                val < 0 ? "bg-red-50 border-red-300 text-red-600" :
-                val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
-                "bg-white border-gray-200 text-gray-300"
-              }`}>{s}:{val}</span>
-            );
-          })}
-        </div>
-
-        {/* 入库/剩余/价值 均匀排开 */}
-        <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
-          <div>
-            <span className="text-gray-400">入库 </span>
-            <span className="font-extrabold text-blue-600">{product.inbound_total}</span>
-          </div>
-          <div>
-            <span className="text-gray-400">剩余 </span>
-            <span className="font-extrabold text-gray-900">{product.remaining}</span>
-          </div>
-          <div>
-            <span className="text-gray-400">价值 </span>
-            <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <PageWrapper>
@@ -879,7 +900,7 @@ export default function LiveSelectPage() {
                 {expanded && (
                   <div className="p-2 pt-2 border-t-[3px] border-gray-900 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
                     {group.items.map((product) => (
-                      <ProductCard key={product.sale_id} product={product} />
+                      <ProductCard key={product.sale_id} product={product} editMode={editMode} livePrices={livePrices} cancelSelection={cancelSelection} setPriceEditProduct={setPriceEditProduct} setPriceInput={setPriceInput} setImgPreview={setImgPreview} isAdmin={isAdmin} showToast={showToast} />
                     ))}
                   </div>
                 )}

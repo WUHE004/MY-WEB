@@ -276,8 +276,8 @@ export default function VideoGenPage() {
               showPrompt ? "border-[#FF6B7A] bg-[#FF6B7A] text-white" : "border-gray-300 text-gray-500 hover:border-[#FF6B7A] hover:text-[#FF6B7A]"
             }`}
           >
-            {showPrompt ? <Eye className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
-            {showPrompt ? "预览" : "编辑"}
+            {showPrompt ? <Edit3 className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            {showPrompt ? "编辑" : "预览"}
           </button>
         </div>
 

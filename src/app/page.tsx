@@ -47,7 +47,6 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [memberName, setMemberName] = useState<string | null>(null);
@@ -146,26 +145,18 @@ export default function DashboardPage() {
     alert(`已下载"${siteName}.url"快捷方式文件，请将其保存到桌面即可。`);
   };
 
-  const fetchData = async () => {
+  // 刷新热卖爆款数据(供手动刷新按钮与 30 秒自动轮询共用)
+  const refreshHotProducts = async () => {
     setLoading(true);
     try {
-      const accessToken = typeof window !== "undefined" ? localStorage.getItem("wps_access_token") : null;
-      const url = accessToken 
-        ? `/api/wps-data?access_token=${encodeURIComponent(accessToken)}` 
-        : "/api/wps-data";
-      const response = await fetch(url);
-      const result = await response.json();
-      setData(result);
-    } catch (err) {
-      console.error("Error fetching data:", err);
+      await fetchHotProducts();
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(refreshHotProducts, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -390,7 +381,7 @@ export default function DashboardPage() {
                   热卖爆款
                 </CardTitle>
                 <button
-                  onClick={fetchData}
+                  onClick={refreshHotProducts}
                   disabled={loading}
                   className="flex items-center gap-1.5 text-xs sm:text-sm font-bold text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50"
                 >

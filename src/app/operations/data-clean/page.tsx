@@ -408,6 +408,7 @@ export default function DataCleanPage() {
   const sourceFilesRef = useRef<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const processingRef = useRef(false);
   const origScrollRef = useRef<HTMLDivElement>(null);
   const cleanScrollRef = useRef<HTMLDivElement>(null);
   const syncingRef = useRef(false);
@@ -433,6 +434,8 @@ export default function DataCleanPage() {
       return;
     }
     setLoadError("");
+    if (processingRef.current) return; // 上一批还在处理中, 忽略重复触发(防止异步交叉写数组导致数据错乱)
+    processingRef.current = true;
     setLoading(true);
     sourceFilesRef.current = supported;
 
@@ -503,6 +506,7 @@ export default function DataCleanPage() {
     setSizeFilled(new Set());
     setSuspectRows(suspectIdx);
     setSourceDisplay(supported.length === 1 ? supported[0].name : `已拖入 ${supported.length} 个表格文件`);
+    processingRef.current = false;
     setLoading(false);
   }, []);
 
@@ -693,13 +697,15 @@ export default function DataCleanPage() {
             </div>
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-700 hover:bg-gray-50 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+              disabled={loading}
+              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-700 hover:bg-gray-50 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Upload className="h-3.5 w-3.5" />选择文件
             </button>
             <button
               onClick={() => folderInputRef.current?.click()}
-              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-700 hover:bg-gray-50 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+              disabled={loading}
+              className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-700 hover:bg-gray-50 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <FolderOpen className="h-3.5 w-3.5" />选择文件夹
             </button>
