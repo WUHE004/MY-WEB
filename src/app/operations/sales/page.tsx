@@ -166,12 +166,25 @@ export default function SalesPage() {
     }
   };
 
-  // 获取该编号各尺码的已售/已退数量，用于计算剩余库存
-  const fetchStockData = async (saleId: string) => {
-    // 已售
+  // 竞态防护序号: 快速切换编号时丢弃过期响应, 避免旧编号的库存覆盖新编号
+  const saleDetailsSeqRef = useRef(0);
+
+  // 一次性获取该编号的已售/已退数量与历史售价
+  // (原实现 fetchStockData 与 fetchExistingSellPrice 对同一接口重复请求两次, 现合并为一次)
+  const fetchSaleDetails = async (saleId: string) => {
+    const seq = ++saleDetailsSeqRef.current;
     try {
-      const res = await fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`);
-      const data = await res.json();
+      const [salesRes, returnRes] = await Promise.all([
+        fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`),
+        fetch(`/api/return-records?sale_id=${encodeURIComponent(saleId)}`),
+      ]);
+      const data = await salesRes.json();
+      const returnData = await returnRes.json();
+
+      // 响应期间用户已切换到其他编号: 丢弃本次结果
+      if (seq !== saleDetailsSeqRef.current) return;
+
+      // 已售(按尺码汇总)
       const sold: Record<number, number> = {};
       if (Array.isArray(data)) {
         for (const r of data) {
@@ -180,31 +193,18 @@ export default function SalesPage() {
         }
       }
       setSoldBySize(sold);
-    } catch {
-      setSoldBySize({});
-    }
-    // 已退
-    try {
-      const res = await fetch(`/api/return-records?sale_id=${encodeURIComponent(saleId)}`);
-      const data = await res.json();
+
+      // 已退(按尺码汇总)
       const ret: Record<number, number> = {};
-      if (Array.isArray(data)) {
-        for (const r of data) {
+      if (Array.isArray(returnData)) {
+        for (const r of returnData) {
           const size = Number(r.size);
           ret[size] = (ret[size] || 0) + (Number(r.quantity) || 0);
         }
       }
       setReturnedBySize(ret);
-    } catch {
-      setReturnedBySize({});
-    }
-  };
 
-  // 从售出记录中查找该编号的售价
-  const fetchExistingSellPrice = async (saleId: string) => {
-    try {
-      const res = await fetch(`/api/sales-records?sale_id=${encodeURIComponent(saleId)}`);
-      const data = await res.json();
+      // 从售出记录中预填历史售价
       if (Array.isArray(data) && data.length > 0) {
         const price = data[0].sell_price;
         if (price != null && price > 0) {
@@ -216,6 +216,9 @@ export default function SalesPage() {
       setSellPrice("");
       setSellPriceFound(false);
     } catch {
+      if (seq !== saleDetailsSeqRef.current) return;
+      setSoldBySize({});
+      setReturnedBySize({});
       setSellPrice("");
       setSellPriceFound(false);
     }
@@ -252,8 +255,8 @@ export default function SalesPage() {
     setShowDropdown(false);
     setNotFound(false);
     setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
-    fetchStockData(record.sale_id);
-    fetchExistingSellPrice(record.sale_id);
+    fetchSaleDetails(record.sale_id);
+    
   };
 
   const handleBlur = () => {
@@ -269,8 +272,8 @@ export default function SalesPage() {
       setSelectedRecord(exactMatch);
       selectedRecordRef.current = exactMatch;
       setNotFound(false);
-      fetchStockData(exactMatch.sale_id);
-      fetchExistingSellPrice(exactMatch.sale_id);
+      fetchSaleDetails(exactMatch.sale_id);
+      
     } else {
       setNotFound(true);
     }
@@ -288,8 +291,8 @@ export default function SalesPage() {
         selectedRecordRef.current = exactMatch;
         setShowDropdown(false);
         setNotFound(false);
-        fetchStockData(exactMatch.sale_id);
-        fetchExistingSellPrice(exactMatch.sale_id);
+        fetchSaleDetails(exactMatch.sale_id);
+        
       } else {
         setSelectedRecord(null);
         selectedRecordRef.current = null;

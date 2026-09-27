@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { compressImageFileSimple } from "@/lib/image-compress";
 import {
@@ -186,6 +186,8 @@ export default function DataImportPage() {
   const [photoFolderName, setPhotoFolderName] = useState("");
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  // 照片分批上传进度
+  const [photoUploadProgress, setPhotoUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [photoFilter, setPhotoFilter] = useState<Record<string, string>>({});
 
   // 补充照片导入（独立功能，不依赖CSV导入）
@@ -392,30 +394,45 @@ export default function DataImportPage() {
     });
   };
 
-  const matchingPhotos = getMatchingPhotos();
+  // 匹配结果缓存: 依赖不变就不重算(原实现每次进度更新都 O(行数×文件数) 全量重算)
+  const matchingPhotos = useMemo(() => getMatchingPhotos(), [allRows, photoFiles, columnMap, importType]);
 
   const handleUploadPhotos = async () => {
     if (matchingPhotos.length === 0) return;
     setUploadingPhotos(true);
+    setPhotoUploadProgress({ done: 0, total: matchingPhotos.length });
     try {
-      const formData = new FormData();
-      matchingPhotos.forEach((f) => formData.append("photos", f));
-      const res = await fetch("/api/import/photos", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setPhotoFilter(data.photoMap || {});
-        setResult({ success: true, total: 0, actualCount: data.count || 0 });
-        // 显示上传错误详情
-        if (data.errors && data.errors.length > 0) {
-          setError(`部分照片上传失败:\n${data.errors.join("\n")}`);
+      // 分批上传(每批 8 张): 原为一次性全部 POST, 数量大时超时只能整体重来
+      const BATCH = 8;
+      const mergedPhotoMap: Record<string, string> = {};
+      const errors: string[] = [];
+      let count = 0;
+      for (let i = 0; i < matchingPhotos.length; i += BATCH) {
+        const batch = matchingPhotos.slice(i, i + BATCH);
+        const formData = new FormData();
+        batch.forEach((f) => formData.append("photos", f));
+        const res = await fetch("/api/import/photos", { method: "POST", body: formData });
+        const data = await res.json();
+        if (data.error) {
+          setError(data.error);
+          return;
         }
+        if (data.photoMap) Object.assign(mergedPhotoMap, data.photoMap);
+        if (Array.isArray(data.errors)) errors.push(...data.errors);
+        count += data.count || 0;
+        setPhotoUploadProgress({ done: Math.min(i + BATCH, matchingPhotos.length), total: matchingPhotos.length });
+      }
+      setPhotoFilter(mergedPhotoMap);
+      setResult({ success: true, total: 0, actualCount: count });
+      // 显示上传错误详情
+      if (errors.length > 0) {
+        setError(`部分照片上传失败:\n${errors.join("\n")}`);
       }
     } catch {
       setError("照片上传失败");
     } finally {
       setUploadingPhotos(false);
+      setPhotoUploadProgress(null);
     }
   };
 
@@ -776,7 +793,11 @@ export default function DataImportPage() {
                         variant="primary"
                         className="px-4 py-2 text-xs"
                       >
-                        {uploadingPhotos ? "压缩上传中..." : `压缩并上传 ${matchingPhotos.length} 张匹配照片`}
+                        {uploadingPhotos
+                          ? photoUploadProgress
+                            ? `上传中 ${photoUploadProgress.done}/${photoUploadProgress.total} 张...`
+                            : "压缩上传中..."
+                          : `压缩并上传 ${matchingPhotos.length} 张匹配照片`}
                       </Button>
                     </>
                   )}

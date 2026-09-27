@@ -150,6 +150,8 @@ export default function InboundPage() {
   });
   // 货架搬运
   const [shelfProducts, setShelfProducts] = useState<Record<string, { id: string; name: string; count: number }[]>>({});
+  // 货架商品检查进行中(并行批量查询时的互斥标记)
+  const [shelfChecking, setShelfChecking] = useState(false);
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [transferFromShelf, setTransferFromShelf] = useState("");
   const [transferToShelf, setTransferToShelf] = useState("");
@@ -528,33 +530,39 @@ export default function InboundPage() {
   };
 
   const removeShelfLevel1 = async (key: string) => {
-    // 检查该排下所有货架是否有商品
+    // 检查该排下所有货架是否有商品(并行查询, 原为逐个串行等待, 排大时卡数秒)
     const positions = shelfDraft[key] || [];
-    let hasProducts = false;
-    for (const pos of positions) {
-      for (const layer of DEFAULT_LAYERS) {
-        const shelfNo = `${key}-${pos}-${layer}`;
-        const products = await checkShelfProducts(shelfNo);
-        if (products.length > 0) {
+    const shelfNos = positions.flatMap((pos) => DEFAULT_LAYERS.map((layer) => `${key}-${pos}-${layer}`));
+    if (shelfNos.length === 0) return;
+    setShelfChecking(true);
+    try {
+      const results = await Promise.all(shelfNos.map((sn) => checkShelfProducts(sn)));
+      const found: Record<string, { id: string; name: string; count: number }[]> = {};
+      let hasProducts = false;
+      shelfNos.forEach((sn, i) => {
+        if (results[i].length > 0) {
           hasProducts = true;
-          setShelfProducts((prev) => ({ ...prev, [shelfNo]: products }));
+          found[sn] = results[i];
         }
+      });
+      if (hasProducts) {
+        setShelfProducts((prev) => ({ ...prev, ...found }));
+        showToast("该排列下有商品，请先将商品搬运到其他货架后再删除", "error");
+        return;
       }
-    }
-    if (hasProducts) {
-      showToast("该排列下有商品，请先将商品搬运到其他货架后再删除", "error");
-      return;
-    }
-    setShelfDraft((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-    setShelfHasChanges(true);
-    if (shelfLevel1 === key) {
-      setShelfLevel1("");
-      setShelfLevel2("");
-      setShelfLevel3("");
+      setShelfDraft((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      setShelfHasChanges(true);
+      if (shelfLevel1 === key) {
+        setShelfLevel1("");
+        setShelfLevel2("");
+        setShelfLevel3("");
+      }
+    } finally {
+      setShelfChecking(false);
     }
   };
 
@@ -602,16 +610,20 @@ export default function InboundPage() {
   // 搬运单个货架号
   const handleTransferShelfNum = async (rowKey: string, shelfNum: number) => {
     setTransferFromShelf(rowKey);
-    // 收集该货架号下所有层的商品
-    const allShelves: string[] = [];
-    for (const layer of DEFAULT_LAYERS) {
-      allShelves.push(`${rowKey}-${shelfNum}-${layer}`);
-    }
-    for (const sn of allShelves) {
-      const products = await checkShelfProducts(sn);
-      if (products.length > 0) {
-        setShelfProducts((prev) => ({ ...prev, [sn]: products }));
+    // 收集该货架号下所有层的商品(并行查询)
+    const allShelves: string[] = DEFAULT_LAYERS.map((layer) => `${rowKey}-${shelfNum}-${layer}`);
+    setShelfChecking(true);
+    try {
+      const results = await Promise.all(allShelves.map((sn) => checkShelfProducts(sn)));
+      const found: Record<string, { id: string; name: string; count: number }[]> = {};
+      allShelves.forEach((sn, i) => {
+        if (results[i].length > 0) found[sn] = results[i];
+      });
+      if (Object.keys(found).length > 0) {
+        setShelfProducts((prev) => ({ ...prev, ...found }));
       }
+    } finally {
+      setShelfChecking(false);
     }
     setShowTransferDialog(true);
   };
@@ -1633,6 +1645,7 @@ export default function InboundPage() {
                         <button
                           onClick={async (e) => {
                             e.stopPropagation();
+                            if (shelfChecking) return; // 检查进行中防重复点击
                             setTransferFromShelf(key);
                             const allShelves: string[] = [];
                             for (const pos of positions) {
@@ -1640,11 +1653,19 @@ export default function InboundPage() {
                                 allShelves.push(`${key}-${pos}-${layer}`);
                               }
                             }
-                            for (const sn of allShelves) {
-                              const products = await checkShelfProducts(sn);
-                              if (products.length > 0) {
-                                setShelfProducts((prev) => ({ ...prev, [sn]: products }));
+                            // 并行查询该排下所有货架位(原为逐个串行等待, 排大时卡数秒)
+                            setShelfChecking(true);
+                            try {
+                              const results = await Promise.all(allShelves.map((sn) => checkShelfProducts(sn)));
+                              const found: Record<string, { id: string; name: string; count: number }[]> = {};
+                              allShelves.forEach((sn, i) => {
+                                if (results[i].length > 0) found[sn] = results[i];
+                              });
+                              if (Object.keys(found).length > 0) {
+                                setShelfProducts((prev) => ({ ...prev, ...found }));
                               }
+                            } finally {
+                              setShelfChecking(false);
                             }
                             setShowTransferDialog(true);
                           }}

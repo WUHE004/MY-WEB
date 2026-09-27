@@ -393,6 +393,8 @@ export default function DataCleanPage() {
   // 本次数据来源: dy=抖店 pdd=拼多多 mixed=两者混合
   const [sourceMode, setSourceMode] = useState<"dy" | "pdd" | "mixed">("dy");
   const [loading, setLoading] = useState(false);
+  // 逐文件解析进度(大文件 XLSX.read 同步阻塞主线程, 用进度提示缓解"假死"感)
+  const [parseProgress, setParseProgress] = useState<{ done: number; total: number; name: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [selectedIdx, setSelectedIdx] = useState<number>(-1);
@@ -445,6 +447,7 @@ export default function DataCleanPage() {
     const ok: string[] = [];
     const failed: FailedFile[] = [];
     const sources = new Set<SourceType>();
+    // 解析进度: 逐文件更新, 让用户看到"正在解析第几个文件"(XLSX.read 同步解析会阻塞主线程)
     // 可疑编号行索引(纯数字编号未从标题尾部直接命中)
     const suspectIdx = new Set<number>();
     // 拼多多无面单号, 统一为 多多+当天日期(如 多多20260902)
@@ -452,7 +455,11 @@ export default function DataCleanPage() {
     const now = new Date();
     const pddTracking = `多多${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`;
 
-    for (const file of supported) {
+    for (let fi = 0; fi < supported.length; fi++) {
+      const file = supported[fi];
+      // 文件间让出主线程一帧: 状态栏的进度文字有机会刷新, 页面不再整体"假死"
+      setParseProgress({ done: fi, total: supported.length, name: file.name });
+      await new Promise((r) => setTimeout(r, 0));
       try {
         const result = await readSpreadsheet(file);
         if (!result) continue;
@@ -507,6 +514,7 @@ export default function DataCleanPage() {
     setSizeFilled(new Set());
     setSuspectRows(suspectIdx);
     setSourceDisplay(supported.length === 1 ? supported[0].name : `已拖入 ${supported.length} 个表格文件`);
+    setParseProgress(null);
     processingRef.current = false;
     setLoading(false);
   }, []);
@@ -768,7 +776,10 @@ export default function DataCleanPage() {
           <div className="mt-2 pt-2 border-t-2 border-dashed border-gray-200 flex flex-wrap items-center gap-x-3 gap-y-1">
             {loading ? (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#4A90E2]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />正在读取并清洗数据...
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {parseProgress
+                  ? `正在解析第 ${parseProgress.done + 1}/${parseProgress.total} 个文件: ${parseProgress.name}`
+                  : "正在读取并清洗数据..."}
               </span>
             ) : (
               <span className="text-xs font-medium text-gray-600">{statusText}</span>

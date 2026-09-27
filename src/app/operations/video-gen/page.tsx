@@ -25,12 +25,31 @@ export default function VideoGenPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 任务持久化: 任务 ID 存 localStorage, 刷新页面后可恢复轮询(原实现只存内存, 刷新即白等一场)
+  const VG_TASK_KEY = "vg_active_task";
+  const clearActiveTask = () => { try { localStorage.removeItem(VG_TASK_KEY); } catch { /* 忽略 */ } };
+
   useEffect(() => {
     return () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
       }
     };
+  }, []);
+
+  // 挂载时恢复未完成任务: 上次生成中途刷新/关闭页面, 回来继续追踪进度
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(VG_TASK_KEY);
+      if (!raw) return;
+      const { vid, mid } = JSON.parse(raw);
+      if (!vid || !mid) return;
+      setGenerating(true);
+      setStatus("generating");
+      setVideoId(vid);
+      startPolling(vid, mid);
+    } catch { /* 恢复失败静默忽略 */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const compressImage = (file: File, maxWidth = 1280, quality = 0.8): Promise<string> => {
@@ -90,6 +109,7 @@ export default function VideoGenPage() {
       consecutivePollFailures += 1;
       if (consecutivePollFailures >= 3) {
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        clearActiveTask();
         setErrorMsg(reason);
         setStatus("error");
         setGenerating(false);
@@ -127,6 +147,7 @@ export default function VideoGenPage() {
           if (pollTimerRef.current) {
             clearInterval(pollTimerRef.current);
           }
+          clearActiveTask();
           if (data.video_url) {
             setVideoUrl(data.video_url);
             setStatus("success");
@@ -141,6 +162,7 @@ export default function VideoGenPage() {
           if (pollTimerRef.current) {
             clearInterval(pollTimerRef.current);
           }
+          clearActiveTask();
           setErrorMsg(data.error || "视频生成失败");
           setStatus("error");
           setGenerating(false);
@@ -200,6 +222,8 @@ export default function VideoGenPage() {
       }
 
       setVideoId(data.video_id);
+      // 记录任务: 刷新页面后挂载时恢复轮询
+      try { localStorage.setItem(VG_TASK_KEY, JSON.stringify({ vid: data.video_id, mid })); } catch { /* 忽略 */ }
       console.log("视频任务创建成功:", data.video_id);
 
       startPolling(data.video_id, mid);

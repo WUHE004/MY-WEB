@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   PackagePlus,
@@ -37,8 +37,7 @@ interface LinkData {
 
 export default function LinksPage() {
   const [stats, setStats] = useState<Stats>({ inboundCount: 0, salesCount: 0, returnCount: 0 });
-  const [linkData, setLinkData] = useState<LinkData>({
-    latest_shipping_fee: 0,
+  const [linkData, setLinkData] = useState<LinkData>({    latest_shipping_fee: 0,
     latest_platform_fee: 0,
     latest_date: "",
     selected_count: 0,
@@ -47,6 +46,8 @@ export default function LinksPage() {
   const [loading, setLoading] = useState(true);
   // 统计数据加载失败标记
   const [statsError, setStatsError] = useState(false);
+  // 轮询快照: 与上次相同则跳过 setState
+  const linkSnapshotRef = useRef<string>("");
   const [isOperator, setIsOperator] = useState(false);
 
   useEffect(() => {
@@ -82,8 +83,13 @@ export default function LinksPage() {
     try {
       const res = await fetch("/api/links");
       const data = await res.json();
+      // 数据没变化就不 setState, 避免 5 秒轮询持续触发无效重渲染
       if (!data.error) {
-        setLinkData(data);
+        const next = JSON.stringify(data);
+        if (next !== linkSnapshotRef.current) {
+          linkSnapshotRef.current = next;
+          setLinkData(data);
+        }
       }
     } catch (err) {
       console.error("Fetch link data error:", err);

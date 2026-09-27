@@ -73,11 +73,14 @@ export default function ShippingPage() {
     finally { setLoading(false); }
   };
 
-  // 初始加载
+  // 初始加载(防抖 400ms: 费率输入每击键不再立刻发请求, 停止输入才计算)
   useEffect(() => {
-    if (rate1 !== "" || rate2 !== "" || rate3 !== "") {
+    if (rate1 === "" && rate2 === "" && rate3 === "") return;
+    const timer = setTimeout(() => {
       fetchShipping();
-    }
+    }, 400);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rate1, rate2, rate3]);
 
   // 保存费率

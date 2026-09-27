@@ -76,7 +76,10 @@ export default function ReturnsPage() {
   };
 
   // 输入时按编号模糊检索(走数据库查询, 避免全表拉取超过 Vercel 4.5MB 响应限制被截断)
-  const handleSearch = async (query: string) => {
+  // 防抖 350ms: 停止输入才发请求; 序号作废过期响应: 防止先发后至的旧结果覆盖新结果
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchSeqRef = useRef(0);
+  const handleSearch = (query: string) => {
     setSearchQuery(query);
     setNotFound(false);
     setSelectedSaleId("");
@@ -86,10 +89,19 @@ export default function ReturnsPage() {
     setReturnedBySize({});
 
     const q = query.trim();
-    if (q) {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!q) {
+      searchSeqRef.current += 1; // 作废在途请求
+      setFilteredRecords([]);
+      setShowDropdown(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(async () => {
+      const seq = ++searchSeqRef.current;
       try {
         const res = await fetch(`/api/sales-records?search=${encodeURIComponent(q)}`, { cache: "no-store" });
         const data = await res.json();
+        if (seq !== searchSeqRef.current) return; // 已有更新的搜索, 丢弃
         if (Array.isArray(data)) {
           setFilteredRecords(data);
           setShowDropdown(true);
@@ -97,13 +109,11 @@ export default function ReturnsPage() {
         }
       } catch (err) {
         console.error("Search sales records error:", err);
+        if (seq !== searchSeqRef.current) return;
       }
       setFilteredRecords([]);
       setShowDropdown(false);
-    } else {
-      setFilteredRecords([]);
-      setShowDropdown(false);
-    }
+    }, 350);
   };
 
   // 获取该编号各尺码的已退数量

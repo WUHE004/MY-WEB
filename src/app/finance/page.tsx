@@ -725,7 +725,8 @@ export default function FinancePage() {
   const closeDetail = () => { setDetailType(null); setDetailSaleId(""); setDetailRecords([]); };
 
   // 保存售出/退货编辑（按 sale_id + size 修改数量）
-  const saveEdit = async (type: "sales" | "returns", saleId: string, size: number, quantity: number) => {
+  // silent=true 时不触发数据刷新(供批量保存使用, 循环保存 N 个尺码只刷新一次)
+  const saveEdit = async (type: "sales" | "returns", saleId: string, size: number, quantity: number, silent = false) => {
     setEditSaving(true);
     setEditSaveMsg("");
     try {
@@ -738,10 +739,12 @@ export default function FinancePage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "更新失败");
       setEditSaveMsg(`已保存: ${saleId} 尺码${size} → ${quantity}`);
-      // 刷新数据
-      if (type === "sales") { fetchSalesAgg(); fetchSalesDates(); }
-      else { fetchReturnAgg(); fetchReturnsDates(); }
-      fetchSummary();
+      // 刷新数据(批量保存时跳过, 由调用方在循环结束后统一刷新一次)
+      if (!silent) {
+        if (type === "sales") { fetchSalesAgg(); fetchSalesDates(); }
+        else { fetchReturnAgg(); fetchReturnsDates(); }
+        fetchSummary();
+      }
     } catch (err) {
       setEditSaveMsg(`保存失败: ${err instanceof Error ? err.message : "未知错误"}`);
     } finally {
@@ -3103,13 +3106,17 @@ export default function FinancePage() {
                 </button>
                 <button
                   onClick={async () => {
+                    let changed = false;
                     for (const s of ALL_SIZES) {
                       const newVal = editSizeValues[s] || 0;
                       const oldVal = Number(row[`size_${s}`]) || 0;
                       if (newVal !== oldVal) {
-                        await saveEdit("sales", row.sale_id, s, newVal);
+                        await saveEdit("sales", row.sale_id, s, newVal, true);
+                        changed = true;
                       }
                     }
+                    // 批量保存后只统一刷新一次(原每尺码刷新一次, 改 5 个尺码 = 10+ 次请求)
+                    if (changed) { fetchSalesAgg(); fetchSalesDates(); fetchSummary(); }
                     setSalesEditModal(null);
                   }}
                   className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"
@@ -3192,13 +3199,16 @@ export default function FinancePage() {
                 </button>
                 <button
                   onClick={async () => {
+                    let changed = false;
                     for (const s of ALL_SIZES) {
                       const newVal = editSizeValues[s] || 0;
                       const oldVal = Number(row[`size_${s}`]) || 0;
                       if (newVal !== oldVal) {
-                        await saveEdit("returns", row.sale_id, s, newVal);
+                        await saveEdit("returns", row.sale_id, s, newVal, true);
+                        changed = true;
                       }
                     }
+                    if (changed) { fetchReturnAgg(); fetchReturnsDates(); fetchSummary(); }
                     setReturnsEditModal(null);
                   }}
                   className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"

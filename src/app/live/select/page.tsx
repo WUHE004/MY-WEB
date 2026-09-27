@@ -270,6 +270,9 @@ export default function LiveSelectPage() {
   const [loading, setLoading] = useState(true);
   // 商品数据加载失败标记
   const [productsError, setProductsError] = useState(false);
+  // 轮询快照: 与上次相同则跳过 setState
+  const selectionsSnapshotRef = useRef<string>("");
+  const pricesSnapshotRef = useRef<string>("");
   const [search, setSearch] = useState("");
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [memberName, setMemberName] = useState("");
@@ -408,10 +411,15 @@ export default function LiveSelectPage() {
     try {
       const res = await fetch("/api/live-selections", { cache: "no-store" });
       const data = await res.json();
-      if (Array.isArray(data.selections)) {
+      // 数据没变化就不 setState, 避免 2 秒轮询持续触发无效重渲染
+      const nextSel = JSON.stringify(data.selections ?? null);
+      if (Array.isArray(data.selections) && nextSel !== selectionsSnapshotRef.current) {
+        selectionsSnapshotRef.current = nextSel;
         setSelections(data.selections);
       }
-      if (data.prices && typeof data.prices === "object") {
+      const nextPrices = JSON.stringify(data.prices ?? null);
+      if (data.prices && typeof data.prices === "object" && nextPrices !== pricesSnapshotRef.current) {
+        pricesSnapshotRef.current = nextPrices;
         setLivePrices(data.prices as Record<string, number>);
       }
     } catch (err) {
