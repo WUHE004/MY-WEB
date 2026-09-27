@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
+import { CountUp, staggerContainer, staggerItem } from "@/components/motion-primitives";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart, Line, PieChart, Pie, Cell, Legend,
@@ -475,12 +477,13 @@ export default function DashboardPage() {
       </h1>
 
       {/* 统计卡片 - 第一行 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {/* 总售出 - 带月份下拉 */}
         <StatCard
           icon={<ShoppingCart className="h-5 w-5" />}
           label="总售出"
-          value={`${selectedMonthSales} 件`}
+          numeric={selectedMonthSales}
+          suffix=" 件"
           color="bg-green-500"
           extra={
             <select
@@ -500,7 +503,9 @@ export default function DashboardPage() {
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
           label="业绩"
-          value={`¥${performance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          numeric={performance}
+          prefix="¥"
+          decimals={2}
           color="bg-blue-500"
           modeToggle={
             <div className="flex gap-1">
@@ -543,7 +548,9 @@ export default function DashboardPage() {
         <StatCard
           icon={<DollarSign className="h-5 w-5" />}
           label="盈利"
-          value={`¥${dailyProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          numeric={dailyProfit}
+          prefix="¥"
+          decimals={2}
           color="bg-yellow-500"
           modeToggle={
             <div className="flex gap-1">
@@ -586,7 +593,8 @@ export default function DashboardPage() {
         <StatCard
           icon={<ShoppingCart className="h-5 w-5" />}
           label="售卖"
-          value={`${soldQuantity} 件`}
+          numeric={soldQuantity}
+          suffix=" 件"
           color="bg-teal-500"
           modeToggle={
             <div className="flex gap-1">
@@ -624,15 +632,17 @@ export default function DashboardPage() {
             </select>
           }
         />
-      </div>
+      </motion.div>
 
       {/* 统计卡片 - 第二行 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
         {/* 退货率 */}
         <StatCard
           icon={<Percent className="h-5 w-5" />}
           label="退货率"
-          value={`${returnRate.toFixed(2)}%`}
+          numeric={returnRate}
+          suffix="%"
+          decimals={2}
           color="bg-rose-500"
           extra={
             <select
@@ -652,7 +662,9 @@ export default function DashboardPage() {
         <StatCard
           icon={<Truck className="h-5 w-5" />}
           label="快递费"
-          value={`¥${totalShippingFee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          numeric={totalShippingFee}
+          prefix="¥"
+          decimals={2}
           color="bg-indigo-500"
           extra={
             <select
@@ -672,7 +684,8 @@ export default function DashboardPage() {
         <StatCard
           icon={<Package className="h-5 w-5" />}
           label="进货总花费"
-          value={`¥${inboundCost.toLocaleString()}`}
+          numeric={inboundCost}
+          prefix="¥"
           color="bg-red-500"
           extra={
             <select
@@ -692,7 +705,8 @@ export default function DashboardPage() {
         <StatCard
           icon={<RotateCcw className="h-5 w-5" />}
           label="库存剩余价值"
-          value={`¥${remainingValue.toLocaleString()}`}
+          numeric={remainingValue}
+          prefix="¥"
           color="bg-purple-500"
           extra={
             <select
@@ -707,10 +721,10 @@ export default function DashboardPage() {
             </select>
           }
         />
-      </div>
+      </motion.div>
 
       {/* 图表区 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* 售卖尺码柱状图 - 仅当日数据 */}
         <ChartCard
           title="售卖尺码分布"
@@ -948,33 +962,39 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </ChartCard>
-      </div>
+      </motion.div>
     </PageWrapper>
   );
 }
 
-function StatCard({ icon, label, value, color, extra, modeToggle }: { icon: React.ReactNode; label: string; value: string; color: string; extra?: React.ReactNode; modeToggle?: React.ReactNode }) {
+function StatCard({ icon, label, value, numeric, prefix, suffix, decimals, color, extra, modeToggle }: { icon: React.ReactNode; label: string; value?: string; numeric?: number; prefix?: string; suffix?: string; decimals?: number; color: string; extra?: React.ReactNode; modeToggle?: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4 relative">
+    <motion.div variants={staggerItem} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4 relative">
       <div className="flex items-center gap-2 mb-2">
         <div className={`${color} text-white p-1.5 rounded-lg`}>{icon}</div>
         <span className="text-xs sm:text-sm text-gray-500 font-bold">{label}</span>
         {modeToggle && <div className="ml-auto">{modeToggle}</div>}
       </div>
-      <p className="text-lg sm:text-2xl font-extrabold text-gray-900">{value}</p>
+      <p className="text-lg sm:text-2xl font-extrabold text-gray-900">
+        {numeric !== undefined ? (
+          <CountUp value={numeric} prefix={prefix} suffix={suffix} decimals={decimals} />
+        ) : (
+          value
+        )}
+      </p>
       {extra && <div className="mt-2">{extra}</div>}
-    </div>
+    </motion.div>
   );
 }
 
 function ChartCard({ title, children, extra }: { title: string; children: React.ReactNode; extra?: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4">
+    <motion.div variants={staggerItem} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm sm:text-base font-extrabold text-gray-900">{title}</h3>
         {extra}
       </div>
       {children}
-    </div>
+    </motion.div>
   );
 }

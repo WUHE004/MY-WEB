@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Plus, Minus, Search, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -394,7 +395,7 @@ export default function ReturnsPage() {
               尺码与退货数量
             </label>
             <span className="text-xs lg:text-sm font-bold text-gray-500">
-              合计: {totalSizeCount} 件
+              合计: <NumberPop value={totalSizeCount} /> 件
             </span>
           </div>
           {!selectedSaleId && (
@@ -407,8 +408,9 @@ export default function ReturnsPage() {
               const currentQty = sizes[size] || 0;
 
               return (
-                <div
+                <PulseOnChange
                   key={size}
+                  value={currentQty}
                   className={`rounded-xl border-[3px] bg-white p-1.5 lg:p-2 transition-all ${
                     disabled
                       ? "border-gray-200 bg-gray-100 opacity-50"
@@ -461,7 +463,7 @@ export default function ReturnsPage() {
                       <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                   </div>
-                </div>
+                </PulseOnChange>
               );
             })}
           </div>

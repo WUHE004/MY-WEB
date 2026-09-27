@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -1366,7 +1367,7 @@ export default function InboundPage() {
               {isNoSizeStyle ? "标码数量" : "尺码数量"}
             </label>
             <span className="text-xs lg:text-sm font-bold text-gray-500">
-              合计: {totalSizeCount} 件
+              合计: <NumberPop value={totalSizeCount} /> 件
             </span>
           </div>
           {isNoSizeStyle ? (
@@ -1402,8 +1403,9 @@ export default function InboundPage() {
           ) : (
             <div className="grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
               {SIZE_OPTIONS.map((size) => (
-                <div
+                <PulseOnChange
                   key={size}
+                  value={sizes[size] || 0}
                   className="rounded-xl border-[3px] border-gray-900 bg-white p-1.5 lg:p-2"
                 >
                   <div className={`text-center text-[10px] lg:text-xs font-extrabold mb-1 ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}>
@@ -1434,7 +1436,7 @@ export default function InboundPage() {
                       <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
                     </button>
                   </div>
-                </div>
+                </PulseOnChange>
               ))}
             </div>
           )}

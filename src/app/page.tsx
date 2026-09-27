@@ -401,15 +401,21 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="lg:overflow-x-auto lg:pb-2">
-                <div className="grid grid-cols-2 gap-3 lg:flex lg:min-w-max lg:gap-3">
+                <motion.div
+                  className="grid grid-cols-2 gap-3 lg:flex lg:min-w-max lg:gap-3"
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
                   {hotProducts.length === 0 ? (
                     <div className="w-full flex items-center justify-center py-8">
                       <p className="text-sm text-gray-400 font-bold">加载中...</p>
                     </div>
                   ) : (
                     hotProducts.map((product, idx) => (
-                      <button
+                      <motion.button
                         key={product.sale_id}
+                        variants={itemVariants}
                         onClick={() => handleHotProductClick(product.sale_id)}
                         className="w-full lg:w-[200px] lg:flex-shrink-0 rounded-xl border-[3px] border-gray-900 bg-white overflow-hidden shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] hover:-translate-y-1 transition-all block text-left cursor-pointer"
                       >
@@ -437,10 +443,10 @@ export default function DashboardPage() {
                             已售 {product.total_sold}
                           </div>
                         </div>
-                      </button>
+                      </motion.button>
                     ))
                   )}
-                </div>
+                </motion.div>
               </div>
             </CardContent>
           </Card>

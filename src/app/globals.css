@@ -277,3 +277,53 @@ html {
 .toast-exit {
   animation: toast-out 0.3s ease-in;
 }
+
+/* 打包找货: 点找齐后面单回缩成文件夹并向右飞出屏幕 */
+@keyframes pack-fly-out {
+  0% {
+    transform: translateX(0) scale(1, 1);
+    opacity: 1;
+  }
+  30% {
+    transform: translateX(0) scale(0.92, 0.06);
+    opacity: 1;
+  }
+  60% {
+    transform: translateX(35vw) scale(0.92, 0.06);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(115vw) scale(0.92, 0.06);
+    opacity: 0;
+  }
+}
+
+.pack-fly-out {
+  animation: pack-fly-out 0.95s cubic-bezier(0.5, 0, 0.3, 1) forwards;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* 尊重系统"减弱动态效果"设置：停用纯装饰性动画，保证可访问性 */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .img-loading,
+  .toast-enter,
+  .toast-exit,
+  .pack-fly-out {
+    animation: none;
+  }
+  .neo-card,
+  .neo-btn,
+  .neo-shadow-hover {
+    transition: none;
+  }
+  .neo-card:hover,
+  .neo-btn:hover,
+  .neo-shadow-hover:hover {
+    transform: none;
+  }
+}

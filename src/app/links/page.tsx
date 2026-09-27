@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
+import { CountUp } from "@/components/motion-primitives";
 import Link from "next/link";
 
 interface Stats {
@@ -30,6 +31,7 @@ interface LinkData {
   latest_platform_fee: number;
   latest_date: string;
   selected_count: number;
+  selected_date: string;
 }
 
 export default function LinksPage() {
@@ -39,6 +41,7 @@ export default function LinksPage() {
     latest_platform_fee: 0,
     latest_date: "",
     selected_count: 0,
+    selected_date: "",
   });
   const [loading, setLoading] = useState(true);
   const [isOperator, setIsOperator] = useState(false);
@@ -108,7 +111,7 @@ export default function LinksPage() {
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">入库登记</p>
                 <p className="text-lg lg:text-3xl font-extrabold">
-                  {loading ? "..." : stats.inboundCount.toLocaleString()}
+                  {loading ? "..." : <CountUp value={stats.inboundCount} />}
                 </p>
                 <p className="text-[10px] lg:text-xs text-gray-400 font-medium">款</p>
               </div>
@@ -124,7 +127,7 @@ export default function LinksPage() {
               <div>
                 <p className="text-[10px] lg:text-sm font-bold text-gray-500">售卖登记</p>
                 <p className="text-lg lg:text-3xl font-extrabold">
-                  {loading ? "..." : stats.salesCount.toLocaleString()}
+                  {loading ? "..." : <CountUp value={stats.salesCount} />}
                 </p>
                 <p className="text-[10px] lg:text-xs text-gray-400 font-medium">单</p>
               </div>
@@ -140,7 +143,7 @@ export default function LinksPage() {
             <div>
               <p className="text-[10px] lg:text-sm font-bold text-gray-500">退货登记</p>
               <p className="text-lg lg:text-3xl font-extrabold">
-              {loading ? "..." : stats.returnCount.toLocaleString()}
+              {loading ? "..." : <CountUp value={stats.returnCount} />}
             </p>
             <p className="text-[10px] lg:text-xs text-gray-400 font-medium">款</p>
             </div>
@@ -186,7 +189,7 @@ export default function LinksPage() {
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">快递费用</p>
                   <p className="text-lg lg:text-3xl font-extrabold text-[#4A90E2]">
-                    {loading ? "..." : `¥${linkData.latest_shipping_fee.toFixed(0)}`}
+                    {loading ? "..." : <CountUp value={linkData.latest_shipping_fee} prefix="¥" />}
                   </p>
                   <p className="text-[10px] lg:text-xs text-gray-400 font-medium">
                     {linkData.latest_date ? `${linkData.latest_date} 快递费` : "管理运费"}
@@ -204,7 +207,7 @@ export default function LinksPage() {
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">平台抽点</p>
                   <p className="text-lg lg:text-3xl font-extrabold text-[#FF6B7A]">
-                    {loading ? "..." : `¥${linkData.latest_platform_fee.toFixed(0)}`}
+                    {loading ? "..." : <CountUp value={linkData.latest_platform_fee} prefix="¥" />}
                   </p>
                   <p className="text-[10px] lg:text-xs text-gray-400 font-medium">
                     {linkData.latest_date ? `${linkData.latest_date} 抽点` : "统计抽成"}
@@ -222,9 +225,11 @@ export default function LinksPage() {
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">直播选品</p>
                   <p className="text-lg lg:text-3xl font-extrabold text-[#FFC93C]">
-                    {loading ? "..." : linkData.selected_count}
+                    {loading ? "..." : <CountUp value={linkData.selected_count} suffix="款" />}
                   </p>
-                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">选品多少款</p>
+                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">
+                    {linkData.selected_date ? `${linkData.selected_date}选品` : "选品多少款"}
+                  </p>
                 </div>
                 <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FFC93C]">
                   <Video className="h-4 w-4 lg:h-6 lg:w-6 text-gray-900" />

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Save } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { CountUp } from "@/components/motion-primitives";
 
 interface PlatformRecord {
   date: string;
@@ -211,7 +212,9 @@ export default function PlatformFeePage() {
         ].map((item) => (
           <div key={item.label} className="bg-white rounded-lg border-[2px] border-gray-300 p-2 lg:p-3 text-center">
             <p className="text-[10px] lg:text-xs text-gray-500 font-bold">{item.label}</p>
-            <p className={`text-sm lg:text-lg font-extrabold ${item.color}`}>¥{fmt(item.value)}</p>
+            <p className={`text-sm lg:text-lg font-extrabold ${item.color}`}>
+              <CountUp value={item.value} prefix="¥" format={fmt} />
+            </p>
           </div>
         ))}
       </div>
