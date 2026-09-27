@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 // 有效尺码（有且仅有）
 const SIZES = new Set(["80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]);
@@ -516,6 +517,9 @@ export default function DataCleanPage() {
     processFiles(sourceFilesRef.current);
   }, [processFiles]);
 
+  // 重新清洗二次确认(会覆盖手工补填)
+  const [confirmReClean, setConfirmReClean] = useState(false);
+
   // 无尺码批量填入: 将所有缺尺码行填入手动输入的尺码, 保留黄色背景提示
   const applyManualSize = useCallback(() => {
     const val = manualSize.trim();
@@ -710,7 +714,7 @@ export default function DataCleanPage() {
               <FolderOpen className="h-3.5 w-3.5" />选择文件夹
             </button>
             <button
-              onClick={reClean}
+              onClick={() => setConfirmReClean(true)}
               disabled={!hasData || loading}
               className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-700 hover:bg-gray-50 transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -965,6 +969,19 @@ export default function DataCleanPage() {
           const files = Array.from(e.target.files || []);
           if (files.length > 0) processFiles(files);
           e.target.value = "";
+        }}
+      />
+
+      {/* 重新清洗二次确认(将覆盖手工补填) */}
+      <ConfirmDialog
+        open={confirmReClean}
+        title="确认重新清洗？"
+        description={"将按原始文件重新清洗，所有手动补填的内容（含批量填入的尺码）都会被覆盖。"}
+        confirmText="确认重新清洗"
+        onCancel={() => setConfirmReClean(false)}
+        onConfirm={() => {
+          setConfirmReClean(false);
+          reClean();
         }}
       />
     </PageWrapper>

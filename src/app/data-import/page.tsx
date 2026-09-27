@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { authFetch } from "@/lib/auth-fetch";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -170,10 +171,13 @@ function parseCSV(text: string) {
 
 export default function DataImportPage() {
   const [importType, setImportType] = useState<"inbound" | "sales" | "returns">("inbound");
+  // 清空/切换导入类型二次确认(会清掉已选 CSV 与全部列映射)
+  const [pendingClear, setPendingClear] = useState<null | { kind: "clear" } | { kind: "switch"; nextType: "inbound" | "sales" | "returns" }>(null);
   const [csvContent, setCsvContent] = useState("");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvPreview, setCsvPreview] = useState<string[][]>([]);
   const [allRows, setAllRows] = useState<string[][]>([]);
+  const hasImportData = Boolean(csvContent) || allRows.length > 0;
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ success: boolean; total: number; actualCount: number; errors?: string[] } | null>(null);
@@ -322,7 +326,8 @@ export default function DataImportPage() {
     }
   };
 
-  const handleClear = () => {
+  // 清空导入状态(供确认后的 清空/切换类型 共用)
+  const resetImportState = () => {
     setCsvContent("");
     setCsvHeaders([]);
     setCsvPreview([]);
@@ -332,6 +337,25 @@ export default function DataImportPage() {
     setError("");
     setPhotoFolderName("");
     setPhotoFiles([]);
+  };
+
+  const handleClear = () => {
+    if (!hasImportData) return;
+    setPendingClear({ kind: "clear" });
+  };
+
+  const applySwitchType = (nextType: "inbound" | "sales" | "returns") => {
+    setImportType(nextType);
+    setColumnMap({});
+    setResult(null);
+    setError("");
+    setPhotoFolderName("");
+    setPhotoFiles([]);
+    setPhotoFilter({});
+    setCsvContent("");
+    setCsvHeaders([]);
+    setCsvPreview([]);
+    setAllRows([]);
   };
 
   const handlePhotoFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -636,17 +660,11 @@ export default function DataImportPage() {
           <select
             value={importType}
             onChange={(e) => {
-              setImportType(e.target.value as "inbound" | "sales" | "returns");
-              setColumnMap({});
-              setResult(null);
-              setError("");
-              setPhotoFolderName("");
-              setPhotoFiles([]);
-              setPhotoFilter({});
-              setCsvContent("");
-              setCsvHeaders([]);
-              setCsvPreview([]);
-              setAllRows([]);
+              const nextType = e.target.value as "inbound" | "sales" | "returns";
+              if (nextType === importType) return;
+              // 已有导入内容时切换类型需二次确认(会清掉 CSV 与全部列映射)
+              if (hasImportData) setPendingClear({ kind: "switch", nextType });
+              else applySwitchType(nextType);
             }}
             className="text-sm sm:text-base px-3 py-1.5 rounded-lg border-[2px] border-gray-900 font-extrabold bg-white text-gray-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-50 transition-all"
           >
@@ -1008,6 +1026,20 @@ export default function DataImportPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 清空/切换导入类型二次确认 */}
+      <ConfirmDialog
+        open={pendingClear !== null}
+        title={pendingClear?.kind === "switch" ? "确认切换导入类型？" : "确认清空导入内容？"}
+        description="已选择的 CSV 和全部列映射配置将被清空，需要重新选择文件和映射。"
+        confirmText="确认清空"
+        onCancel={() => setPendingClear(null)}
+        onConfirm={() => {
+          if (pendingClear?.kind === "switch") applySwitchType(pendingClear.nextType);
+          else resetImportState();
+          setPendingClear(null);
+        }}
+      />
     </PageWrapper>
   );
 }

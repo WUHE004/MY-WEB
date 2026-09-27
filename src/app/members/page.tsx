@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle, Database } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DbAdminPanel } from "@/components/db-admin-panel";
 import { authFetch } from "@/lib/auth-fetch";
 
@@ -34,6 +35,9 @@ export default function MembersPage() {
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
   const [editingPassword, setEditingPassword] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<"members" | "database">("members");
+  // 二次确认: 角色变更 / 删除成员
+  const [pendingRole, setPendingRole] = useState<{ id: string; name: string; role: string } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     const role = localStorage.getItem("member_role") || "";
@@ -55,6 +59,15 @@ export default function MembersPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const requestRoleChange = (id: string, name: string, role: string) => {
+    // 禁止管理员修改自己的角色(防止误操作把自己降权, 系统失去管理员)
+    if (id === localStorage.getItem("member_id")) {
+      setError("不能修改自己的角色，请由其他管理员操作");
+      return;
+    }
+    setPendingRole({ id, name, role });
   };
 
   const handleRoleChange = async (id: string, role: string) => {
@@ -81,7 +94,11 @@ export default function MembersPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("确定要删除该成员吗？")) return;
+    // 禁止管理员删除自己(防止误操作导致系统无人管理)
+    if (id === localStorage.getItem("member_id")) {
+      setError("不能删除自己的账号");
+      return;
+    }
     try {
       const res = await authFetch(`/api/members?id=${id}`, { method: "DELETE" });
       const data = await res.json();
@@ -262,7 +279,7 @@ export default function MembersPage() {
                           {isAdmin ? (
                             <select
                               value={member.role}
-                              onChange={(e) => handleRoleChange(member.id, e.target.value)}
+                              onChange={(e) => requestRoleChange(member.id, member.name, e.target.value)}
                               className="rounded-lg border-[2px] border-gray-200 px-2 py-1 text-xs font-bold focus:border-gray-900 focus:outline-none bg-white"
                             >
                               <option value="admin">管理员</option>
@@ -352,13 +369,17 @@ export default function MembersPage() {
                         </td>
                         <td className="py-3 px-2 text-right">
                           {isAdmin && (
-                            <button
-                              onClick={() => handleDelete(member.id)}
-                              className="inline-flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              删除
-                            </button>
+                            member.id === localStorage.getItem("member_id") ? (
+                              <span className="text-xs text-gray-300">当前账号</span>
+                            ) : (
+                              <button
+                                onClick={() => setPendingDelete({ id: member.id, name: member.name })}
+                                className="inline-flex items-center gap-1 text-xs font-bold text-red-500 hover:text-red-700 transition-colors"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                删除
+                              </button>
+                            )
                           )}
                         </td>
                       </tr>
@@ -372,6 +393,34 @@ export default function MembersPage() {
       </Card>
         </>
       )}
+
+      {/* 角色变更二次确认 */}
+      <ConfirmDialog
+        open={pendingRole !== null}
+        title={`确认修改「${pendingRole?.name || ""}」的权限？`}
+        description={`将把该成员的权限变更为「${
+          pendingRole ? ROLE_CONFIG[pendingRole.role as keyof typeof ROLE_CONFIG]?.label || pendingRole.role : ""
+        }」，变更立即生效。`}
+        confirmText="确认修改"
+        onCancel={() => setPendingRole(null)}
+        onConfirm={() => {
+          if (pendingRole) handleRoleChange(pendingRole.id, pendingRole.role);
+          setPendingRole(null);
+        }}
+      />
+
+      {/* 删除成员二次确认 */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`确认删除成员「${pendingDelete?.name || ""}」？`}
+        description="删除后该成员将无法登录，此操作不可恢复。"
+        confirmText="确认删除"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) handleDelete(pendingDelete.id);
+          setPendingDelete(null);
+        }}
+      />
     </PageWrapper>
   );
 }

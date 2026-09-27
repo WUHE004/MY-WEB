@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   BarChart,
   Bar,
@@ -94,6 +95,7 @@ export default function AccountPage() {
     platform: "小红书",
     handle: "",
   });
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
 
   useEffect(() => {
     fetchAccounts();
@@ -253,10 +255,11 @@ export default function AccountPage() {
                       </div>
                     </div>
                     <button
-                      onClick={() => handleDelete(account.id)}
-                      className="flex h-7 w-7 lg:h-8 lg:w-8 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all"
+                      onClick={() => setDeleteTarget(account)}
+                      aria-label={`删除账号 ${account.name}`}
+                      className="flex h-11 w-11 lg:h-9 lg:w-9 items-center justify-center rounded-lg border-[3px] border-gray-900 bg-[#FF6B7A] shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all"
                     >
-                      <Trash2 className="h-3 w-3 lg:h-3.5 lg:w-3.5 text-white" />
+                      <Trash2 className="h-4 w-4 lg:h-3.5 lg:w-3.5 text-white" />
                     </button>
                   </div>
 
@@ -470,6 +473,19 @@ export default function AccountPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 删除账号二次确认 */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`确认删除「${deleteTarget?.name || ""}」？`}
+        description="删除后该运营账号及其统计数据将无法恢复。"
+        confirmText="确认删除"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget) handleDelete(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+      />
     </PageWrapper>
   );
 }

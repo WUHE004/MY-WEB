@@ -5,10 +5,11 @@ import { hashPassword, verifyPassword, signJwt } from "@/lib/auth";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, phone, password, name, address } = body as {
+    const { action, phone, password, old_password, name, address } = body as {
       action: "login" | "register" | "reset_password";
       phone: string;
       password: string;
+      old_password?: string;
       name?: string;
       address?: string;
     };
@@ -17,21 +18,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "手机号不能为空" }, { status: 400 });
     }
 
-    // 重置密码
+    // 重置密码（需验证原密码, 防止拿到设备即可改密）
     if (action === "reset_password") {
+      if (!old_password) {
+        return NextResponse.json({ error: "请输入原密码" }, { status: 400 });
+      }
       if (!password || password.length < 6) {
         return NextResponse.json({ error: "密码至少6位" }, { status: 400 });
       }
 
-      // 查找用户
+      // 查找用户（含密码哈希用于校验原密码）
       const { data: member, error: findError } = await supabase
         .from("members")
-        .select("id")
+        .select("id, password")
         .eq("phone", phone)
         .single();
 
       if (findError || !member) {
         return NextResponse.json({ error: "该手机号未注册" }, { status: 404 });
+      }
+
+      // 校验原密码
+      if (!verifyPassword(old_password, member.password || "")) {
+        return NextResponse.json({ error: "原密码不正确" }, { status: 401 });
       }
 
       // 更新密码（哈希存储）

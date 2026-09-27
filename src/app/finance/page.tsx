@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useDeferredValue, Fragment } from "react"
 import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { authFetch } from "@/lib/auth-fetch";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -398,6 +399,7 @@ export default function FinancePage() {
   const [editSaveMsg, setEditSaveMsg] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [confirmSync, setConfirmSync] = useState(false);
 
   // 日期筛选
   const [salesDateFilter, setSalesDateFilter] = useState("");
@@ -1524,7 +1526,7 @@ export default function FinancePage() {
         {/* 售出(移动端): 汇总数据 + 未入库 放搜索框右侧 */}
         {viewMode === "sales" && (
           <div className="flex gap-2 lg:hidden">
-            <button onClick={syncSummary} disabled={syncing}
+            <button onClick={() => setConfirmSync(true)} disabled={syncing}
               className="h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
@@ -1765,7 +1767,7 @@ export default function FinancePage() {
               <option value="earn">按盈利</option>
             </select>
             {/* 汇总数据/未入库: 桌面端保留原位置(移动端已移至搜索框右侧) */}
-            <button onClick={syncSummary} disabled={syncing}
+            <button onClick={() => setConfirmSync(true)} disabled={syncing}
               className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
@@ -3420,6 +3422,20 @@ export default function FinancePage() {
           {imgPreview && <img src={imgPreview} alt="" className="max-w-full max-h-[90vh] rounded-xl border-[3px] border-gray-900 object-contain bg-white" />}
         </div>
       </div>
+
+      {/* 汇总数据二次确认(full_resync 会清空统计表全量重写) */}
+      <ConfirmDialog
+        open={confirmSync}
+        title="确认汇总数据？"
+        description={"将清空统计表并按原始记录全量重算。\n如有正在编辑未保存的内容，请先保存。"}
+        confirmText="确认汇总"
+        loading={syncing}
+        onCancel={() => setConfirmSync(false)}
+        onConfirm={() => {
+          setConfirmSync(false);
+          syncSummary();
+        }}
+      />
     </PageWrapper>
   );
 }

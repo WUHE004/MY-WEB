@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeft, Camera, Search, Package, CheckCircle, PauseCircle, Truck, Trash2, ChevronDown, X, Pencil } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 
 interface SalesRecord {
@@ -83,6 +84,9 @@ export default function PackPage() {
   const [notFound, setNotFound] = useState(false);
   // 找齐/挂起提交锁: 请求未返回前禁止重复提交, 防止同面单号生成多份记录
   const [submittingFind, setSubmittingFind] = useState(false);
+  // 发货/找齐/挂起操作防连点 + 发货二次确认(发货不可逆)
+  const [busyActionIds, setBusyActionIds] = useState<Set<number>>(new Set());
+  const [confirmShipId, setConfirmShipId] = useState<number | null>(null);
   // 找齐动画: 面单回缩成文件夹向右飞出, 结束后清理状态
   const [flyOut, setFlyOut] = useState(false);
 
@@ -208,6 +212,8 @@ export default function PackPage() {
   };
 
   const handlePackAction = async (recordId: number, status: string) => {
+    if (busyActionIds.has(recordId)) return; // 防连点: 上一操作未完成前忽略
+    setBusyActionIds((prev) => new Set(prev).add(recordId));
     const packer = localStorage.getItem("member_name") || "未知";
     try {
       const res = await fetch("/api/pack", {
@@ -217,6 +223,13 @@ export default function PackPage() {
       if (res.ok) { fetchPackRecords(); }
       else { const err = await res.json(); alert("操作失败: " + (err.error || "未知错误")); }
     } catch { alert("网络错误，请重试"); }
+    finally {
+      setBusyActionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(recordId);
+        return next;
+      });
+    }
   };
 
   // 清空全部历史
@@ -645,16 +658,16 @@ export default function PackPage() {
                     {record.status !== "shipped" && (
                       <div className="flex gap-2 mt-2.5">
                         {(record.status === "pending" || record.status === "suspended") && (
-                          <button onClick={() => handlePackAction(record.id, "found")} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all">
+                          <button onClick={() => handlePackAction(record.id, "found")} disabled={busyActionIds.has(record.id)} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] text-white font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all disabled:opacity-50">
                             <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>找齐</span>
                           </button>
                         )}
                         {record.status === "found" && (
-                          <button onClick={() => handlePackAction(record.id, "suspended")} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all">
+                          <button onClick={() => handlePackAction(record.id, "suspended")} disabled={busyActionIds.has(record.id)} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-gray-900 font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all disabled:opacity-50">
                             <PauseCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>挂起</span>
                           </button>
                         )}
-                        <button onClick={() => handlePackAction(record.id, "shipped")} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all">
+                        <button onClick={() => setConfirmShipId(record.id)} disabled={busyActionIds.has(record.id)} className="flex items-center justify-center gap-1 flex-1 py-2 sm:py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-xs sm:text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] transition-all disabled:opacity-50">
                           <Truck className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>发货</span>
                         </button>
                       </div>
@@ -705,6 +718,20 @@ export default function PackPage() {
         onResult={handleScanResult}
         title="扫描面单号条形码"
         hint="将面单号条形码对准扫描框，识别成功自动搜索"
+      />
+
+      {/* 发货二次确认(发货状态不可逆) */}
+      <ConfirmDialog
+        open={confirmShipId !== null}
+        title="确认发货？"
+        description="发货后记录不可再改回找货中，请确认包裹已全部找齐并交予快递。"
+        confirmText="确认发货"
+        onCancel={() => setConfirmShipId(null)}
+        onConfirm={() => {
+          const id = confirmShipId;
+          setConfirmShipId(null);
+          if (id !== null) handlePackAction(id, "shipped");
+        }}
       />
     </PageWrapper>
   );

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +99,12 @@ export default function InboundPage() {
   // 厂家管理 - 草稿和变更追踪
   const [mfrDraft, setMfrDraft] = useState<string[]>([]);
   const [mfrHasChanges, setMfrHasChanges] = useState(false);
+  // 删除厂家/款式二次确认
+  const [pendingRemove, setPendingRemove] = useState<
+    | { kind: "mfr"; name: string }
+    | { kind: "style"; name: string; styleType: "size" | "nosize" }
+    | null
+  >(null);
 
   // 款式管理
   const [sizeStyles, setSizeStyles] = useState<string[]>(DEFAULT_SIZE_STYLES);
@@ -1537,7 +1544,7 @@ export default function InboundPage() {
                     <span className="text-sm font-bold">{m}</span>
                   </div>
                   <button
-                    onClick={() => removeManufacturer(m)}
+                    onClick={() => setPendingRemove({ kind: "mfr", name: m })}
                     className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
                   >
                     <X className="h-3 w-3" />
@@ -1868,7 +1875,7 @@ export default function InboundPage() {
                         <span className="text-sm font-bold">{s}</span>
                       </div>
                       <button
-                        onClick={() => removeStyle(s, "size")}
+                        onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "size" })}
                         className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
                       >
                         <X className="h-3 w-3" />
@@ -1902,7 +1909,7 @@ export default function InboundPage() {
                         <span className="text-sm font-bold">{s}</span>
                       </div>
                       <button
-                        onClick={() => removeStyle(s, "nosize")}
+                        onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "nosize" })}
                         className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
                       >
                         <X className="h-3 w-3" />
@@ -2384,6 +2391,25 @@ export default function InboundPage() {
           </motion.div>
         </div>
       )}
+
+      {/* 删除厂家/款式二次确认 */}
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        title={`确认删除「${pendingRemove?.name || ""}」？`}
+        description={
+          pendingRemove?.kind === "mfr"
+            ? "将从厂家列表中移除（需点「保存修改」后生效）。"
+            : "将从款式列表中移除（需保存后生效）。"
+        }
+        confirmText="确认删除"
+        onCancel={() => setPendingRemove(null)}
+        onConfirm={() => {
+          if (!pendingRemove) return;
+          if (pendingRemove.kind === "mfr") removeManufacturer(pendingRemove.name);
+          else removeStyle(pendingRemove.name, pendingRemove.styleType);
+          setPendingRemove(null);
+        }}
+      />
     </PageWrapper>
   );
 }

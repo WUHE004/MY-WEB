@@ -38,6 +38,7 @@ export default function ProfilePage() {
   const [locating, setLocating] = useState(false);
   // 修改密码相关状态
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
@@ -186,6 +187,10 @@ export default function ProfilePage() {
 
   // 修改密码
   const handleChangePassword = async () => {
+    if (!oldPassword) {
+      setError("请输入原密码");
+      return;
+    }
     if (!newPassword || newPassword.length < 6) {
       setError("请输入新密码（至少6位）");
       return;
@@ -206,6 +211,7 @@ export default function ProfilePage() {
         body: JSON.stringify({
           action: "reset_password",
           phone,
+          old_password: oldPassword,
           password: newPassword,
         }),
       });
@@ -216,6 +222,7 @@ export default function ProfilePage() {
       } else {
         setSuccess("密码修改成功！");
         setShowChangePassword(false);
+        setOldPassword("");
         setNewPassword("");
         setConfirmPassword("");
       }
@@ -448,6 +455,21 @@ export default function ProfilePage() {
           </CardHeader>
           {showChangePassword && (
             <CardContent className="space-y-4">
+              {/* 原密码(安全校验, 防止拿到设备即可改密) */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  <Lock className="h-4 w-4 inline mr-1.5" />
+                  原密码
+                </label>
+                <input
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  className="w-full rounded-xl border-[3px] border-gray-200 px-4 py-3 font-bold text-gray-900 focus:border-gray-900 focus:outline-none transition-colors"
+                  placeholder="请输入当前使用的密码"
+                />
+              </div>
+
               {/* 新密码 */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt, Camera, Video } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
 
 interface Product {
@@ -170,6 +171,8 @@ export default function PhotoGenPage() {
     saveCustomModels(updated);
     if (selectedCustomModelId === id) setSelectedCustomModelId("");
   };
+
+  const [pendingDeleteModel, setPendingDeleteModel] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -865,7 +868,7 @@ export default function PhotoGenPage() {
                 <button onClick={() => handleEditCustomModel(cm)} className="p-1 text-gray-400 hover:text-blue-500" title="编辑">
                   <Settings2 className="h-3.5 w-3.5" />
                 </button>
-                <button onClick={() => handleDeleteCustomModel(cm.id)} className="p-1 text-gray-400 hover:text-red-500" title="删除">
+                <button onClick={() => setPendingDeleteModel({ id: cm.id, name: cm.name })} className="p-1 text-gray-400 hover:text-red-500" title="删除">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -1049,6 +1052,19 @@ export default function PhotoGenPage() {
           </div>
         </div>
       )}
+
+      {/* 删除自定义模型二次确认(含 apiKey 配置) */}
+      <ConfirmDialog
+        open={pendingDeleteModel !== null}
+        title={`确认删除模型「${pendingDeleteModel?.name || ""}」？`}
+        description="删除后该自定义模型及其 API 配置将一并丢失，需重新配置。"
+        confirmText="确认删除"
+        onCancel={() => setPendingDeleteModel(null)}
+        onConfirm={() => {
+          if (pendingDeleteModel) handleDeleteCustomModel(pendingDeleteModel.id);
+          setPendingDeleteModel(null);
+        }}
+      />
     </PageWrapper>
   );
 }
