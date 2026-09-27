@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Camera, Search, Package, CheckCircle, PauseCircle, Truck, Trash2, ChevronDown, X, Pencil } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -679,12 +680,27 @@ export default function PackPage() {
                       </div>
                     )}
                   </div>
-                  {/* 展开内容: 该面单下所有商品(缩小显示, 一行2个, 卡片区独立上下滚动) */}
+                  {/* 展开内容: 该面单下所有商品(缩小显示, 一行2个, 卡片区独立上下滚动) — 高度展开动画 + 商品交错飞入 */}
+                  <AnimatePresence initial={false}>
                   {expanded && (
-                    <div className="p-3 sm:p-4">
-                      <div className="grid grid-cols-2 gap-2 sm:gap-3 max-h-[65vh] overflow-y-auto">
-                        {record.items.map((item, idx) => (
-                          <div key={idx} className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden">
+                    <motion.div
+                      key="pack-items"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.22, ease: "easeOut" }}
+                      className="overflow-hidden"
+                    >
+                      <div className="p-3 sm:p-4">
+                        <div className="grid grid-cols-2 gap-2 sm:gap-3 max-h-[65vh] overflow-y-auto">
+                          {record.items.map((item, idx) => (
+                            <motion.div
+                              key={idx}
+                              initial={{ opacity: 0, y: 14 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ duration: 0.25, delay: Math.min(idx * 0.05, 0.4) }}
+                              className="bg-gray-50 rounded-xl border-2 border-gray-200 overflow-hidden"
+                            >
                             <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center overflow-hidden">
                               {item.photo ? <img src={item.photo} alt="" className="w-full h-full object-cover" /> : <Package className="h-8 w-8 text-gray-300" />}
                             </div>
@@ -705,11 +721,13 @@ export default function PackPage() {
                                 ¥{item.sell_price} · {item.manufacturer || "-"} · {item.shelf_no || "-"}
                               </div>
                             </div>
-                          </div>
-                        ))}
+                            </motion.div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    </motion.div>
                   )}
+                  </AnimatePresence>
                 </div>
               );
             })

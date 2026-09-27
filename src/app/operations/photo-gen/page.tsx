@@ -6,6 +6,8 @@ import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
+import { NeoImage } from "@/components/neo-image";
+import { motion } from "framer-motion";
 
 interface Product {
   id: string;
@@ -430,6 +432,7 @@ export default function PhotoGenPage() {
       </div>
 
       {/* ===== 一键生成 (Agnes) Tab ===== */}
+      <motion.div key="oneshot" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
       {activeTab === "oneshot" && (
         <>
           {/* 搜索栏 + 模特库按钮 */}
@@ -482,9 +485,10 @@ export default function PhotoGenPage() {
                     <div className="flex gap-2">
                       <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0 relative">
                         {displayPhoto ? (
-                          <img
+                          <NeoImage
                             src={displayPhoto}
-                            alt=""
+                            alt={product.name || product.sale_id}
+                            wrapperClassName="w-full h-full"
                             className="w-full h-full object-cover cursor-pointer"
                             onClick={() => setImgPreview(displayPhoto)}
                           />
@@ -508,20 +512,36 @@ export default function PhotoGenPage() {
                         {(generatedUrl || flatUrl) && (
                           <div className="mt-2 flex gap-1">
                             {generatedUrl && (
-                              <img
-                                src={generatedUrl}
-                                alt="试穿图"
-                                className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-[#9B59B6] cursor-pointer"
-                                onClick={() => setImgPreview(generatedUrl)}
-                              />
+                              <motion.div
+                                initial={{ scale: 0.7, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ type: "spring", stiffness: 400, damping: 22 }}
+                                className="w-1/2"
+                              >
+                                <NeoImage
+                                  src={generatedUrl}
+                                  alt="试穿图"
+                                  wrapperClassName="w-full"
+                                  className="w-full max-h-20 object-cover rounded-lg border-2 border-[#9B59B6] cursor-pointer"
+                                  onClick={() => setImgPreview(generatedUrl)}
+                                />
+                              </motion.div>
                             )}
                             {flatUrl && (
-                              <img
-                                src={flatUrl}
-                                alt="白底图"
-                                className="w-1/2 max-h-20 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
-                                onClick={() => setImgPreview(flatUrl)}
-                              />
+                              <motion.div
+                                initial={{ scale: 0.7, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                transition={{ type: "spring", stiffness: 400, damping: 22, delay: 0.08 }}
+                                className="w-1/2"
+                              >
+                                <NeoImage
+                                  src={flatUrl}
+                                  alt="白底图"
+                                  wrapperClassName="w-full"
+                                  className="w-full max-h-20 object-cover rounded-lg border-2 border-blue-500 cursor-pointer"
+                                  onClick={() => setImgPreview(flatUrl)}
+                                />
+                              </motion.div>
                             )}
                           </div>
                         )}
@@ -585,8 +605,10 @@ export default function PhotoGenPage() {
           )}
         </>
       )}
+      </motion.div>
 
       {/* ===== AI穿衣 Tab ===== */}
+      <motion.div key="dressup" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
       {activeTab === "dressup" && (
         <>
           {/* 搜索栏 + 模型选择 */}
@@ -683,6 +705,7 @@ export default function PhotoGenPage() {
           )}
         </>
       )}
+      </motion.div>
 
       {/* 模特选择弹窗（AI穿衣 Tab） */}
       {showModelSelect && activeProduct && (
@@ -702,7 +725,7 @@ export default function PhotoGenPage() {
                       : "border-gray-200 hover:border-gray-400"
                   }`}
                 >
-                  <img src={model.photo_url} alt={model.name} className="w-full aspect-square object-cover" />
+                  <NeoImage src={model.photo_url} alt={model.name} wrapperClassName="w-full" className="w-full aspect-square object-cover" />
                   <div className={`text-center py-1 text-xs font-extrabold ${
                     selectedModelId === model.id ? "bg-[#9B59B6] text-white" : "bg-gray-100 text-gray-700"
                   }`}>
@@ -751,7 +774,7 @@ export default function PhotoGenPage() {
                       : "border-gray-200 hover:border-gray-400"
                   }`}
                 >
-                  <img src={model.photo_url} alt={model.name} className="w-full aspect-square object-cover" />
+                  <NeoImage src={model.photo_url} alt={model.name} wrapperClassName="w-full" className="w-full aspect-square object-cover" />
                   <div className={`text-center py-1 text-xs font-extrabold ${
                     oneshotSelectedModelId === model.id ? "bg-[#9B59B6] text-white" : "bg-gray-100 text-gray-700"
                   }`}>
@@ -1098,9 +1121,10 @@ function ProductCard({
         {/* 图片区域 */}
         <div className="w-52 h-52 rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0 relative">
           {displayPhoto ? (
-            <img
+            <NeoImage
               src={displayPhoto}
-              alt=""
+              alt={product.name || product.sale_id}
+              wrapperClassName="w-full h-full"
               className="w-full h-full object-cover cursor-pointer"
               onClick={() => setImgPreview(displayPhoto)}
             />
@@ -1126,16 +1150,22 @@ function ProductCard({
             <div className="text-[10px] text-gray-400">厂家: {product.manufacturer}</div>
           )}
 
-          {/* 生成结果展示 */}
+          {/* 生成结果展示(spring 弹入) */}
           {generatedUrl && (
-            <div className="mt-2">
-              <img
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 400, damping: 22 }}
+              className="mt-2"
+            >
+              <NeoImage
                 src={generatedUrl}
                 alt="生成结果"
+                wrapperClassName="w-full"
                 className="w-full max-h-24 object-cover rounded-lg border-2 border-[#9B59B6] cursor-pointer"
                 onClick={() => setImgPreview(generatedUrl)}
               />
-            </div>
+            </motion.div>
           )}
         </div>
       </div>

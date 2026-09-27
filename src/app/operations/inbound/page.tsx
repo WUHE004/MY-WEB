@@ -17,6 +17,7 @@ import {
   Loader2,
   Upload,
   ChevronDown,
+  ChevronUp,
   AlertTriangle,
   RefreshCw,
   Search,
@@ -24,7 +25,8 @@ import {
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
+import { NumberPop } from "@/components/motion-primitives";
+import { SizeGrid } from "@/components/size-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -1420,44 +1422,12 @@ export default function InboundPage() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
-              {SIZE_OPTIONS.map((size) => (
-                <PulseOnChange
-                  key={size}
-                  value={sizes[size] || 0}
-                  className="rounded-xl border-[3px] border-gray-900 bg-white p-1.5 lg:p-2"
-                >
-                  <div className={`text-center text-[10px] lg:text-xs font-extrabold mb-1 ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}>
-                    {size}
-                  </div>
-                  <div className="flex items-center gap-1 lg:gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => updateSize(size, -1)}
-                      className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
-                    >
-                      <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={focusedSize === size && (sizes[size] || 0) === 0 ? "" : sizes[size] || 0}
-                      onFocus={() => setFocusedSize(size)}
-                      onBlur={() => setFocusedSize(null)}
-                      onChange={(e) => setSizeValue(size, e.target.value)}
-                      className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${(sizes[size] || 0) > 0 ? "text-gray-900" : "text-gray-300"}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => updateSize(size, 1)}
-                      className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
-                    >
-                      <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
-                    </button>
-                  </div>
-                </PulseOnChange>
-              ))}
-            </div>
+            <SizeGrid
+              sizeList={SIZE_OPTIONS}
+              sizes={sizes}
+              onDelta={updateSize}
+              onSetValue={setSizeValue}
+            />
           )}
         </div>
 
@@ -1529,7 +1499,7 @@ export default function InboundPage() {
               onClick={() => setMfrSortMode(!mfrSortMode)}
               className="text-xs font-bold text-[#4A90E2] mb-3 self-start"
             >
-              {mfrSortMode ? "完成排序" : "拖拽排序"}
+              {mfrSortMode ? "完成排序" : "排序（拖拽或箭头）"}
             </button>
 
             {/* Manufacturer list */}
@@ -1555,12 +1525,35 @@ export default function InboundPage() {
                     {mfrSortMode && <GripVertical className="h-4 w-4 text-gray-400" />}
                     <span className="text-sm font-bold">{m}</span>
                   </div>
-                  <button
-                    onClick={() => setPendingRemove({ kind: "mfr", name: m })}
-                    className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+                  {mfrSortMode ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        aria-label={`上移 ${m}`}
+                        disabled={index === 0}
+                        onClick={() => moveManufacturer(index, index - 1)}
+                        className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`下移 ${m}`}
+                        disabled={index === mfrDraft.length - 1}
+                        onClick={() => moveManufacturer(index, index + 1)}
+                        className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setPendingRemove({ kind: "mfr", name: m })}
+                      className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -1868,7 +1861,7 @@ export default function InboundPage() {
               onClick={() => setStyleSortMode(!styleSortMode)}
               className="text-xs font-bold text-[#4A90E2] mb-3 self-start"
             >
-              {styleSortMode ? "完成排序" : "拖拽排序"}
+              {styleSortMode ? "完成排序" : "排序（拖拽或箭头）"}
             </button>
 
             <div className="flex-1 overflow-y-auto space-y-3">
@@ -1895,12 +1888,35 @@ export default function InboundPage() {
                         {styleSortMode && <GripVertical className="h-4 w-4 text-gray-400" />}
                         <span className="text-sm font-bold">{s}</span>
                       </div>
-                      <button
-                        onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "size" })}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {styleSortMode ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={`上移 ${s}`}
+                            disabled={index === 0}
+                            onClick={() => moveStyle(index, index - 1, "size")}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`下移 ${s}`}
+                            disabled={index === styleSizeDraft.length - 1}
+                            onClick={() => moveStyle(index, index + 1, "size")}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "size" })}
+                          className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1929,12 +1945,35 @@ export default function InboundPage() {
                         {styleSortMode && <GripVertical className="h-4 w-4 text-gray-400" />}
                         <span className="text-sm font-bold">{s}</span>
                       </div>
-                      <button
-                        onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "nosize" })}
-                        className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
+                      {styleSortMode ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={`上移 ${s}`}
+                            disabled={index === 0}
+                            onClick={() => moveStyle(index, index - 1, "nosize")}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`下移 ${s}`}
+                            disabled={index === styleNoSizeDraft.length - 1}
+                            onClick={() => moveStyle(index, index + 1, "nosize")}
+                            className="flex h-8 w-8 items-center justify-center rounded-md border-[2px] border-gray-900 text-gray-700 disabled:opacity-30 active:bg-gray-100"
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setPendingRemove({ kind: "style", name: s, styleType: "nosize" })}
+                          className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2347,50 +2386,16 @@ export default function InboundPage() {
                       </div>
                     ) : (
                       // 有尺码：显示所有尺码
-                      <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 gap-2">
-                        {SIZE_OPTIONS.map((size) => {
-                          const currentQty = (restockProduct._sizeTotals as Record<number, number>)[size] || 0;
-                          const restockQty = restockSizes[size] || 0;
-                          return (
-                            <div
-                              key={size}
-                              className={`rounded-xl border-[3px] p-1.5 lg:p-2 transition-colors ${
-                                restockQty > 0 ? "border-[#7B61FF] bg-purple-50" : "border-gray-900 bg-white"
-                              }`}
-                            >
-                              <div className="text-center mb-1">
-                                <span className="text-[10px] lg:text-xs font-extrabold text-gray-900">{size}码</span>
-                                <p className="text-[9px] lg:text-[10px] text-gray-500">剩余 {currentQty} 件</p>
-                              </div>
-                              <div className="flex items-center gap-1 lg:gap-0.5">
-                                <button
-                                  type="button"
-                                  onClick={() => updateRestockSize(size, -1)}
-                                  className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform shrink-0"
-                                >
-                                  <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
-                                </button>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  value={restockQty}
-                                  onChange={(e) => setRestockSizeValue(size, e.target.value)}
-                                  className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
-                                    restockQty > 0 ? "text-[#7B61FF]" : "text-gray-300"
-                                  }`}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => updateRestockSize(size, 1)}
-                                  className="flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform shrink-0"
-                                >
-                                  <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <SizeGrid
+                        sizeList={SIZE_OPTIONS}
+                        sizes={restockSizes}
+                        onDelta={updateRestockSize}
+                        onSetValue={setRestockSizeValue}
+                        accent="purple"
+                        pulse={false}
+                        gridClassName="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-5 gap-2"
+                        subLabelOf={(size) => `剩余 ${(restockProduct._sizeTotals as Record<number, number>)[size] || 0} 件`}
+                      />
                     )}
                   </div>
                 </>

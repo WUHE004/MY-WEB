@@ -413,11 +413,20 @@ export default function VideoGenPage() {
               <p className="text-[10px] text-gray-500 mt-0.5">使用 Agnes-Video-V2.0 生成 · 预计需要 1-3 分钟</p>
             </div>
           </div>
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-[#4A90E2] transition-all duration-500"
-              style={{ width: `${progress}%` }}
-            />
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden relative">
+            {progress > 0 ? (
+              <div
+                className="h-full bg-[#4A90E2] transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            ) : (
+              // 接口未返回进度(0%)时显示条纹滚动不确定态, 避免空进度条像卡死
+              <div
+                className="absolute inset-y-0 w-1/3 rounded-full bg-[repeating-linear-gradient(45deg,#4A90E2,#4A90E2_8px,#6FB1EE_8px,#6FB1EE_16px)]"
+                style={{ animation: "vg-indeterminate 1.2s ease-in-out infinite" }}
+              />
+            )}
+            <style>{`@keyframes vg-indeterminate { 0% { left: -35%; } 100% { left: 100%; } }`}</style>
           </div>
         </div>
       )}

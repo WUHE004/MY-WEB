@@ -21,6 +21,9 @@ import { ErrorState } from "@/components/error-state";
 import { CountUp } from "@/components/motion-primitives";
 import Link from "next/link";
 
+// framer-motion 包装 next/link：SPA 跳转不整页刷新
+const MotionLink = motion.create(Link);
+
 interface Stats {
   inboundCount: number;
   salesCount: number;
@@ -181,7 +184,7 @@ export default function LinksPage() {
       {/* Operation Buttons */}
       <div className="grid grid-cols-3 gap-3 lg:gap-6 mb-6 lg:mb-8">
         {operationButtons.map((btn, index) => (
-          <motion.a
+          <MotionLink
             key={btn.label}
             href={btn.href}
             initial={{ opacity: 0, y: 20 }}
@@ -192,7 +195,7 @@ export default function LinksPage() {
           >
             <btn.icon className="h-6 w-6 lg:h-10 lg:w-10 text-white" />
             <span className="text-xs lg:text-base font-extrabold text-white">{btn.label}</span>
-          </motion.a>
+          </MotionLink>
         ))}
       </div>
 

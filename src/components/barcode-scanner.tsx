@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
 import { BarcodeFormat, DecodeHintType } from "@zxing/library";
-import { X, Zap, ZapOff, ZoomIn, ZoomOut } from "lucide-react";
+import { X, Zap, ZapOff, ZoomIn, ZoomOut, CheckCircle } from "lucide-react";
 
 // 浏览器原生 BarcodeDetector(TS 标准库未收录,此处声明用到的最小接口)
 interface DetectedBarcode { rawValue: string; }
@@ -52,19 +52,25 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
   const [torchSupported, setTorchSupported] = useState(false);
   const [zoomCaps, setZoomCaps] = useState<{ min: number; max: number } | null>(null);
   const [zoom, setZoom] = useState(1);
+  // 识别成功反馈: 短暂闪绿 + 底部滑入码值条, 之后再把结果交给父级
+  const [flashCode, setFlashCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     firedRef.current = false;
     setMode("init"); setError(""); setTorchOn(false); setTorchSupported(false);
-    setZoomCaps(null); setZoom(1);
+    setZoomCaps(null); setZoom(1); setFlashCode(null);
 
     const fire = (code: string) => {
       if (cancelled || firedRef.current || !code) return;
       firedRef.current = true;
       try { navigator.vibrate?.(80); } catch { /* 忽略 */ }
-      onResultRef.current(code);
+      // 先展示成功反馈, 让用户看清识别结果, 再把码值交给父级(父级通常会关闭扫码)
+      setFlashCode(code);
+      window.setTimeout(() => {
+        if (!cancelled) onResultRef.current(code);
+      }, 420);
     };
 
     const cleanup = () => {
@@ -215,7 +221,7 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      <style>{`@keyframes bc-scanline { 0%,100% { top: 10%; } 50% { top: 88%; } }`}</style>
+      <style>{`@keyframes bc-scanline { 0%,100% { top: 10%; } 50% { top: 88%; } } @keyframes bc-slide-up { from { transform: translate(-50%, 24px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }`}</style>
 
       {/* 顶栏 */}
       <div className="flex items-center justify-between px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -237,20 +243,34 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" muted autoPlay playsInline />
 
-        {/* 扫描框 */}
+        {/* 扫描框(识别成功瞬间整框闪绿) */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="relative w-[85%] max-w-md h-[180px]">
-            <div className="absolute inset-0 rounded-xl border-[3px] border-red-500/90" />
-            <div className="absolute -top-[3px] -left-[3px] h-6 w-6 border-t-[5px] border-l-[5px] border-red-500 rounded-tl-xl" />
-            <div className="absolute -top-[3px] -right-[3px] h-6 w-6 border-t-[5px] border-r-[5px] border-red-500 rounded-tr-xl" />
-            <div className="absolute -bottom-[3px] -left-[3px] h-6 w-6 border-b-[5px] border-l-[5px] border-red-500 rounded-bl-xl" />
-            <div className="absolute -bottom-[3px] -right-[3px] h-6 w-6 border-b-[5px] border-r-[5px] border-red-500 rounded-br-xl" />
-            <div
-              className="absolute left-[6%] w-[88%] h-[3px] bg-red-500 rounded-full shadow-[0_0_12px_2px_rgba(239,68,68,0.8)]"
-              style={{ animation: "bc-scanline 2s ease-in-out infinite" }}
-            />
+            <div className={`absolute inset-0 rounded-xl border-[3px] transition-colors duration-150 ${flashCode ? "border-[#4CD964] shadow-[0_0_24px_6px_rgba(76,217,100,0.55)]" : "border-red-500/90"}`} />
+            <div className={`absolute -top-[3px] -left-[3px] h-6 w-6 border-t-[5px] border-l-[5px] rounded-tl-xl transition-colors duration-150 ${flashCode ? "border-[#4CD964]" : "border-red-500"}`} />
+            <div className={`absolute -top-[3px] -right-[3px] h-6 w-6 border-t-[5px] border-r-[5px] rounded-tr-xl transition-colors duration-150 ${flashCode ? "border-[#4CD964]" : "border-red-500"}`} />
+            <div className={`absolute -bottom-[3px] -left-[3px] h-6 w-6 border-b-[5px] border-l-[5px] rounded-bl-xl transition-colors duration-150 ${flashCode ? "border-[#4CD964]" : "border-red-500"}`} />
+            <div className={`absolute -bottom-[3px] -right-[3px] h-6 w-6 border-b-[5px] border-r-[5px] rounded-br-xl transition-colors duration-150 ${flashCode ? "border-[#4CD964]" : "border-red-500"}`} />
+            {!flashCode && (
+              <div
+                className="absolute left-[6%] w-[88%] h-[3px] bg-red-500 rounded-full shadow-[0_0_12px_2px_rgba(239,68,68,0.8)]"
+                style={{ animation: "bc-scanline 2s ease-in-out infinite" }}
+              />
+            )}
           </div>
         </div>
+
+        {/* 识别成功: 底部滑入码值条 */}
+        {flashCode && (
+          <div
+            className="absolute bottom-5 left-1/2 flex max-w-[90%] items-center gap-2 rounded-xl border-[3px] border-gray-900 bg-[#4CD964] px-4 py-2.5 font-extrabold text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+            style={{ animation: "bc-slide-up 0.2s ease-out", transform: "translateX(-50%)" }}
+          >
+            <CheckCircle className="h-5 w-5 shrink-0" />
+            <span className="shrink-0">识别成功</span>
+            <span className="truncate text-white/90">{flashCode}</span>
+          </div>
+        )}
 
         {/* 错误提示 */}
         {mode === "error" && (

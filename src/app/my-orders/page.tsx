@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
+import { NeoImage } from "@/components/neo-image";
 import { Package, Truck, CheckCircle2, Clock, MapPin, Phone, AlertCircle, X, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
@@ -74,6 +76,16 @@ export default function MyOrdersPage() {
   const [error, setError] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  // 支付成功回跳高亮: /payment 支付完成后跳回 /my-orders?order_id=N
+  const [highlightId, setHighlightId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const id = new URLSearchParams(window.location.search).get("order_id");
+    return id && !isNaN(Number(id)) ? Number(id) : null;
+  });
+  // 清掉 URL 参数, 避免刷新后重复出现横幅
+  useEffect(() => {
+    if (highlightId !== null) window.history.replaceState({}, "", "/my-orders");
+  }, [highlightId]);
   useEffect(() => {
     const phone = localStorage.getItem("member_phone");
     const memberId = localStorage.getItem("member_id");
@@ -160,6 +172,7 @@ export default function MyOrdersPage() {
 
   return (
     <PageWrapper>
+      <style>{`@keyframes mo-highlight { 0%,100% { box-shadow: 6px 6px 0px 0px rgba(0,0,0,1); } 50% { box-shadow: 0px 0px 0px 6px rgba(76,217,100,0.45); } }`}</style>
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl lg:text-3xl font-extrabold text-gray-900">
@@ -169,6 +182,29 @@ export default function MyOrdersPage() {
             继续购物
           </Link>
         </div>
+
+        {/* 支付成功横幅(从支付页回跳时滑入显示) */}
+        <AnimatePresence>
+          {highlightId !== null && (
+            <motion.div
+              initial={{ y: -24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ type: "spring", stiffness: 380, damping: 28 }}
+              className="neo-card p-3 mb-4 bg-[#4CD964] border-gray-900 flex items-center gap-2.5"
+            >
+              <CheckCircle2 className="h-5 w-5 text-white shrink-0" />
+              <p className="text-sm font-extrabold text-white">支付成功！商家确认收款后即可发货。</p>
+              <button
+                onClick={() => setHighlightId(null)}
+                className="ml-auto text-white/90 hover:text-white text-xs font-extrabold shrink-0"
+                aria-label="关闭提示"
+              >
+                知道了
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {error && (
           <div className="neo-card p-3 mb-4 border-[#FF6B7A]">
@@ -187,17 +223,21 @@ export default function MyOrdersPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {orders.map((order) => (
-              <div
-                key={order.id}
-                className="neo-card p-4 cursor-pointer hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all"
-                onClick={() => setSelectedOrder(order)}
-              >
+            {orders.map((order) => {
+              const isHighlighted = highlightId === order.id;
+              return (
+                <div
+                  key={order.id}
+                  className={`neo-card p-4 cursor-pointer hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all ${
+                    isHighlighted ? "border-[#4CD964] mo-highlight" : ""
+                  }`}
+                  onClick={() => setSelectedOrder(order)}
+                >
                 <div className="flex gap-4">
                   {/* 商品图片 */}
                   <div className="w-16 h-16 rounded-xl border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
                     {order.photo ? (
-                      <img src={order.photo} alt="" className="w-full h-full object-cover" />
+                      <NeoImage src={order.photo} alt={order.sale_id || "商品图"} wrapperClassName="w-full h-full" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <Package className="h-8 w-8 text-gray-300" />
@@ -238,8 +278,9 @@ export default function MyOrdersPage() {
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -276,7 +317,7 @@ export default function MyOrdersPage() {
                 <div className="flex gap-4">
                   <div className="w-24 h-24 rounded-xl border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
                     {selectedOrder.photo ? (
-                      <img src={selectedOrder.photo} alt="" className="w-full h-full object-cover" />
+                      <NeoImage src={selectedOrder.photo} alt={selectedOrder.sale_id || "商品图"} wrapperClassName="w-full h-full" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <Package className="h-12 w-12 text-gray-300" />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useDeferredValue, Fragment } from "react";
+import { motion } from "framer-motion";
 import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -1360,8 +1361,14 @@ export default function FinancePage() {
         </div>
       </div>
 
-      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡); 桌面端不裁剪(保留卡片投影) */}
-      <div className={`grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr] opacity-0 lg:grid-rows-[1fr] lg:opacity-100" : "grid-rows-[1fr] opacity-100"} ${statsCollapsed ? "mb-0" : "mb-3 sm:mb-4"}`}>
+      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡); 桌面端不裁剪(保留卡片投影); 切换视图时淡入 */}
+      <motion.div
+        key={viewMode}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2 }}
+        className={`grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr] opacity-0 lg:grid-rows-[1fr] lg:opacity-100" : "grid-rows-[1fr] opacity-100"} ${statsCollapsed ? "mb-0" : "mb-3 sm:mb-4"}`}
+      >
         <div className="overflow-hidden lg:overflow-visible">
           <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
         {viewMode === "summary" && (
@@ -1504,7 +1511,7 @@ export default function FinancePage() {
         )}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* 搜索 + 筛选按钮 + 编辑/导出 (移动端在 sticky 顶栏内, 底部间距由容器 pb 承担) */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:mb-4">

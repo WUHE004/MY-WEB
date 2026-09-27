@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Plus, Minus, Search, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Plus, Minus, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
-import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
+import { NumberPop } from "@/components/motion-primitives";
+import { SizeGrid } from "@/components/size-grid";
+import { SaleIdSearch } from "@/components/sale-id-search";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -26,8 +28,6 @@ export default function ReturnsPage() {
   const [sizes, setSizes] = useState<Record<number, number>>(
     Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0]))
   );
-  // 当前聚焦的尺码输入框(值为0时聚焦显示空,避免用户需先删0)
-  const [focusedSize, setFocusedSize] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const [filteredRecords, setFilteredRecords] = useState<SalesRecord[]>([]);
@@ -42,22 +42,13 @@ export default function ReturnsPage() {
   // 该编号各尺码已退数量（可退数量 = 已售 - 已退）
   const [returnedBySize, setReturnedBySize] = useState<Record<number, number>>({});
 
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const selectedSaleIdRef = useRef("");
 
   useEffect(() => {
     fetchTotalReturnCount();
   }, []);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  // 点击外部关闭下拉的逻辑已内置于 <SaleIdSearch> 组件
 
   const fetchTotalReturnCount = async () => {
     try {
@@ -312,59 +303,30 @@ export default function ReturnsPage() {
           <p className="text-[10px] lg:text-xs text-gray-400 mb-2">
             输入售卖编号搜索已售商品，自动关联售卖信息
           </p>
-          <div ref={dropdownRef} className="relative">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                onBlur={handleBlur}
-                onKeyDown={handleKeyDown}
-                onFocus={() => {
-                  if (searchQuery.trim() && filteredRecords.length > 0 && !selectedSaleId) {
-                    setShowDropdown(true);
-                  }
-                }}
-                placeholder="输入售卖编号搜索..."
-                className="neo-input w-full text-sm pl-10"
-              />
-            </div>
-
-            {showDropdown && filteredRecords.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-60 overflow-y-auto">
-                {/* 去重显示售卖编号 */}
-                {Array.from(new Set(filteredRecords.map((r) => r.sale_id))).map((saleId) => {
-                  const record = filteredRecords.find((r) => r.sale_id === saleId);
-                  return (
-                    <button
-                      key={saleId}
-                      onClick={() => handleSelectRecord(saleId)}
-                      className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b-2 border-gray-100 last:border-b-0 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        {record?.photo && (
-                          <img
-                            src={record.photo}
-                            alt=""
-                            className="w-10 h-10 rounded-lg object-cover border-2 border-gray-200"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-extrabold text-gray-900 truncate">
-                            {saleId}
-                          </div>
-                          <div className="text-xs text-gray-500 truncate">
-                            {record?.product_name || "未命名"} · {record?.manufacturer}
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <SaleIdSearch
+            value={searchQuery}
+            onValueChange={handleSearch}
+            open={showDropdown}
+            onOpenChange={setShowDropdown}
+            options={Array.from(new Set(filteredRecords.map((r) => r.sale_id))).map((saleId) => {
+              const record = filteredRecords.find((r) => r.sale_id === saleId);
+              return {
+                key: saleId,
+                title: saleId,
+                subtitle: `${record?.product_name || "未命名"} · ${record?.manufacturer}`,
+                photoUrl: record?.photo,
+              };
+            })}
+            onSelect={(opt) => handleSelectRecord(opt.key)}
+            onInputFocus={() => {
+              if (searchQuery.trim() && filteredRecords.length > 0 && !selectedSaleId) {
+                setShowDropdown(true);
+              }
+            }}
+            onInputBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            placeholder="输入售卖编号搜索..."
+          />
 
           {/* 未售卖提示 */}
           {notFound && (
@@ -418,72 +380,18 @@ export default function ReturnsPage() {
           {!selectedSaleId && (
             <p className="text-xs text-gray-400 mb-3">请先选择售卖编号后再选择尺码</p>
           )}
-          <div className="grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3">
-            {SIZE_OPTIONS.map((size) => {
+          <SizeGrid
+            sizeList={SIZE_OPTIONS}
+            sizes={sizes}
+            onDelta={updateSize}
+            onSetValue={setSizeValue}
+            limitOf={getSoldQuantity}
+            disabledOf={isSizeDisabled}
+            badgeOf={(size) => {
               const sold = getSoldQuantity(size);
-              const disabled = isSizeDisabled(size);
-              const currentQty = sizes[size] || 0;
-
-              return (
-                <PulseOnChange
-                  key={size}
-                  value={currentQty}
-                  className={`rounded-xl border-[3px] bg-white p-1.5 lg:p-2 transition-all ${
-                    disabled
-                      ? "border-gray-200 bg-gray-100 opacity-50"
-                      : "border-gray-900"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className={`text-[10px] lg:text-xs font-extrabold ${disabled ? "text-gray-300" : "text-gray-500"}`}>
-                      {size}
-                    </span>
-                    <span className={`text-[8px] lg:text-[10px] font-bold ${disabled ? "text-gray-300" : "text-gray-400"}`}>
-                      {sold > 0 ? `已售:${sold}` : "未售"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1 lg:gap-0.5">
-                    <button
-                      type="button"
-                      disabled={disabled || currentQty <= 0}
-                      onClick={() => updateSize(size, -1)}
-                      className={`flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all shrink-0 ${
-                        disabled || currentQty <= 0
-                          ? "border-gray-200 bg-gray-200 text-gray-300 cursor-not-allowed"
-                          : "border-gray-900 bg-[#FF6B7A] text-white active:scale-90"
-                      }`}
-                    >
-                      <Minus className="h-4 w-4 lg:h-3 lg:w-3" />
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      disabled={disabled}
-                      value={disabled ? "" : focusedSize === size && currentQty === 0 ? "" : currentQty}
-                      onFocus={() => setFocusedSize(size)}
-                      onBlur={() => setFocusedSize(null)}
-                      onChange={(e) => setSizeValue(size, e.target.value)}
-                      className={`w-full min-w-0 text-center text-xs lg:text-sm font-extrabold border-none outline-none bg-transparent ${
-                        disabled ? "text-gray-300" : "text-gray-900"
-                      }`}
-                    />
-                    <button
-                      type="button"
-                      disabled={disabled || currentQty >= sold}
-                      onClick={() => updateSize(size, 1)}
-                      className={`flex h-8 w-8 lg:h-6 lg:w-6 items-center justify-center rounded-md border-[2px] transition-all shrink-0 ${
-                        disabled || currentQty >= sold
-                          ? "border-gray-200 bg-gray-200 text-gray-300 cursor-not-allowed"
-                          : "border-gray-900 bg-[#4CD964] text-white active:scale-90"
-                      }`}
-                    >
-                      <Plus className="h-4 w-4 lg:h-3 lg:w-3" />
-                    </button>
-                  </div>
-                </PulseOnChange>
-              );
-            })}
-          </div>
+              return sold > 0 ? `已售:${sold}` : "未售";
+            }}
+          />
         </div>
 
         {/* Return Time */}

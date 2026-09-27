@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode } from "lucide-react";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { NeoImage } from "@/components/neo-image";
 import Link from "next/link";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -478,9 +479,10 @@ export default function ProductsPage() {
               {/* 商品图片 */}
               <div className="aspect-square bg-gray-100 relative overflow-hidden">
                 {product.photo ? (
-                  <img
+                  <NeoImage
                     src={product.photo}
                     alt={product.name}
+                    wrapperClassName="w-full h-full"
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 cursor-pointer"
                     onClick={() => setImgPreview(product.photo)}
                   />
@@ -551,7 +553,7 @@ export default function ProductsPage() {
                   <div className="flex gap-4 p-4">
                     <div className="w-32 h-32 lg:w-40 lg:h-40 rounded-xl border-2 border-gray-200 bg-gray-100 overflow-hidden shrink-0">
                       {selectedProduct.photo ? (
-                        <img src={selectedProduct.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(selectedProduct.photo)} />
+                        <NeoImage src={selectedProduct.photo} alt={selectedProduct.name} wrapperClassName="w-full h-full" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(selectedProduct.photo)} />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <Package className="h-12 w-12 text-gray-300" />

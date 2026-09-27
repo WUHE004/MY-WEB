@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   Loader2,
@@ -10,7 +11,6 @@ import {
   Package,
   Truck,
   Crosshair,
-  X,
   Folder,
   FolderOpen,
   ChevronUp,
@@ -24,6 +24,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
+import { NeoModal } from "@/components/neo-modal";
 import { authFetch } from "@/lib/auth-fetch";
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
@@ -468,9 +469,15 @@ export default function StocktakePage() {
           <span className="highlight-purple flex items-center">库存盘点</span>
         </h1>
         {calibrations.length > 0 && (
-          <span className="self-center rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white">
+          <motion.span
+            key={calibrations.length}
+            initial={{ scale: 1.25 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 500, damping: 20 }}
+            className="self-center rounded-lg border-2 border-gray-900 bg-[#FF6B7A] px-2 py-0.5 text-xs font-extrabold text-white"
+          >
             校准待办 {calibrations.length}
-          </span>
+          </motion.span>
         )}
       </div>
 
@@ -592,38 +599,47 @@ export default function StocktakePage() {
                   </span>
                   {open ? <ChevronUp className="h-5 w-5 shrink-0 text-gray-500" /> : <ChevronDown className="h-5 w-5 shrink-0 text-gray-500" />}
                 </button>
+                <AnimatePresence initial={false}>
                 {open && (
-                  <div className="grid grid-cols-1 gap-2 border-t-[3px] border-gray-900 p-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                    {list.map((it) => (
-                      <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
-                    ))}
-                    {list.length === 0 && (
-                      <p className="col-span-full py-4 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
-                    )}
-                  </div>
+                  <motion.div
+                    key="layer-items"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                    className="overflow-hidden border-t-[3px] border-gray-900"
+                  >
+                    <div className="grid grid-cols-1 gap-2 p-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                      {list.map((it) => (
+                        <ItemCard key={it.sale_id} it={it} onMove={openMove} onCalibrate={openCalibrate} />
+                      ))}
+                      {list.length === 0 && (
+                        <p className="col-span-full py-4 text-center text-sm font-bold text-gray-400">该层暂无商品</p>
+                      )}
+                    </div>
+                  </motion.div>
                 )}
+                </AnimatePresence>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* 搬货弹窗: 三级级联选择（排/货架号/层, 与入库登记同款） */}
-      {moveItem && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setMoveItem(null)}>
-          <div
-            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
-                <Truck className="h-5 w-5" />
-                搬货 - {moveItem.sale_id}
-              </h3>
-              <button onClick={() => setMoveItem(null)} className="rounded-lg p-1 hover:bg-gray-100">
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
+      {/* 搬货弹窗: 三级级联选择（排/货架号/层, 与入库登记同款）— NeoModal 防遮罩误触 */}
+      <NeoModal
+        open={!!moveItem}
+        onClose={() => setMoveItem(null)}
+        maxWidthClass="sm:max-w-md"
+        title={
+          <span className="flex items-center gap-2">
+            <Truck className="h-5 w-5" />
+            {moveItem ? `搬货 - ${moveItem.sale_id}` : "搬货"}
+          </span>
+        }
+      >
+        {moveItem && (
+          <>
             <p className="mb-3 truncate text-xs font-bold text-gray-400">
               {moveItem.name || "未命名"} · 当前货架: {moveItem.shelf_no || "无"}
             </p>
@@ -671,26 +687,24 @@ export default function StocktakePage() {
               {moving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
               保存新货架位置
             </button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </NeoModal>
 
-      {/* 校准弹窗: 每尺码现有数量 + 校准数量 */}
-      {calItem && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setCalItem(null)}>
-          <div
-            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
-                <Crosshair className="h-5 w-5" />
-                库存校准 - {calItem.sale_id}
-              </h3>
-              <button onClick={() => setCalItem(null)} className="rounded-lg p-1 hover:bg-gray-100">
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
+      {/* 校准弹窗: 每尺码现有数量 + 校准数量 — NeoModal 防遮罩误触, 已填内容不会因误点弹窗外丢失 */}
+      <NeoModal
+        open={!!calItem}
+        onClose={() => setCalItem(null)}
+        maxWidthClass="sm:max-w-md"
+        title={
+          <span className="flex items-center gap-2">
+            <Crosshair className="h-5 w-5" />
+            {calItem ? `库存校准 - ${calItem.sale_id}` : "库存校准"}
+          </span>
+        }
+      >
+        {calItem && (
+          <>
             <p className="mb-3 truncate text-xs font-bold text-gray-400">
               {calItem.name || "未命名"} · {calItem.shelf_no || "无货架"}
             </p>
@@ -723,7 +737,7 @@ export default function StocktakePage() {
               })}
             </div>
             <p className="mb-3 text-[11px] font-bold text-gray-400">
-              提交后会作为待办显示在桌面端管理栏，处理完对应记录后待办自动消失。
+              提交后会作为待办显示在桌面端管理栏，处理完对应记录后待办自动消失。填写内容后请点右上角 × 或「提交校准」关闭，点击弹窗外不会丢失已填数据。
             </p>
             <button
               onClick={submitCalibrate}
@@ -733,50 +747,45 @@ export default function StocktakePage() {
               {calSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Crosshair className="h-4 w-4" />}
               提交校准
             </button>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </NeoModal>
 
-      {/* 货架二维码弹窗: 预览 + 下载（打印贴货架, 扫码直达该货架盘点） */}
-      {qrShelf && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setQrShelf("")}>
-          <div
-            className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
-                <QrCode className="h-5 w-5" />
-                货架二维码 - {zone}{qrShelf}
-              </h3>
-              <button onClick={() => setQrShelf("")} className="rounded-lg p-1 hover:bg-gray-100">
-                <X className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <p className="mb-3 text-xs font-bold text-gray-400">
-              扫码直达该货架盘点 · 共 {DEFAULT_LAYERS.length} 层 · 下载后可用快递面单纸打印贴在货架上
-            </p>
-            <div className="flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white p-3">
-              {qrLoading ? (
-                <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
-              ) : qrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrDataUrl} alt={`货架${zone}${qrShelf}二维码`} className="w-full max-w-[260px]" />
-              ) : (
-                <p className="py-10 text-sm font-bold text-gray-400">二维码生成失败</p>
-              )}
-            </div>
-            <button
-              onClick={downloadQr}
-              disabled={!qrDataUrl}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] px-4 py-2.5 text-sm font-extrabold text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
-            >
-              <Download className="h-4 w-4" />
-              下载二维码
-            </button>
-          </div>
+      {/* 货架二维码弹窗: 预览 + 下载（打印贴货架, 扫码直达该货架盘点）— 纯展示, 允许点遮罩关闭 */}
+      <NeoModal
+        open={!!qrShelf}
+        onClose={() => setQrShelf("")}
+        closeOnOverlay
+        maxWidthClass="sm:max-w-sm"
+        title={
+          <span className="flex items-center gap-2">
+            <QrCode className="h-5 w-5" />
+            货架二维码 - {zone}{qrShelf}
+          </span>
+        }
+      >
+        <p className="mb-3 text-xs font-bold text-gray-400">
+          扫码直达该货架盘点 · 共 {DEFAULT_LAYERS.length} 层 · 下载后可用快递面单纸打印贴在货架上
+        </p>
+        <div className="flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white p-3">
+          {qrLoading ? (
+            <Loader2 className="h-10 w-10 animate-spin text-gray-400" />
+          ) : qrDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qrDataUrl} alt={`货架${zone}${qrShelf}二维码`} className="w-full max-w-[260px]" />
+          ) : (
+            <p className="py-10 text-sm font-bold text-gray-400">二维码生成失败</p>
+          )}
         </div>
-      )}
+        <button
+          onClick={downloadQr}
+          disabled={!qrDataUrl}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#9B59B6] px-4 py-2.5 text-sm font-extrabold text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" />
+          下载二维码
+        </button>
+      </NeoModal>
     </PageWrapper>
   );
 }

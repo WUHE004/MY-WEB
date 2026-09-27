@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Search, Package, Filter, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, BadgeDollarSign, Tag } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
+import { NeoImage } from "@/components/neo-image";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
 
@@ -135,15 +137,21 @@ function ProductCard({
           </button>
         </div>
       ) : (
-        /* 选品人角标 - 右上角(非编辑模式) */
+        /* 选品人角标 - 右上角(非编辑模式), spring pop 增强直播氛围感 */
         product._selectors.length > 0 && (
           <div className="absolute -top-1.5 -right-1.5 flex flex-col gap-0.5 z-10">
             {product._selectors.map((name) => {
               const c = getAdminColor(name);
               return (
-                <span key={name} className={`text-[9px] px-1.5 py-0.5 rounded-full border-2 border-gray-900 ${c.bg} ${c.text} font-extrabold shadow-md whitespace-nowrap`}>
+                <motion.span
+                  key={name}
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                  className={`text-[9px] px-1.5 py-0.5 rounded-full border-2 border-gray-900 ${c.bg} ${c.text} font-extrabold shadow-md whitespace-nowrap origin-top-right`}
+                >
                   {name}已选品
-                </span>
+                </motion.span>
               );
             })}
           </div>
@@ -153,7 +161,7 @@ function ProductCard({
         {/* 图片区域 */}
         <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
           {product.photo ? (
-            <img src={product.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
+            <NeoImage src={product.photo} alt={product.name || "商品图"} wrapperClassName="w-full h-full" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <Package className="h-16 w-16 text-gray-300" />
@@ -916,14 +924,25 @@ export default function LiveSelectPage() {
                   </div>
                   <ChevronDown className={`h-5 w-5 text-gray-600 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
-                {/* 展开的商品卡片 */}
+                {/* 展开的商品卡片(高度展开动画) */}
+                <AnimatePresence initial={false}>
                 {expanded && (
-                  <div className="p-2 pt-2 border-t-[3px] border-gray-900 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {group.items.map((product) => (
-                      <ProductCard key={product.sale_id} product={product} editMode={editMode} livePrices={livePrices} cancelSelection={cancelSelection} setPriceEditProduct={setPriceEditProduct} setPriceInput={setPriceInput} setImgPreview={setImgPreview} isAdmin={isAdmin} showToast={showToast} />
-                    ))}
-                  </div>
+                  <motion.div
+                    key="day-items"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-2 pt-2 border-t-[3px] border-gray-900 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {group.items.map((product) => (
+                        <ProductCard key={product.sale_id} product={product} editMode={editMode} livePrices={livePrices} cancelSelection={cancelSelection} setPriceEditProduct={setPriceEditProduct} setPriceInput={setPriceInput} setImgPreview={setImgPreview} isAdmin={isAdmin} showToast={showToast} />
+                      ))}
+                    </div>
+                  </motion.div>
                 )}
+                </AnimatePresence>
               </div>
             );
           })}

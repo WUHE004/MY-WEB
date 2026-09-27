@@ -144,30 +144,8 @@ function convertEncoding(arrayBuffer: ArrayBuffer): string {
   return utf8Text;
 }
 
-function parseCSV(text: string) {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length === 0) return { headers: [] as string[], rows: [] as string[][] };
-
-  const parseLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === "," && !inQuotes) {
-        result.push(current.trim());
-        current = "";
-      } else { current += ch; }
-    }
-    result.push(current.trim());
-    return result;
-  };
-
-  return { headers: parseLine(lines[0]), rows: lines.slice(1).map(parseLine) };
-}
+// CSV 解析器已统一到 @/lib/csv (修复引号内换行解析错位), parseCsvTable 与原 parseCSV 行为一致
+import { parseCsvTable as parseCSV } from "@/lib/csv";
 
 export default function DataImportPage() {
   const [importType, setImportType] = useState<"inbound" | "sales" | "returns">("inbound");

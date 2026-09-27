@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { parseCsv } from "@/lib/csv";
 
 // 有效尺码（有且仅有）
 const SIZES = new Set(["80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]);
@@ -150,45 +151,7 @@ function cellToText(v: unknown): string {
   return String(v).trim();
 }
 
-/** 简单 CSV 解析(支持引号转义) */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += ch;
-      }
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ",") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else if (ch !== "\r") {
-      field += ch;
-    }
-  }
-  if (field !== "" || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
-}
+/** CSV 解析器已统一到 @/lib/csv (支持引号内换行) */
 
 /** 读取 CSV: utf-8 优先, 出现乱码回退 gbk */
 async function readCsvFile(file: File): Promise<string[][]> {

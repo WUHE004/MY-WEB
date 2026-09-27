@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
+import { NeoImage } from "@/components/neo-image";
 
 const recentOrders = [
   { id: "DD20240601001", product: "夏季短袖T恤 x2", customer: "张女士", amount: "¥99.80", time: "2分钟前", status: "已发货" },
@@ -427,7 +428,7 @@ export default function DashboardPage() {
                       >
                         <div className="h-[120px] sm:h-[140px] lg:h-[160px] bg-gray-100 flex items-center justify-center">
                           {product.photo ? (
-                            <img src={product.photo} alt="" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
+                            <NeoImage src={product.photo} alt={product.name} wrapperClassName="w-full h-full" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(product.photo)} />
                           ) : (
                             <Package className="h-10 w-10 text-gray-300" />
                           )}

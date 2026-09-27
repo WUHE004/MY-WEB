@@ -3,7 +3,9 @@
 import { useState, useRef, useEffect } from "react";
 import { showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { X, Upload, Trash2, Loader2, ArrowUp, ArrowDown, GripVertical, Check, XCircle } from "lucide-react";
+import { NeoModal } from "@/components/neo-modal";
+import { NeoImage } from "@/components/neo-image";
+import { Upload, Trash2, Loader2, ArrowUp, ArrowDown, GripVertical, Check, XCircle } from "lucide-react";
 
 interface Model {
   id: string;
@@ -150,22 +152,8 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div
-        className="bg-white rounded-2xl border-[3px] border-gray-900 p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 标题 */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-extrabold">{editMode ? "编辑排序" : "模特库"}</h3>
-          <button
-            onClick={onClose}
-            className="flex items-center justify-center h-8 w-8 rounded-lg border-[2px] border-gray-300 hover:bg-gray-100 transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
+    <>
+      <NeoModal open onClose={onClose} maxWidthClass="max-w-lg" title={editMode ? "编辑排序" : "模特库"}>
         {/* 上传区域 (非编辑模式显示) */}
         {!editMode && (
           <div className="mb-4 p-3 rounded-xl border-[2px] border-dashed border-gray-300 bg-gray-50">
@@ -240,10 +228,11 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
                 className="flex items-center gap-2 p-2 rounded-xl border-[2px] border-gray-200 bg-gray-50"
               >
                 <GripVertical className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                <img
+                <NeoImage
                   src={model.photo_url}
                   alt={model.name}
-                  className="h-12 w-12 object-cover rounded-lg border-[2px] border-gray-200 flex-shrink-0"
+                  wrapperClassName="h-12 w-12 rounded-lg border-[2px] border-gray-200 shrink-0"
+                  className="h-12 w-12 object-cover"
                 />
                 <span className="flex-1 text-sm font-extrabold text-gray-700 truncate">
                   {model.name}
@@ -278,9 +267,10 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
                 key={model.id}
                 className="relative group rounded-xl border-[2px] border-gray-200 overflow-hidden"
               >
-                <img
+                <NeoImage
                   src={model.photo_url}
                   alt={model.name}
+                  wrapperClassName="w-full"
                   className="w-full aspect-square object-cover"
                 />
                 <div className="text-center py-1 text-xs font-extrabold bg-gray-100 text-gray-700 truncate px-1">
@@ -288,15 +278,16 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
                 </div>
                 <button
                   onClick={() => handleDelete(model.id, model.name)}
-                  className="absolute top-1 right-1 flex items-center justify-center h-6 w-6 rounded-full bg-red-500 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                  aria-label={`删除 ${model.name}`}
+                  className="absolute top-1 right-1 flex items-center justify-center h-7 w-7 rounded-full bg-red-500 text-white opacity-90 transition-opacity hover:opacity-100 hover:bg-red-600"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </NeoModal>
 
       {/* 删除模特二次确认 */}
       <ConfirmDialog
@@ -307,6 +298,6 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
         onConfirm={performDelete}
         onCancel={() => setPendingDelete(null)}
       />
-    </div>
+    </>
   );
 }

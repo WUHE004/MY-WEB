@@ -519,7 +519,7 @@ export default function AdjustPage() {
         ))}
       </div>
 
-      <p className="text-sm text-gray-500 mb-4">{tabDescription[activeTab]}</p>
+      <motion.p key={activeTab} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2 }} className="text-sm text-gray-500 mb-4">{tabDescription[activeTab]}</motion.p>
 
       {/* 商品搜索（带缩略图下拉） */}
       <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 mb-4">
