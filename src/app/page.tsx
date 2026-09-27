@@ -16,7 +16,8 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 
 const recentOrders = [
   { id: "DD20240601001", product: "夏季短袖T恤 x2", customer: "张女士", amount: "¥99.80", time: "2分钟前", status: "已发货" },
@@ -54,10 +55,13 @@ export default function DashboardPage() {
   const [hotProducts, setHotProducts] = useState<Array<{sale_id: string; name: string; total_sold: number; sell_price: number; photo: string; manufacturer: string}>>([]);
   const [availableSaleIds, setAvailableSaleIds] = useState<Set<string>>(new Set());
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  // 热卖数据加载失败标记(区别于空态/加载中)
+  const [hotError, setHotError] = useState(false);
 
   const fetchHotProducts = async () => {
     try {
       const res = await fetch("/api/sales-summary");
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       if (Array.isArray(data)) {
         const top10 = data
@@ -73,8 +77,11 @@ export default function DashboardPage() {
           }));
         setHotProducts(top10);
       }
+      setHotError(false);
     } catch (err) {
       console.error("Fetch hot products error:", err);
+      // 加载失败时明确标记, 热卖区显示错误卡片而非"永远加载中"
+      setHotError(true);
     }
   };
 
@@ -113,7 +120,7 @@ export default function DashboardPage() {
     if (availableSaleIds.has(saleId)) {
       window.location.href = `/products?open=${saleId}`;
     } else {
-      alert("该商品暂停售卖啦");
+      showToast("该商品暂停售卖啦", "error");
     }
   };
 
@@ -142,7 +149,7 @@ export default function DashboardPage() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    alert(`已下载"${siteName}.url"快捷方式文件，请将其保存到桌面即可。`);
+    showToast(`已下载"${siteName}.url"快捷方式文件，请将其保存到桌面即可。`, "success");
   };
 
   // 刷新热卖爆款数据(供手动刷新按钮与 30 秒自动轮询共用)
@@ -398,7 +405,15 @@ export default function DashboardPage() {
                   initial="hidden"
                   animate="visible"
                 >
-                  {hotProducts.length === 0 ? (
+                  {hotError ? (
+                    <div className="w-full py-2">
+                      <ErrorState
+                        title="热卖数据加载失败"
+                        onRetry={refreshHotProducts}
+                        compact
+                      />
+                    </div>
+                  ) : hotProducts.length === 0 ? (
                     <div className="w-full flex items-center justify-center py-8">
                       <p className="text-sm text-gray-400 font-bold">加载中...</p>
                     </div>

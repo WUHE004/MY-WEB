@@ -3021,7 +3021,7 @@ export default function FinancePage() {
                     });
                     setMobileEditModal(null);
                   } catch {
-                    alert("保存失败");
+                    showToast("保存失败", "error");
                   }
                 }}
                 className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"

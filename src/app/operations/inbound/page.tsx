@@ -22,7 +22,7 @@ import {
   Search,
 } from "lucide-react";
 import Link from "next/link";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
@@ -321,17 +321,17 @@ export default function InboundPage() {
       });
       if (res.ok) {
         const result = await res.json();
-        alert(`成功搬运 ${result.count} 件商品从 ${transferFromShelf} 到 ${transferToShelf}`);
+        showToast(`成功搬运 ${result.count} 件商品从 ${transferFromShelf} 到 ${transferToShelf}`, "success");
         setShowTransferDialog(false);
         // 刷新货架商品列表
         const products = await checkShelfProducts(transferFromShelf);
         setShelfProducts((prev) => ({ ...prev, [transferFromShelf]: products }));
       } else {
         const err = await res.json();
-        alert("搬运失败: " + (err.error || "未知错误"));
+        showToast("搬运失败: " + (err.error || "未知错误"), "error");
       }
     } catch (err) {
-      alert("网络错误");
+      showToast("网络错误", "error");
     } finally {
       setTransferring(false);
     }
@@ -375,7 +375,7 @@ export default function InboundPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "上传失败";
       console.error("[上传失败]", msg);
-      alert("图片上传失败: " + msg);
+      showToast("图片上传失败: " + msg, "error");
       setPhoto(null);
     } finally {
       setPhotoUploading(false);
@@ -542,7 +542,7 @@ export default function InboundPage() {
       }
     }
     if (hasProducts) {
-      alert("该排列下有商品，请先将商品搬运到其他货架后再删除");
+      showToast("该排列下有商品，请先将商品搬运到其他货架后再删除", "error");
       return;
     }
     setShelfDraft((prev) => {
@@ -587,7 +587,7 @@ export default function InboundPage() {
       }
     }
     if (hasProducts) {
-      alert(`货架 ${rowKey}-${shelfNum} 下有商品，请先搬运后再删除`);
+      showToast(`货架 ${rowKey}-${shelfNum} 下有商品，请先搬运后再删除`, "error");
       return;
     }
     setShelfDraft((prev) => {
@@ -655,7 +655,7 @@ export default function InboundPage() {
       const text = await file.text();
       const rows = parseCSV(text);
       if (rows.length < 2) {
-        alert("CSV 文件为空或格式不正确");
+        showToast("CSV 文件为空或格式不正确", "error");
         return;
       }
       const headers = rows[0];
@@ -742,7 +742,7 @@ export default function InboundPage() {
       }
       setImportResult({ success, fail, errors: errors.slice(0, 10) });
     } catch (err) {
-      alert("文件读取失败: " + (err instanceof Error ? err.message : "未知错误"));
+      showToast("文件读取失败: " + (err instanceof Error ? err.message : "未知错误"), "error");
     } finally {
       setImporting(false);
       if (e.target) e.target.value = "";
@@ -762,24 +762,24 @@ export default function InboundPage() {
 
   const handleSubmit = async () => {
     if (!saleId.trim()) {
-      alert("请输入售卖编号");
+      showToast("请输入售卖编号", "error");
       return;
     }
     if (saleIdExists) {
-      alert("该编号已入库，请勿重复登记！");
+      showToast("该编号已入库，请勿重复登记！", "error");
       return;
     }
     if (!manufacturer) {
-      alert("请选择厂家名称");
+      showToast("请选择厂家名称", "error");
       return;
     }
     // 输入的厂家不在厂家库中(未检索选中也未添加) → 阻止提交
     if (!manufacturers.includes(manufacturer.trim())) {
-      alert("厂家名称不在厂家库中，请从检索列表选择，或点击右侧设置按钮先添加该厂家");
+      showToast("厂家名称不在厂家库中，请从检索列表选择，或点击右侧设置按钮先添加该厂家", "error");
       return;
     }
     if (!costPrice || isNaN(Number(costPrice))) {
-      alert("请输入有效的进价");
+      showToast("请输入有效的进价", "error");
       return;
     }
 
@@ -821,7 +821,7 @@ export default function InboundPage() {
       });
 
       if (inboundRes.ok) {
-        alert("入库登记成功！");
+        showToast("入库登记成功！", "success");
         setPhoto(null);
         setSaleId("");
         setName("");
@@ -839,10 +839,10 @@ export default function InboundPage() {
         setStyle("");
       } else {
         const err = await inboundRes.json();
-        alert("入库记录写入失败: " + (err.error || "未知错误"));
+        showToast("入库记录写入失败: " + (err.error || "未知错误"), "error");
       }
     } catch (err) {
-      alert("网络错误，请重试");
+      showToast("网络错误，请重试", "error");
     } finally {
       setSubmitting(false);
     }
@@ -967,7 +967,7 @@ export default function InboundPage() {
       ? restockSizes[NO_SIZE_STORE] || 0
       : Object.values(restockSizes).reduce((sum, v) => sum + v, 0);
     if (totalRestock === 0) {
-      alert("请输入补录数量");
+      showToast("请输入补录数量", "error");
       return;
     }
 
@@ -1004,11 +1004,11 @@ export default function InboundPage() {
 
       if (!res.ok) {
         const err = await res.json();
-        alert("补录失败: " + (err.error || "未知错误"));
+        showToast("补录失败: " + (err.error || "未知错误"), "error");
         return;
       }
 
-      alert(`补录成功！共入库 ${totalRestock} 件（${sid}）`);
+      showToast(`补录成功！共入库 ${totalRestock} 件（${sid}）`, "success");
       // 重置补录弹窗
       setShowRestockDialog(false);
       setRestockSaleId("");
@@ -1017,7 +1017,7 @@ export default function InboundPage() {
       setRestockError("");
       setShowRestockDropdown(false);
     } catch {
-      alert("网络错误，请重试");
+      showToast("网络错误，请重试", "error");
     } finally {
       setRestockSubmitting(false);
     }
@@ -1739,10 +1739,10 @@ export default function InboundPage() {
                                               const products = await checkShelfProducts(fullShelfNo);
                                               if (products.length > 0) {
                                                 setShelfProducts((prev) => ({ ...prev, [fullShelfNo]: products }));
-                                                alert(`该层(${fullShelfNo})有 ${products.length} 种商品，请先搬运后再删除`);
+                                                showToast(`该层(${fullShelfNo})有 ${products.length} 种商品，请先搬运后再删除`, "error");
                                                 return;
                                               }
-                                              alert(`该层(${fullShelfNo})暂无商品，层删除功能暂不支持单独删除层，如需调整请修改货架结构`);
+                                              showToast(`该层(${fullShelfNo})暂无商品，层删除功能暂不支持单独删除层，如需调整请修改货架结构`, "info");
                                             }}
                                             className="flex h-5 w-5 items-center justify-center rounded-md border-[1px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
                                           >

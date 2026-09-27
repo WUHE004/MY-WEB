@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Plus, Minus, Search, AlertTriangle, Camera, Image as ImageIcon, X } from "lucide-react";
 import Link from "next/link";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -366,17 +366,17 @@ export default function SalesPage() {
 
   const handleSubmit = async () => {
     if (!selectedRecord) {
-      alert("请选择有效的售卖编号");
+      showToast("请选择有效的售卖编号", "error");
       return;
     }
     if (!sellPrice || isNaN(Number(sellPrice))) {
-      alert("请输入有效的售价");
+      showToast("请输入有效的售价", "error");
       return;
     }
 
     const totalQty = Object.values(sizes).reduce((sum, v) => sum + v, 0);
     if (totalQty === 0) {
-      alert("请至少选择一个尺码并输入数量");
+      showToast("请至少选择一个尺码并输入数量", "error");
       return;
     }
 
@@ -411,7 +411,7 @@ export default function SalesPage() {
       });
 
       if (res.ok) {
-        alert("售卖登记成功！");
+        showToast("售卖登记成功！", "success");
         setSelectedRecord(null);
         selectedRecordRef.current = null;
         setSearchQuery("");
@@ -424,10 +424,10 @@ export default function SalesPage() {
         setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
       } else {
         const err = await res.json();
-        alert("售卖登记失败: " + (err.error || "未知错误"));
+        showToast("售卖登记失败: " + (err.error || "未知错误"), "error");
       }
     } catch {
-      alert("网络错误，请重试");
+      showToast("网络错误，请重试", "error");
     } finally {
       setSubmitting(false);
     }

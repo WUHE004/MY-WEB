@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 import { CountUp } from "@/components/motion-primitives";
 import Link from "next/link";
 
@@ -44,6 +45,8 @@ export default function LinksPage() {
     selected_date: "",
   });
   const [loading, setLoading] = useState(true);
+  // 统计数据加载失败标记
+  const [statsError, setStatsError] = useState(false);
   const [isOperator, setIsOperator] = useState(false);
 
   useEffect(() => {
@@ -62,12 +65,16 @@ export default function LinksPage() {
   const fetchStats = async () => {
     try {
       const res = await fetch("/api/stats");
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       if (!data.error) {
         setStats(data);
       }
+      setStatsError(false);
     } catch (err) {
       console.error("Fetch stats error:", err);
+      // 失败明确标记: 统计卡显示错误卡片而非误导性的 0
+      setStatsError(true);
     }
   };
 
@@ -104,6 +111,15 @@ export default function LinksPage() {
       </div>
 
       {/* Stats */}
+      {statsError ? (
+        <div className="mb-6 lg:mb-8">
+          <ErrorState
+            title="统计数据加载失败"
+            message="入库/售卖/退货数量暂不可用。"
+            onRetry={fetchStats}
+          />
+        </div>
+      ) : (
       <div className="grid grid-cols-3 gap-3 lg:gap-6 mb-6 lg:mb-8">
         <Link href="/operations/inbound">
           <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
@@ -154,6 +170,7 @@ export default function LinksPage() {
         </Card>
         </Link>
       </div>
+      )}
 
       {/* Operation Buttons */}
       <div className="grid grid-cols-3 gap-3 lg:gap-6 mb-6 lg:mb-8">

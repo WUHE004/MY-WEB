@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Save } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 
 interface ShippingRecord {
   tracking_number: string;
@@ -22,31 +23,34 @@ export default function ShippingPage() {
   const [records, setRecords] = useState<ShippingRecord[]>([]);
   const [totalFee, setTotalFee] = useState(0);
   const [loading, setLoading] = useState(true);
+  // 费率/日期配置加载失败标记
+  const [settingsError, setSettingsError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
 
   // 加载快递费率
   useEffect(() => {
     fetch("/api/shipping-rates")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
         if (!data.error) {
           setRate1(String(data.rate1 || ""));
           setRate2(String(data.rate2 || ""));
           setRate3(String(data.rate3 || ""));
         }
+        setSettingsError(false);
       })
-      .catch(() => {});
+      .catch(() => setSettingsError(true));
   }, []);
 
   // 加载可选日期
   useEffect(() => {
     fetch("/api/sales-dates?type=shipping")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
         if (data.dates) setDates(data.dates);
       })
-      .catch(() => {});
+      .catch(() => setSettingsError(true));
   }, []);
 
   // 计算快递费
@@ -124,6 +128,16 @@ export default function ShippingPage() {
           <span className="highlight-blue">快递费用</span>
         </h1>
       </div>
+
+      {/* 配置加载失败横幅 */}
+      {settingsError && (
+        <ErrorState
+          title="费率配置加载失败"
+          message="快递费率可能不是最新保存的值，请重试。"
+          compact
+          className="mb-4"
+        />
+      )}
 
       {/* 快递费率设置 */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">

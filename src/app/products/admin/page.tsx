@@ -24,7 +24,8 @@ import {
   Image as ImageIcon,
   CreditCard,
 } from "lucide-react";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -113,6 +114,8 @@ export default function AdminProductsPage() {
   const [selectedOrder, setSelectedOrder] = useState<WebOrder | null>(null);
   const [shippingInfo, setShippingInfo] = useState<any>(null);
   const [updatingOrder, setUpdatingOrder] = useState(false);
+  // 删除订单二次确认(会恢复库存)
+  const [pendingDeleteOrder, setPendingDeleteOrder] = useState(false);
 
   // 订单详情扫码
   const [showOrderScanner, setShowOrderScanner] = useState(false);
@@ -214,14 +217,14 @@ export default function AdminProductsPage() {
       const data = await res.json();
 
       if (data.error) {
-        alert("更新失败: " + data.error);
+        showToast("更新失败: " + data.error, "error");
       } else {
-        alert("更新成功");
+        showToast("更新成功", "success");
         setSelectedOrder(null);
         fetchOrders();
       }
     } catch {
-      alert("更新失败，请重试");
+      showToast("更新失败，请重试", "error");
     } finally {
       setUpdatingOrder(false);
     }
@@ -285,10 +288,12 @@ export default function AdminProductsPage() {
   // 删除订单（恢复库存）
   const handleDeleteOrder = async () => {
     if (!selectedOrder) return;
+    setPendingDeleteOrder(true);
+  };
 
-    if (!confirm("确定要删除此订单吗？这将会恢复库存。")) {
-      return;
-    }
+  const performDeleteOrder = async () => {
+    setPendingDeleteOrder(false);
+    if (!selectedOrder) return;
 
     setUpdatingOrder(true);
     try {
@@ -298,14 +303,14 @@ export default function AdminProductsPage() {
       const data = await res.json();
 
       if (data.error) {
-        alert("删除失败: " + data.error);
+        showToast("删除失败: " + data.error, "error");
       } else {
-        alert("删除成功，库存已恢复");
+        showToast("删除成功，库存已恢复", "success");
         setSelectedOrder(null);
         fetchOrders();
       }
     } catch {
-      alert("删除失败，请重试");
+      showToast("删除失败，请重试", "error");
     } finally {
       setUpdatingOrder(false);
     }
@@ -336,7 +341,7 @@ export default function AdminProductsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pause_text: pauseText }),
       });
-      alert("保存成功");
+      showToast("保存成功", "success");
     } catch (err) {
       console.error("Save pause text error:", err);
     } finally {
@@ -397,7 +402,7 @@ export default function AdminProductsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product_display_list: displayList }),
       });
-      alert("保存成功");
+      showToast("保存成功", "success");
     } catch (err) {
       console.error("Save display error:", err);
     } finally {
@@ -430,7 +435,7 @@ export default function AdminProductsPage() {
     if (!priceModalProduct) return;
     const price = parseFloat(priceModalValue);
     if (isNaN(price) || price <= 0) {
-      alert("请输入有效的售价");
+      showToast("请输入有效的售价", "error");
       return;
     }
     setSavingPrice(true);
@@ -442,7 +447,7 @@ export default function AdminProductsPage() {
       });
       const data = await res.json();
       if (data.error) {
-        alert("保存失败: " + data.error);
+        showToast("保存失败: " + data.error, "error");
       } else {
         // 更新本地 products 中的售价（避免重新加载全页）
         setProducts((prev) =>
@@ -464,7 +469,7 @@ export default function AdminProductsPage() {
       }
     } catch (err) {
       console.error("Save price error:", err);
-      alert("保存失败，请重试");
+      showToast("保存失败，请重试", "error");
     } finally {
       setSavingPrice(false);
     }
@@ -1525,6 +1530,16 @@ export default function AdminProductsPage() {
         </div>
       )}
       </motion.div>
+
+      {/* 删除订单二次确认(恢复库存) */}
+      <ConfirmDialog
+        open={pendingDeleteOrder}
+        title="确认删除此订单？"
+        description="删除后该订单占用库存将被恢复，此操作不可撤销。"
+        confirmText="确认删除"
+        onConfirm={performDeleteOrder}
+        onCancel={() => setPendingDeleteOrder(false)}
+      />
     </PageWrapper>
   );
 }

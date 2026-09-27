@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Plus, Minus, Search, AlertTriangle } from "lucide-react";
 import Link from "next/link";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { PulseOnChange, NumberPop } from "@/components/motion-primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +37,8 @@ export default function ReturnsPage() {
   const [selectedSaleInfo, setSelectedSaleInfo] = useState<SalesRecord[]>([]);
   const [notFound, setNotFound] = useState(false);
   const [totalReturnCount, setTotalReturnCount] = useState(0);
+  // 退货统计加载失败标记(角标显示 ? 而非 0)
+  const [countError, setCountError] = useState(false);
   // 该编号各尺码已退数量（可退数量 = 已售 - 已退）
   const [returnedBySize, setReturnedBySize] = useState<Record<number, number>>({});
 
@@ -60,12 +62,17 @@ export default function ReturnsPage() {
   const fetchTotalReturnCount = async () => {
     try {
       const res = await fetch("/api/returns-summary");
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       if (Array.isArray(data)) {
         const total = data.reduce((sum: number, item: any) => sum + (Number(item.total_returned) || 0), 0);
         setTotalReturnCount(total);
+        setCountError(false);
       }
-    } catch { /* ignore */ }
+    } catch {
+      // 失败显示 "?" 而非误导性的 0 件
+      setCountError(true);
+    }
   };
 
   // 输入时按编号模糊检索(走数据库查询, 避免全表拉取超过 Vercel 4.5MB 响应限制被截断)
@@ -213,13 +220,13 @@ export default function ReturnsPage() {
 
   const handleSubmit = async () => {
     if (!selectedSaleId) {
-      alert("请选择有效的售卖编号");
+      showToast("请选择有效的售卖编号", "error");
       return;
     }
 
     const totalQty = Object.values(sizes).reduce((sum, v) => sum + v, 0);
     if (totalQty === 0) {
-      alert("请至少选择一个尺码并输入退货数量");
+      showToast("请至少选择一个尺码并输入退货数量", "error");
       return;
     }
 
@@ -249,7 +256,7 @@ export default function ReturnsPage() {
       });
 
       if (res.ok) {
-        alert("退货登记成功！");
+        showToast("退货登记成功！", "success");
         setSelectedSaleId("");
         selectedSaleIdRef.current = "";
         setSelectedSaleInfo([]);
@@ -259,10 +266,10 @@ export default function ReturnsPage() {
         setSizes(Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])));
       } else {
         const err = await res.json();
-        alert("退货登记失败: " + (err.error || "未知错误"));
+        showToast("退货登记失败: " + (err.error || "未知错误"), "error");
       }
     } catch {
-      alert("网络错误，请重试");
+      showToast("网络错误，请重试", "error");
     } finally {
       setSubmitting(false);
     }
@@ -283,7 +290,7 @@ export default function ReturnsPage() {
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-yellow">退货登记</span>
         </h1>
-        <p className="text-lg lg:text-3xl font-extrabold text-yellow-600 ml-auto">{totalReturnCount} 件</p>
+        <p className="text-lg lg:text-3xl font-extrabold text-yellow-600 ml-auto">{countError ? "?" : totalReturnCount} 件</p>
       </div>
 
       <div className="max-w-2xl mx-auto">

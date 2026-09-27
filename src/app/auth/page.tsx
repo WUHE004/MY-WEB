@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from "react";
+import { showToast } from "@/components/page-wrapper";
 
 export default function AuthPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function AuthPage() {
       if (data.access_token) {
         setToken(data.access_token);
         localStorage.setItem("wps_access_token", data.access_token);
-        alert("Token获取成功！已保存到本地存储");
+        showToast("Token获取成功！已保存到本地存储", "success");
       } else {
         setError(data.error || "获取Token失败，请检查权限是否已开通");
       }
@@ -39,7 +40,7 @@ export default function AuthPage() {
     if (inputToken) {
       setToken(inputToken);
       localStorage.setItem("wps_access_token", inputToken);
-      alert("Token已保存！");
+      showToast("Token已保存！", "success");
     }
   };
 

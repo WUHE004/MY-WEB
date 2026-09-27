@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeft, Camera, Search, Package, CheckCircle, PauseCircle, Truck, Trash2, ChevronDown, X, Pencil } from "lucide-react";
 import Link from "next/link";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 
@@ -94,6 +94,8 @@ export default function PackPage() {
   const [packFilter, setPackFilter] = useState<PackFilter>("");
 
   const [showScanner, setShowScanner] = useState(false);
+  // 清空全部历史二次确认
+  const [pendingClearAll, setPendingClearAll] = useState(false);
   // 后六位匹配到多个面单号时的候选列表
   const [matchedTrackingNumbers, setMatchedTrackingNumbers] = useState<string[]>([]);
 
@@ -203,11 +205,11 @@ export default function PackPage() {
             fetchPackRecords();
           }, 950);
         } else {
-          alert("已挂起");
+          showToast("已挂起", "success");
           setSearchResults([]); setSearched(false); setTrackingNumber(""); fetchPackRecords();
         }
-      } else { const err = await res.json(); alert("操作失败: " + (err.error || "未知错误")); }
-    } catch { alert("网络错误，请重试"); }
+      } else { const err = await res.json(); showToast("操作失败: " + (err.error || "未知错误"), "error"); }
+    } catch { showToast("网络错误，请重试", "error"); }
     finally { setSubmittingFind(false); }
   };
 
@@ -221,8 +223,8 @@ export default function PackPage() {
         body: JSON.stringify({ id: recordId, status, packer: status === "shipped" ? packer : undefined }),
       });
       if (res.ok) { fetchPackRecords(); }
-      else { const err = await res.json(); alert("操作失败: " + (err.error || "未知错误")); }
-    } catch { alert("网络错误，请重试"); }
+      else { const err = await res.json(); showToast("操作失败: " + (err.error || "未知错误"), "error"); }
+    } catch { showToast("网络错误，请重试", "error"); }
     finally {
       setBusyActionIds((prev) => {
         const next = new Set(prev);
@@ -233,14 +235,18 @@ export default function PackPage() {
   };
 
   // 清空全部历史
-  const handleClearAll = async () => {
-    if (packRecords.length === 0) { alert("没有可清除的记录"); return; }
-    if (!confirm("确定要清空所有找货打包记录吗？此操作不可恢复！")) return;
+  const handleClearAll = () => {
+    if (packRecords.length === 0) { showToast("没有可清除的记录", "error"); return; }
+    setPendingClearAll(true);
+  };
+
+  const performClearAll = async () => {
+    setPendingClearAll(false);
     try {
       const res = await fetch("/api/pack?all=true", { method: "DELETE" });
-      if (res.ok) { setPackRecords([]); setPackFilter(""); }
-      else { const err = await res.json(); alert("清空失败: " + (err.error || "未知错误")); }
-    } catch { alert("网络错误，请重试"); }
+      if (res.ok) { setPackRecords([]); setPackFilter(""); showToast("已清空全部找货打包记录", "success"); }
+      else { const err = await res.json(); showToast("清空失败: " + (err.error || "未知错误"), "error"); }
+    } catch { showToast("网络错误，请重试", "error"); }
   };
 
   const statusLabel = (s: string) => {
@@ -263,12 +269,12 @@ export default function PackPage() {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert("货架号保存失败: " + (err.error || "未知错误"));
+        showToast("货架号保存失败: " + (err.error || "未知错误"), "error");
         return;
       }
       setSearchResults((prev) => prev.map((r) => (r.sale_id === saleId ? { ...r, shelf_no: shelfNo } : r)));
       setEditingShelfIdx(null);
-    } catch { alert("网络错误，请重试"); }
+    } catch { showToast("网络错误，请重试", "error"); }
   };
 
   // 打包模式: 状态筛选 + 面单号查找(已提交记录, 支持完整精确/后六位后缀匹配, 本地过滤)
@@ -718,6 +724,16 @@ export default function PackPage() {
         onResult={handleScanResult}
         title="扫描面单号条形码"
         hint="将面单号条形码对准扫描框，识别成功自动搜索"
+      />
+
+      {/* 清空全部历史二次确认 */}
+      <ConfirmDialog
+        open={pendingClearAll}
+        title="清空所有找货打包记录？"
+        description="将删除全部记录（含历史对账数据），此操作不可恢复。"
+        confirmText="确认清空"
+        onConfirm={performClearAll}
+        onCancel={() => setPendingClearAll(false)}
       />
 
       {/* 发货二次确认(发货状态不可逆) */}

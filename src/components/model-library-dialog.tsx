@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { showToast } from "@/components/page-wrapper";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { X, Upload, Trash2, Loader2, ArrowUp, ArrowDown, GripVertical, Check, XCircle } from "lucide-react";
 
 interface Model {
@@ -18,6 +20,8 @@ interface Props {
 
 export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
   const [uploading, setUploading] = useState(false);
+  // 删除模特二次确认
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [newModelName, setNewModelName] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [orderItems, setOrderItems] = useState<Model[]>([]);
@@ -66,17 +70,17 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
           setNewModelName("");
           onRefresh();
         } else {
-          alert("上传失败: " + (uploadData.error || "未知错误"));
+          showToast("上传失败: " + (uploadData.error || "未知错误"), "error");
         }
       } catch (err) {
-        alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+        showToast("上传失败: " + (err instanceof Error ? err.message : "未知错误"), "error");
       } finally {
         setUploading(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };
     reader.onerror = () => {
-      alert("读取文件失败, 请重试");
+      showToast("读取文件失败, 请重试", "error");
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     };
@@ -84,7 +88,13 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`确定删除模特 "${name}" 吗？`)) return;
+    setPendingDelete({ id, name });
+  };
+
+  const performDelete = async () => {
+    if (!pendingDelete) return;
+    const { id } = pendingDelete;
+    setPendingDelete(null);
     try {
       await fetch(`/api/photo-gen/models?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -92,6 +102,7 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
       onRefresh();
     } catch (err) {
       console.error("Delete model error:", err);
+      showToast("删除失败，请重试", "error");
     }
   };
 
@@ -123,7 +134,7 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
       setEditMode(false);
     } catch (err) {
       console.error("Save order error:", err);
-      alert("保存失败");
+      showToast("保存失败", "error");
     } finally {
       setSaving(false);
     }
@@ -286,6 +297,16 @@ export function ModelLibraryDialog({ models, onClose, onRefresh }: Props) {
           </div>
         )}
       </div>
+
+      {/* 删除模特二次确认 */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`确认删除模特「${pendingDelete?.name || ""}」？`}
+        description="删除后不可恢复。"
+        confirmText="确认删除"
+        onConfirm={performDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

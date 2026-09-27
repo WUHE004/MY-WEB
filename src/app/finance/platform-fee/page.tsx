@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { ArrowLeft, RefreshCw, Save } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 import { CountUp } from "@/components/motion-primitives";
 
 interface PlatformRecord {
@@ -37,6 +38,9 @@ export default function PlatformFeePage() {
     total_shipping: 0, total_platform_fee: 0, total_net_profit: 0,
   });
   const [loading, setLoading] = useState(true);
+  // 配置/汇总数据加载失败标记
+  const [settingsError, setSettingsError] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [ratesLoaded, setRatesLoaded] = useState(false);
@@ -82,13 +86,13 @@ export default function PlatformFeePage() {
   // 加载平台抽点率
   useEffect(() => {
     fetch("/api/settings")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
         if (data?.platform_fee_rate) {
           setRate(String(data.platform_fee_rate));
         }
       })
-      .catch(() => {});
+      .catch(() => setSettingsError(true));
   }, []);
 
   const fetchData = async () => {
@@ -112,8 +116,12 @@ export default function PlatformFeePage() {
           total_platform_fee: data.total_platform_fee || 0,
           total_net_profit: data.total_net_profit || 0,
         });
+        setFetchError(false);
       }
-    } catch { /* ignore */ }
+    } catch {
+      // 明确标记失败, 显示错误横幅而非误导性的 0 汇总
+      setFetchError(true);
+    }
     finally { setLoading(false); }
   };
 
@@ -158,6 +166,17 @@ export default function PlatformFeePage() {
           <span className="highlight-red">平台抽点</span>
         </h1>
       </div>
+
+      {/* 数据加载失败横幅 */}
+      {(settingsError || fetchError) && (
+        <ErrorState
+          title="数据加载失败"
+          message="抽点率或汇总数据可能不是最新，请刷新重试。"
+          onRetry={fetchData}
+          compact
+          className="mb-4"
+        />
+      )}
 
       {/* 平台抽点设置 */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">

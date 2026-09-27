@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 import { CountUp, staggerContainer, staggerItem } from "@/components/motion-primitives";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -70,6 +71,8 @@ export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesSummary[]>([]);
   const [products, setProducts] = useState<InboundRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  // 任一统计接口失败时置 true, 顶部显示错误横幅(避免故障被伪装成 0 值)
+  const [dataError, setDataError] = useState(false);
   const [trendMode, setTrendMode] = useState<"day" | "month">("day");
   const [trendData, setTrendData] = useState<TrendItem[]>([]);
   const [returnTrendData, setReturnTrendData] = useState<ReturnTrendItem[]>([]);
@@ -93,18 +96,30 @@ export default function DashboardPage() {
   // 业绩/盈利/售卖框的月份选择（月度模式时）
   const [selectedPerfMonth, setSelectedPerfMonth] = useState<string>("");
 
-  useEffect(() => {
-    async function loadData() {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setDataError(false);
+    let failed = false;
+    const safeFetch = async (url: string) => {
       try {
-        const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes] = await Promise.all([
-          fetch("/api/sales-summary").then(r => r.json()).catch(() => []),
-          fetch("/api/inbound-records").then(r => r.json()).catch(() => []),
-          fetch("/api/sales-trend").then(r => r.json()).catch(() => []),
-          fetch("/api/returns-summary").then(r => r.json()).catch(() => []),
-          fetch("/api/daily-profit").then(r => r.json()).catch(() => {}),
-          fetch("/api/sales-size-by-date").then(r => r.json()).catch(() => []),
-          fetch("/api/manufacturer-size-stock").then(r => r.json()).catch(() => []),
-        ]);
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`${url} -> ${r.status}`);
+        return await r.json();
+      } catch {
+        failed = true;
+        return null;
+      }
+    };
+    try {
+      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes] = await Promise.all([
+        safeFetch("/api/sales-summary"),
+        safeFetch("/api/inbound-records"),
+        safeFetch("/api/sales-trend"),
+        safeFetch("/api/returns-summary"),
+        safeFetch("/api/daily-profit"),
+        safeFetch("/api/sales-size-by-date"),
+        safeFetch("/api/manufacturer-size-stock"),
+      ]);
         if (Array.isArray(salesRes)) setSalesData(salesRes);
         if (Array.isArray(prodsRes)) setProducts(prodsRes);
         // sales-trend 返回 { salesTrend, returnsTrend }
@@ -147,12 +162,15 @@ export default function DashboardPage() {
         if (Array.isArray(mfrSizeRes)) setMfrSizeStock(mfrSizeRes);
       } catch (e) {
         console.error("Dashboard data load error:", e);
+        failed = true;
       } finally {
         setLoading(false);
+        if (failed) setDataError(true);
       }
-    }
-    loadData();
   }, []);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // 售卖金额与售卖数量趋势数据
   const salesTrend = useMemo(() => {
@@ -475,6 +493,17 @@ export default function DashboardPage() {
       <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-6">
         <span className="highlight-blue">数据仪表盘</span>
       </h1>
+
+      {/* 数据加载失败横幅: 明确告知故障并支持重试, 避免误读 0 值 */}
+      {dataError && (
+        <ErrorState
+          title="部分数据加载失败"
+          message="以下统计数字可能不是最新数据，请重试。"
+          onRetry={loadData}
+          compact
+          className="mb-4"
+        />
+      )}
 
       {/* 统计卡片 - 第一行 */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">

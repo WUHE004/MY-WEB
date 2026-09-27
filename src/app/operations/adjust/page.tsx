@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 
 const DEFAULT_MANUFACTURERS = [
   "大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家",
@@ -73,6 +74,8 @@ export default function AdjustPage() {
   const [activeTab, setActiveTab] = useState<TabType>("photo");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  // 数据加载失败标记
+  const [loadError, setLoadError] = useState(false);
 
   // 搜索
   const [search, setSearch] = useState("");
@@ -142,12 +145,16 @@ export default function AdjustPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/inbound-records");
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       if (Array.isArray(data)) {
         setProducts(data);
       }
+      setLoadError(false);
     } catch (err) {
       console.error(err);
+      // 加载失败明确标记: 待处理计数显示错误卡片而非误导性的 "0 个待处理"
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -566,7 +573,16 @@ export default function AdjustPage() {
               </div>
             )}
           </div>
-          <span className="text-xs text-gray-400 shrink-0">{missingProducts.length} 个待处理</span>
+          {loadError ? (
+            <ErrorState
+              title="数据加载失败"
+              message="待处理数量不可用，请重试。"
+              onRetry={fetchProducts}
+              compact
+            />
+          ) : (
+            <span className="text-xs text-gray-400 shrink-0">{missingProducts.length} 个待处理</span>
+          )}
         </div>
 
         {/* 搜索警告 */}

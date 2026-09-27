@@ -112,7 +112,15 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
             if (hit) { fire(hit.rawValue.trim()); return; }
           } catch {
             // 原生引擎不可用(部分魔改浏览器暴露了构造器但底层缺失): 连续30次异常则降级 zxing
-            if (++consecutiveErrors >= 30) { await startZxing(stream, video).catch(() => {}); return; }
+            // 降级失败必须显式报错: 否则画面正常但没有任何解码在跑, 用户扫码永远无反应
+            if (++consecutiveErrors >= 30) {
+              await startZxing(stream, video).catch((e) => {
+                console.error("降级 zxing 引擎失败:", e);
+                setError("扫码引擎初始化失败，请关闭弹窗后重新打开重试");
+                setMode("error");
+              });
+              return;
+            }
           }
         }
         if (cancelled) return;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode } from "lucide-react";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import Link from "next/link";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -288,7 +288,7 @@ export default function ProductsPage() {
   const submitOrder = async () => {
     if (!selectedProduct) return;
     if (!orderForm.customer || !orderForm.address || !orderForm.recipient || !orderForm.recipient_phone) {
-      alert("请填写完整的收货信息");
+      showToast("请填写完整的收货信息", "error");
       return;
     }
 
@@ -327,7 +327,7 @@ export default function ProductsPage() {
       }
 
       if (stockError) {
-        alert(stockError);
+        showToast(stockError, "error");
         // 刷新库存数据
         fetchData();
         setSubmitting(false);
@@ -352,14 +352,14 @@ export default function ProductsPage() {
       if (lastOrderId > 0) {
         window.location.href = `/payment?order_id=${lastOrderId}`;
       } else {
-        alert("下单成功！");
+        showToast("下单成功！", "success");
         setShowOrderForm(false);
         closeDetail();
         fetchData();
       }
     } catch (err) {
       console.error("Submit order error:", err);
-      alert("下单失败，请重试");
+      showToast("下单失败，请重试", "error");
     } finally {
       setSubmitting(false);
     }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Search, Package, Sparkles, UserRound, Loader2, Send, Settings2, Plus, Trash2, X, Zap, Shirt, Camera, Video } from "lucide-react";
 import Link from "next/link";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ModelLibraryDialog } from "@/components/model-library-dialog";
 
@@ -151,7 +151,7 @@ export default function PhotoGenPage() {
 
   const handleSaveModel = () => {
     if (!editingModel.name || !editingModel.apiEndpoint || !editingModel.modelId) {
-      alert("请填写模型名称、API地址和模型ID");
+      showToast("请填写模型名称、API地址和模型ID", "error");
       return;
     }
     let updated: CustomModel[];
@@ -253,7 +253,7 @@ export default function PhotoGenPage() {
 
       setTempPhotoUrl((prev) => ({ ...prev, [sid]: data.url }));
     } catch (err) {
-      alert("图片上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+      showToast("图片上传失败: " + (err instanceof Error ? err.message : "未知错误"), "error");
     } finally {
       setUploadingPhoto(null);
       pendingProductRef.current = null;
@@ -265,7 +265,7 @@ export default function PhotoGenPage() {
   // ===== 一键生成 Tab：打开模特选择弹窗 =====
   const handleOneshotOpenGen = (product: Product) => {
     if (models.length === 0) {
-      alert("请先在模特库中添加模特");
+      showToast("请先在模特库中添加模特", "error");
       return;
     }
     setOneshotActiveProduct(product);
@@ -325,7 +325,7 @@ export default function PhotoGenPage() {
   // ===== AI穿衣 原有逻辑 =====
   const handleOpenGen = (product: Product) => {
     if (models.length === 0) {
-      alert("请先在模特库中添加模特");
+      showToast("请先在模特库中添加模特", "error");
       return;
     }
     setActiveProduct(product);

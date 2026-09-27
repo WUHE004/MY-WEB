@@ -23,6 +23,7 @@ import {
 import Link from "next/link";
 import QRCode from "qrcode";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 import { authFetch } from "@/lib/auth-fetch";
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
@@ -66,6 +67,8 @@ function parseShelfNo(s: string): { l1: string; l2: string; l3: string } | null 
 
 export default function StocktakePage() {
   const [loading, setLoading] = useState(true);
+  // 库存数据加载失败标记
+  const [loadError, setLoadError] = useState(false);
   const [items, setItems] = useState<StockItem[]>([]);
   const [shelfData, setShelfData] = useState<Record<string, number[]>>(DEFAULT_SHELF_DATA);
   const [calibrations, setCalibrations] = useState<Calibration[]>([]);
@@ -101,15 +104,19 @@ export default function StocktakePage() {
       const res = await authFetch("/api/stocktake");
       const data = await res.json();
       if (!res.ok) {
+        setLoadError(true);
         showToast(data.error || "加载失败", "error");
         return;
       }
+      setLoadError(false);
       setItems(data.items || []);
       if (data.shelf_data && typeof data.shelf_data === "object") {
         setShelfData(data.shelf_data as Record<string, number[]>);
       }
       setCalibrations(data.calibrations || []);
     } catch {
+      // 网络失败: 明确标记错误态(带重试), 不再落入"点击分区开始浏览"假空态
+      setLoadError(true);
       showToast("网络错误", "error");
     } finally {
       setLoading(false);
@@ -434,6 +441,21 @@ export default function StocktakePage() {
 
   const inZoneView = !shelf;
   const inShelfView = !!shelf;
+
+  // 加载失败: 显示错误卡片 + 重试, 不进入分区浏览假空态
+  if (loadError) {
+    return (
+      <PageWrapper>
+        <div className="py-10">
+          <ErrorState
+            title="库存数据加载失败"
+            message="请检查网络后重试。"
+            onRetry={load}
+          />
+        </div>
+      </PageWrapper>
+    );
+  }
 
   return (
     <PageWrapper>

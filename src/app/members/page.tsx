@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle, Database } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DbAdminPanel } from "@/components/db-admin-panel";
 import { authFetch } from "@/lib/auth-fetch";
@@ -85,7 +85,7 @@ export default function MembersPage() {
         const currentId = localStorage.getItem("member_id");
         if (currentId === id) {
           localStorage.setItem("member_role", role);
-          alert("权限已更新，请刷新页面生效");
+          showToast("权限已更新，请刷新页面生效", "success");
         }
       }
     } catch {
@@ -115,7 +115,7 @@ export default function MembersPage() {
   const handlePasswordChange = async (id: string) => {
     const newPassword = editingPassword[id]?.trim();
     if (!newPassword) {
-      alert("请输入新密码");
+      showToast("请输入新密码", "error");
       return;
     }
     try {
@@ -133,7 +133,7 @@ export default function MembersPage() {
           delete next[id];
           return next;
         });
-        alert("密码修改成功");
+        showToast("密码修改成功", "success");
       }
     } catch {
       setError("修改密码失败");

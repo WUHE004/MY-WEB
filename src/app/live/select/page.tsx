@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { ArrowLeft, Search, Package, Filter, ChevronDown, X, ArrowUpDown, ArrowUp, ArrowDown, Pencil, BadgeDollarSign, Tag } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
+import { ErrorState } from "@/components/error-state";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
 
@@ -267,6 +268,8 @@ export default function LiveSelectPage() {
   const [products, setProducts] = useState<SummaryProduct[]>([]);
   const [selections, setSelections] = useState<SelectionRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // 商品数据加载失败标记
+  const [productsError, setProductsError] = useState(false);
   const [search, setSearch] = useState("");
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [memberName, setMemberName] = useState("");
@@ -392,8 +395,10 @@ export default function LiveSelectPage() {
         inventory_value: (Number(p.remaining) || 0) * (Number(p.cost_price) || 0),
       }));
       setProducts(list);
+      setProductsError(false);
     } catch (err) {
       console.error("Fetch products error:", err);
+      setProductsError(true);
     } finally {
       setLoading(false);
     }
@@ -865,6 +870,13 @@ export default function LiveSelectPage() {
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin rounded-full h-10 w-10 border-4 border-gray-200 border-t-[#FFC93C]" />
         </div>
+      ) : productsError ? (
+        <ErrorState
+          title="选品数据加载失败"
+          message="请检查网络后重试。"
+          onRetry={fetchProducts}
+          compact
+        />
       ) : selectedProducts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
           <Package className="h-12 w-12 text-gray-300" />

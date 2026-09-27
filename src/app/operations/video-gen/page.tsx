@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Video, Upload, Loader2, Eye, Edit3, Sparkles, Check, AlertCircle, Send, Volume2, Info } from "lucide-react";
-import { PageWrapper } from "@/components/page-wrapper";
+import { PageWrapper, showToast } from "@/components/page-wrapper";
 
 export default function VideoGenPage() {
   const [photo, setPhoto] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export default function VideoGenPage() {
       const base64 = await compressImage(file, 1280, 0.8);
       setPhoto(base64);
     } catch (err) {
-      alert("上传失败: " + (err instanceof Error ? err.message : "未知错误"));
+      showToast("上传失败: " + (err instanceof Error ? err.message : "未知错误"), "error");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -84,25 +84,40 @@ export default function VideoGenPage() {
       clearInterval(pollTimerRef.current);
     }
 
+    // 连续轮询失败计数: 达到阈值即终止并进入错误态, 避免进度条永久卡死
+    let consecutivePollFailures = 0;
+    const failPoll = (reason: string) => {
+      consecutivePollFailures += 1;
+      if (consecutivePollFailures >= 3) {
+        if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+        setErrorMsg(reason);
+        setStatus("error");
+        setGenerating(false);
+      }
+    };
+    const succeedPoll = () => { consecutivePollFailures = 0; };
+
     pollTimerRef.current = setInterval(async () => {
       try {
         const res = await fetch(
           `/api/photo-gen/video?video_id=${encodeURIComponent(vid)}&member_id=${encodeURIComponent(mid)}`
         );
+        if (!res.ok) { failPoll("生成状态查询失败，请重试"); return; }
         
         let data;
         try {
           data = await res.json();
         } catch {
-          const text = await res.text();
-          console.error("轮询响应不是JSON:", text);
+          failPoll("生成状态查询失败，请重试");
           return;
         }
 
         if (data.error) {
-          console.error("轮询错误:", data.error);
+          failPoll("生成状态查询出错: " + (data.error || "未知错误"));
           return;
         }
+
+        succeedPoll();
 
         if (data.progress !== undefined) {
           setProgress(data.progress);
@@ -132,13 +147,14 @@ export default function VideoGenPage() {
         }
       } catch (err) {
         console.error("轮询异常:", err);
+        failPoll("生成状态查询失败，请重试");
       }
     }, 5000);
   };
 
   const handleGenerate = async () => {
     if (!photo) {
-      alert("请先上传照片");
+      showToast("请先上传照片", "error");
       return;
     }
 
