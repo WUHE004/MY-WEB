@@ -1,8 +1,66 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download } from "lucide-react";
+import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download, Gauge, ArrowRight } from "lucide-react";
 import { authFetch } from "@/lib/auth-fetch";
+import type { LucideIcon } from "lucide-react";
+
+// Supabase 用量仪表盘数据
+interface UsageData {
+  dbSize: number | null;
+  dbSizeLimit: number;
+  rpcMissing: boolean;
+  totalRows: number;
+  tableCount: number;
+  tables: { name: string; count: number }[];
+  storageUsed: number;
+  storageLimit: number;
+  storageFiles: number;
+  storageError: string;
+}
+
+// 用量仪表卡片: 有 used+limit 时显示横条进度(Supabase 控制台风格), 否则显示提示文字
+function UsageMeter({ title, icon: Icon, used, limit, format, note, badge }: {
+  title: string;
+  icon: LucideIcon;
+  used?: number | null;
+  limit?: number;
+  format: (n: number) => string;
+  note?: string;
+  badge?: string;
+}) {
+  const pct = used != null && limit ? Math.min(100, (used / limit) * 100) : null;
+  return (
+    <div className="rounded-2xl border-[3px] border-gray-900 bg-white p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Icon className="h-4 w-4 text-gray-900" />
+          <span className="text-xs font-extrabold text-gray-900">{title}</span>
+        </div>
+        {badge && <span className="text-[10px] font-bold text-gray-400">{badge}</span>}
+      </div>
+      {pct != null && used != null && limit ? (
+        <>
+          <div className="text-lg font-extrabold text-gray-900 leading-tight">
+            {format(used)} <span className="text-[10px] text-gray-400 font-bold">/ {format(limit)}</span>
+          </div>
+          <div className="h-3 rounded-full border-2 border-gray-900 bg-gray-100 overflow-hidden mt-1.5">
+            <div
+              className={`h-full transition-all ${pct > 90 ? "bg-red-500" : pct > 70 ? "bg-[#FFC93C]" : "bg-[#4CD964]"}`}
+              style={{ width: `${Math.max(pct, 1.5)}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-1 text-[10px] font-bold text-gray-400">
+            <span>已用 {pct.toFixed(1)}%</span>
+            <span>剩余 {format(Math.max(0, limit - used))}</span>
+          </div>
+        </>
+      ) : (
+        <div className="text-xs text-gray-400 font-bold py-3 leading-relaxed">{note || "暂无数据"}</div>
+      )}
+    </div>
+  );
+}
 
 interface ColumnInfo {
   name: string;
@@ -77,6 +135,11 @@ export function DbAdminPanel() {
   const [storageTotalPages, setStorageTotalPages] = useState(1);
   const [validSaleIds, setValidSaleIds] = useState<Set<string>>(new Set());
 
+  // ===== Supabase 用量仪表盘状态 =====
+  const [usage, setUsage] = useState<UsageData | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState("");
+
   // ===== 数据库操作 =====
   const fetchTables = useCallback(async () => {
     setTableLoading(true);
@@ -89,6 +152,25 @@ export function DbAdminPanel() {
   }, []);
 
   useEffect(() => { fetchTables(); }, [fetchTables]);
+
+  // ===== Supabase 用量: 未选表(显示仪表盘)时拉取 =====
+  const fetchUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError("");
+    try {
+      const res = await authFetch("/api/db-admin/usage");
+      const json = await res.json();
+      if (json.error) { setUsageError(json.error); } else { setUsage(json as UsageData); }
+    } catch { setUsageError("获取用量失败"); } finally { setUsageLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (activePanel === "database" && !selectedTable) {
+      // setTimeout 异步触发: 避免在 effect 体内同步 setState(react-hooks/set-state-in-effect)
+      const t = setTimeout(fetchUsage, 0);
+      return () => clearTimeout(t);
+    }
+  }, [activePanel, selectedTable, fetchUsage]);
 
   const fetchData = useCallback(async () => {
     if (!selectedTable) return;
@@ -325,10 +407,11 @@ export function DbAdminPanel() {
   };
 
   const formatSize = (bytes: number): string => {
-    if (bytes === 0) return "0 B";
+    if (!Number.isFinite(bytes)) return "-";
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
   };
 
   const handleInitStorage = () => { setActivePanel("storage"); fetchBuckets(); fetchValidSaleIds(); };
@@ -440,11 +523,70 @@ export function DbAdminPanel() {
         {/* ===== 数据库模式 ===== */}
         {activePanel === "database" && (
           !selectedTable ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-400">
-                <Database className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm font-bold">请从左侧选择一个数据表</p>
+            /* 未选表: Supabase 用量仪表盘(免费额度用量一览) */
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Gauge className="h-5 w-5 text-gray-900" />
+                  <div>
+                    <h3 className="text-sm font-extrabold text-gray-900 leading-tight">Supabase 用量仪表盘</h3>
+                    <p className="text-[10px] text-gray-400 font-bold">免费额度用量一览 · 点击左侧表格可查看数据</p>
+                  </div>
+                </div>
+                <button onClick={fetchUsage} disabled={usageLoading}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-bold rounded-lg border-2 border-gray-200 hover:border-gray-900 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  {usageLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}刷新
+                </button>
               </div>
+
+              {usageLoading && !usage ? (
+                <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+              ) : usageError ? (
+                <div className="p-4 text-sm text-red-500 font-bold">{usageError}</div>
+              ) : usage ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                  <UsageMeter
+                    title="数据库空间" icon={Database}
+                    used={usage.dbSize} limit={usage.dbSizeLimit} format={formatSize}
+                    badge="免费 500 MB"
+                    note={usage.rpcMissing
+                      ? "需要执行一次数据库迁移才能显示真实用量：打开 Supabase 控制台 → SQL Editor，粘贴运行项目文件 src/lib/migrations/004_db_usage_rpc.sql 后点刷新。"
+                      : undefined}
+                  />
+                  <UsageMeter
+                    title="文件存储" icon={HardDrive}
+                    used={usage.storageUsed} limit={usage.storageLimit} format={formatSize}
+                    badge={`免费 1 GB · ${usage.storageFiles} 个文件`}
+                    note={usage.storageError || undefined}
+                  />
+                  {/* 数据库总行数 + 行数最多的表 */}
+                  <div className="rounded-2xl border-[3px] border-gray-900 bg-white p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Database className="h-4 w-4 text-gray-900" />
+                        <span className="text-xs font-extrabold text-gray-900">数据库总行数</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-gray-400">{usage.tableCount} 张表</span>
+                    </div>
+                    <div className="text-lg font-extrabold text-gray-900 leading-tight">{usage.totalRows.toLocaleString()} <span className="text-[10px] text-gray-400 font-bold">行</span></div>
+                    <div className="mt-2 space-y-1">
+                      {usage.tables.map((t) => (
+                        <div key={t.name} className="flex items-center justify-between text-[10px] font-bold text-gray-500">
+                          <span className="truncate">{t.name}</span>
+                          <span className="text-gray-900">{t.count.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* 月带宽: Supabase 不开放用量 API, 提示到控制台查看 */}
+                  <UsageMeter
+                    title="月带宽(带宽流量)" icon={ArrowRight}
+                    format={formatSize}
+                    badge="免费 5 GB / 月"
+                    note="带宽用量 Supabase 未开放接口查询，请到 Supabase 控制台 → Reports 查看。"
+                  />
+                </div>
+              ) : null}
             </div>
           ) : (
             <>
