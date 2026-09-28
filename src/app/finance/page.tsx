@@ -211,6 +211,9 @@ function ViewDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // 选中项在选项中的位置(打开面板时自动滚到可见区域)
+  const selectedIdx = options.findIndex((o) => o.value === value);
 
   useEffect(() => {
     if (!open) return;
@@ -220,6 +223,13 @@ function ViewDropdown({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+
+  // 打开面板时, 若选中项在第一屏(约10行)之外, 将其滚动到面板中部
+  useEffect(() => {
+    if (!open || !listRef.current || selectedIdx < 10) return;
+    const el = listRef.current.children[selectedIdx] as HTMLElement | undefined;
+    if (el) listRef.current.scrollTo({ top: el.offsetTop - listRef.current.clientHeight / 2 });
+  }, [open, selectedIdx]);
 
   const c = ACCENT_CLS[accent];
   const selected = options.find((o) => o.value === value && o.value !== "");
@@ -236,26 +246,29 @@ function ViewDropdown({
       </button>
       {open && (
         <div className="absolute left-0 top-full z-50 mt-2 w-[200px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-          {options.map((o) => {
-            const active = o.value === value;
-            return (
-              <button
-                key={o.value || "all"}
-                onClick={() => { onSelect(o.value); setOpen(false); }}
-                className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-colors ${
-                  active ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <span className="truncate">{o.label}</span>
-                {showArrows && o.value !== "" && (
-                  <span className="flex items-center gap-0.5 shrink-0">
-                    <ArrowUp className={`h-3 w-3 ${active ? "opacity-30" : "opacity-20"}`} />
-                    <ArrowDown className={`h-3 w-3 ${active ? "opacity-100" : "opacity-20"}`} />
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {/* 选项限高约10行(36px×10), 面板内滚动查看更多; overscroll-contain 防止滑到底后把触摸滚动透传给页面(商品卡片) */}
+          <div ref={listRef} className="relative max-h-[360px] overflow-y-auto overscroll-contain rounded-xl">
+            {options.map((o) => {
+              const active = o.value === value;
+              return (
+                <button
+                  key={o.value || "all"}
+                  onClick={() => { onSelect(o.value); setOpen(false); }}
+                  className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-colors ${
+                    active ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  <span className="truncate">{o.label}</span>
+                  {showArrows && o.value !== "" && (
+                    <span className="flex items-center gap-0.5 shrink-0">
+                      <ArrowUp className={`h-3 w-3 ${active ? "opacity-30" : "opacity-20"}`} />
+                      <ArrowDown className={`h-3 w-3 ${active ? "opacity-100" : "opacity-20"}`} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
