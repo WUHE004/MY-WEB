@@ -2,7 +2,9 @@
 // 版本号变更后浏览器会自动更新 SW 并清除旧缓存
 // v2.0.0: 强制更新版本 —— 旧版本用户打开页面时 SW 自动升级,
 // 激活后清空全部历史缓存(含所有旧命名的缓存), 配合页面 60 秒版本心跳彻底摆脱旧版本
-const SW_VERSION = "v2.0.0";
+// v2.0.1: 修复部署后 SPA 内导航仍渲染旧页面 —— RSC 数据请求(?_rsc=/RSC:1 头)
+// URL 不带内容 hash, 新旧构建间相同, 原 Cache First 会永久命中旧缓存; 改为 Network First
+const SW_VERSION = "v2.0.1";
 const STATIC_CACHE = `static-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const IMG_CACHE = `img-${SW_VERSION}`;
@@ -111,6 +113,26 @@ self.addEventListener("fetch", (event) => {
             return cached || caches.match("/");
           });
         })
+    );
+    return;
+  }
+
+  // Next.js App Router 客户端导航的 RSC 数据请求(?_rsc= 参数 或 RSC:1 请求头):
+  // Network First —— 该 URL 不带内容 hash, 新旧构建间完全相同,
+  // 若走 Cache First 会永久命中部署前的旧数据, 导致部署后 SPA 内导航仍渲染旧页面
+  if (url.origin === self.location.origin && (url.searchParams.has("_rsc") || (request.headers.get("rsc") || "") === "1")) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok && response.type === "basic") {
+            const responseClone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, responseClone));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(request, { ignoreVary: true }).then((cached) => cached || Response.error())
+        )
     );
     return;
   }

@@ -77,7 +77,7 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js?v=2.0.0').then((reg) => {
+                  navigator.serviceWorker.register('/sw.js?v=2.0.1').then((reg) => {
                     // 每次打开页面立即检查一次 SW 更新
                     reg.update().catch(() => {});
                     // 检测新版本 SW，自动激活
@@ -126,6 +126,9 @@ export default function RootLayout({
                     if (d && d.v && d.v !== BV) hardRefresh();
                   }).catch(function () {});
                 }
+                // 打开页面立即检查一次版本: 旧缓存页面 1-2 秒内强刷到新版,
+                // 而不是等满 60 秒 interval 才发现部署了新版本
+                checkVersion();
                 setInterval(checkVersion, 60000);
                 document.addEventListener('visibilitychange', function () {
                   if (!document.hidden) setTimeout(checkVersion, 500);
