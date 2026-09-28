@@ -230,6 +230,13 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* clip(而非 hidden)不创建滚动容器, 不影响 sticky 表头;
+     防止任何横向溢出元素把布局视口撑宽, 触发微信 XWeb 自动缩小整页 */
+  overflow-x: clip;
+}
+
+body {
+  overflow-x: clip;
 }
 
 /* Table hover row */

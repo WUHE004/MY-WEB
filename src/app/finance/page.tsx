@@ -549,7 +549,7 @@ export default function FinancePage() {
   // 移动端展开卡片
   const [expandedMobileCard, setExpandedMobileCard] = useState<string | null>(null);
   // 移动端入库编辑弹窗
-  const [mobileEditModal, setMobileEditModal] = useState<{ sale_id: string; photo: string; name: string; manufacturer: string; shelf_no: string; season: string; style_category: string } | null>(null);
+  const [mobileEditModal, setMobileEditModal] = useState<{ sale_id: string; photo: string; name: string; manufacturer: string; shelf_no: string; season: string; style_category: string; cost_price: number } | null>(null);
   const [mobileShelfL1, setMobileShelfL1] = useState("");
   const [mobileShelfL2, setMobileShelfL2] = useState("");
   const [mobileShelfL3, setMobileShelfL3] = useState("");
@@ -2007,6 +2007,30 @@ export default function FinancePage() {
                 ]}
               />
             </div>
+            {/* 桌面端: 日期筛选 + 排序(修改按钮前) */}
+            <div className="hidden lg:flex gap-2 items-center">
+              <ViewDropdown
+                label="日期"
+                accent="blue"
+                value={inboundDateFilter}
+                onSelect={(v) => setInboundDateFilter(v)}
+                options={[{ value: "", label: "全部日期" }, ...inboundDates.map((d) => ({ value: d, label: d }))]}
+              />
+              <ViewDropdown
+                label="排序"
+                accent="blue"
+                showArrows
+                value={inboundSort}
+                onSelect={(v) => setInboundSort(v as "default" | "time" | "qty" | "id" | "price")}
+                options={[
+                  { value: "default", label: "默认排序" },
+                  { value: "time", label: "按入库时间" },
+                  { value: "qty", label: "按入库数量" },
+                  { value: "id", label: "按编号" },
+                  { value: "price", label: "按进价" },
+                ]}
+              />
+            </div>
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
               className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 inboundEditMode
@@ -2418,18 +2442,24 @@ export default function FinancePage() {
                           })}
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-700">
                             {inboundEditMode ? (
-                              <input
-                                type="number" min="0" step="0.01"
-                                defaultValue={row.cost_price || 0}
-                                onBlur={(e) => {
-                                  const newVal = Number(e.target.value) || 0;
-                                  if (newVal !== (row.cost_price || 0)) saveInboundEdit(row.sale_id, { cost_price: newVal });
-                                }}
-                                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                className="w-16 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
-                              />
+                              <div className="flex flex-col items-center gap-0.5">
+                                <input
+                                  type="number" min="0" step="0.01"
+                                  defaultValue={row.cost_price || 0}
+                                  onBlur={(e) => {
+                                    const newVal = Number(e.target.value) || 0;
+                                    if (newVal !== (row.cost_price || 0)) saveInboundEdit(row.sale_id, { cost_price: newVal });
+                                  }}
+                                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                  className="w-16 text-center text-xs font-bold border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-500"
+                                />
+                                <span className="text-[10px] text-gray-400 font-bold whitespace-nowrap">总 ¥{fmt((row.cost_price || 0) * row.total)}</span>
+                              </div>
                             ) : (
-                              <>¥{fmt(row.cost_price || 0)}</>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span>¥{fmt(row.cost_price || 0)}</span>
+                                <span className="text-[10px] text-gray-400 font-bold whitespace-nowrap">总 ¥{fmt((row.cost_price || 0) * row.total)}</span>
+                              </div>
                             )}
                           </td>
                           <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
@@ -2500,8 +2530,8 @@ export default function FinancePage() {
                               styleCat || "-"
                             )}
                           </td>
-                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600">
-                            {row.inbound_date ? new Date(row.inbound_date).toLocaleDateString("zh-CN") : "-"}
+                          <td className="px-2 py-2.5 text-center font-bold text-xs text-gray-600 whitespace-nowrap">
+                            {row.inbound_date ? `${bjDate(row.inbound_date)} ${bjTime(row.inbound_date)}` : "-"}
                           </td>
                         </tr>
                         </Fragment>
@@ -3008,6 +3038,7 @@ export default function FinancePage() {
                           shelf_no: curShelf,
                           season: curSeason,
                           style_category: curStyle,
+                          cost_price: Number(row.cost_price) || 0,
                         });
                       }}
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
@@ -3023,25 +3054,25 @@ export default function FinancePage() {
                             {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                           </div>
                           {curName && <div className="text-sm text-gray-500 truncate mt-1">{curName}</div>}
-                          {/* 规范格子: 入库日期/入库时间 + 厂家 + 货架号 (对齐售出卡片) */}
+                          {/* 规范格子: 厂家/货架号(第一行双格) + 入库日期 + 入库时间 */}
                           <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
                             <div className="flex divide-x-2 divide-gray-200">
                               <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">入库日期</span>
-                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{bjDate(row.inbound_date) || "-"}</span>
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">厂家</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{curMfr || "-"}</span>
                               </div>
                               <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">入库时间</span>
-                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{bjTime(row.inbound_date) || "-"}</span>
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">货架号</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{curShelf || "-"}</span>
                               </div>
                             </div>
                             <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
-                              <span className="text-gray-500 shrink-0">厂家</span>
-                              <span className="font-medium text-gray-700 truncate">{curMfr || "-"}</span>
+                              <span className="text-gray-500 shrink-0">入库日期</span>
+                              <span className="font-medium text-gray-700 truncate">{bjDate(row.inbound_date) || "-"}</span>
                             </div>
                             <div className="flex items-center justify-between gap-1 px-1.5 py-1">
-                              <span className="text-gray-500 shrink-0">货架号</span>
-                              <span className="font-medium text-gray-700 truncate">{curShelf || "-"}</span>
+                              <span className="text-gray-500 shrink-0">入库时间</span>
+                              <span className="font-medium text-gray-700 truncate">{bjTime(row.inbound_date) || "-"}</span>
                             </div>
                           </div>
                         </div>
@@ -3120,6 +3151,17 @@ export default function FinancePage() {
             </div>
 
             <div className="space-y-2.5">
+              {/* 进价 */}
+              <div>
+                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">进价（元）</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={mobileEditModal.cost_price}
+                  onChange={(e) => setMobileEditModal({ ...mobileEditModal, cost_price: Number(e.target.value) || 0 })}
+                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
               {/* 厂家 */}
               <div>
                 <label className="text-xs font-extrabold text-gray-500 block mb-0.5">厂家</label>
@@ -3218,6 +3260,7 @@ export default function FinancePage() {
                     : mobileEditModal.shelf_no;
                   try {
                     await saveInboundEdit(mobileEditModal.sale_id, {
+                      cost_price: Number(mobileEditModal.cost_price) || 0,
                       manufacturer: mobileEditModal.manufacturer,
                       shelf_no: shelfNo,
                       season: mobileEditModal.season,

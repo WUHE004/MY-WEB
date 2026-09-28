@@ -19,6 +19,9 @@ const geistMono = Geist_Mono({
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // minimumScale=1 关键: 微信 XWeb 内核在页面内容横向溢出时会自动把整页缩小到 1 以下,
+  // 表现为"整体 UI 偏小"。显式禁止缩小到 1 以下即可保持 UI 原始尺寸
+  minimumScale: 1,
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
