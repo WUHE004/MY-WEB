@@ -4,7 +4,10 @@
 // 激活后清空全部历史缓存(含所有旧命名的缓存), 配合页面 60 秒版本心跳彻底摆脱旧版本
 // v2.0.1: 修复部署后 SPA 内导航仍渲染旧页面 —— RSC 数据请求(?_rsc=/RSC:1 头)
 // URL 不带内容 hash, 新旧构建间相同, 原 Cache First 会永久命中旧缓存; 改为 Network First
-const SW_VERSION = "v2.0.1";
+// v2.0.2: 图片请求彻底失败时不再返回 1x1 透明 PNG 占位图 —— 200 响应会让 <img> onLoad
+// "假成功"(NeoImage 以为加载完, 永久空白且不重试, 即 iPhone Safari 入库后看不到图);
+// 改为 Response.error() 让 <img> 走 onError, 由 NeoImage 自动重试机制接管恢复
+const SW_VERSION = "v2.0.2";
 const STATIC_CACHE = `static-${SW_VERSION}`;
 const RUNTIME_CACHE = `runtime-${SW_VERSION}`;
 const IMG_CACHE = `img-${SW_VERSION}`;
@@ -17,15 +20,6 @@ const isImageRequest = (url, request) => {
   if (request.destination === "image") return true;
   return /\.(png|jpe?g|webp|gif|avif|svg|ico)(\?|$)/i.test(url.pathname + url.search);
 };
-
-// 离线且无缓存时的 1x1 透明 PNG 占位图
-const TRANSPARENT_PNG = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
-  0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
-  0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00,
-  0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-]);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -83,11 +77,9 @@ self.addEventListener("fetch", (event) => {
           try {
             return await fetch(request);
           } catch (e) {
-            // 完全离线：返回透明占位图，避免 <img> 显示裂图
-            return new Response(TRANSPARENT_PNG, {
-              status: 200,
-              headers: { "Content-Type": "image/png" },
-            });
+            // 网络彻底失败: 返回网络错误, 让 <img> 触发 onError → NeoImage 自动重试。
+            // (不能用 200 透明占位图假成功 —— 那会让上层以为加载完成, 永久空白不重试)
+            return Response.error();
           }
         }
       })

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ImageOff, X } from "lucide-react";
 
 export interface NeoImageProps {
@@ -17,10 +17,15 @@ export interface NeoImageProps {
   altClass?: string;
 }
 
+// 加载失败自动重试间隔(ms): 1s / 4s / 10s
+// 场景: 刚上传的图片存在"首次访问窗口期"(CDN 回源慢/网络抖动), 首次失败后
+// 网络通常很快自愈; 自动重试让商品图在网络恢复后自动出现, 不用用户刷新页面
+const RETRY_DELAYS = [1000, 4000, 10000];
+
 /**
  * 全站统一的图片组件:
  * - 懒加载(lazy) + 加载中灰底 shimmer 占位
- * - 加载失败显示兜底图标, 不再直接露出破图
+ * - 加载失败自动重试(最多 3 次, cache-bust 绕过可能的坏缓存), 耗尽才显示兜底图标
  * - 点击放大预览(业务方传了 onClick 则以业务回调优先)
  */
 export function NeoImage({
@@ -31,11 +36,38 @@ export function NeoImage({
   preview = true,
   onClick,
 }: NeoImageProps) {
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
+  const [imgState, setImgState] = useState<{ src: string; attempt: number; failed: boolean; loaded: boolean }>({
+    src,
+    attempt: 0,
+    failed: false,
+    loaded: false,
+  });
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const canPreview = preview && !onClick && !error;
+  // src 变化(如列表复用组件切换商品图)时重置加载状态(渲染期受控重置, React 官方推荐模式)
+  if (imgState.src !== src) {
+    setImgState({ src, attempt: 0, failed: false, loaded: false });
+  }
+
+  const gaveUp = imgState.failed && imgState.attempt >= RETRY_DELAYS.length;
+
+  // 失败后按间隔自动重试
+  useEffect(() => {
+    if (!imgState.failed) return;
+    if (imgState.attempt >= RETRY_DELAYS.length) return; // 重试耗尽, 维持失败兜底 UI
+    const timer = setTimeout(() => {
+      setImgState((s) => ({ ...s, attempt: s.attempt + 1, failed: false, loaded: false }));
+    }, RETRY_DELAYS[imgState.attempt]);
+    return () => clearTimeout(timer);
+  }, [imgState]);
+
+  // 重试时追加 cache-bust 参数(失败响应不会被 SW/HTTP 缓存, 序号足以绕开坏缓存)
+  const renderSrc =
+    imgState.attempt === 0
+      ? src
+      : `${src}${src.includes("?") ? "&" : "?"}r=${imgState.attempt}`;
+
+  const canPreview = preview && !onClick && !gaveUp;
 
   return (
     <>
@@ -43,10 +75,10 @@ export function NeoImage({
         className={`relative block overflow-hidden bg-gray-100 ${wrapperClassName}`}
         onClick={onClick}
       >
-        {!loaded && !error && (
+        {!imgState.loaded && !gaveUp && (
           <span className="absolute inset-0 animate-pulse bg-gray-200" aria-hidden />
         )}
-        {error ? (
+        {gaveUp ? (
           <span
             className="flex h-full min-h-[48px] w-full flex-col items-center justify-center gap-1 bg-gray-100 text-gray-400"
             aria-label={`${alt} 图片加载失败`}
@@ -57,14 +89,14 @@ export function NeoImage({
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={src}
+            src={renderSrc}
             alt={alt}
             loading="lazy"
             decoding="async"
-            onLoad={() => setLoaded(true)}
-            onError={() => setError(true)}
+            onLoad={() => setImgState((s) => ({ ...s, loaded: true }))}
+            onError={() => setImgState((s) => ({ ...s, failed: true, loaded: false }))}
             onClick={canPreview ? () => setPreviewOpen(true) : undefined}
-            className={`${loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-200 ${canPreview ? "cursor-zoom-in" : ""} ${className}`}
+            className={`${imgState.loaded ? "opacity-100" : "opacity-0"} transition-opacity duration-200 ${canPreview ? "cursor-zoom-in" : ""} ${className}`}
           />
         )}
       </span>
@@ -80,7 +112,7 @@ export function NeoImage({
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={src}
+            src={renderSrc}
             alt={alt}
             className="max-h-[85vh] max-w-full rounded-xl border-[3px] border-white/80 object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}

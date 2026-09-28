@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { compressImageFileSimple } from "@/lib/image-compress";
+import { warmupImageUrl } from "@/lib/image-warmup";
 import {
   ArrowLeft,
   Camera,
@@ -332,7 +333,10 @@ export default function AdjustPage() {
       const res = await fetch("/api/upload", { method: "POST", body: formData });
       if (!res.ok) throw new Error("上传失败");
       const data = await res.json();
-      return data.url || "";
+      const url = data.url || "";
+      // 预热验证: 确认刚上传的图片真正可访问(避开 CDN 首访窗口期)再返回
+      if (url) await warmupImageUrl(url);
+      return url;
     } finally {
       setPhotoUploading(false);
     }

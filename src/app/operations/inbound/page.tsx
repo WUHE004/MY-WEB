@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { compressImageFile } from "@/lib/image-compress";
+import { warmupImageUrl } from "@/lib/image-warmup";
 import {
   ArrowLeft,
   Camera,
@@ -375,6 +376,8 @@ export default function InboundPage() {
 
       const { url } = await res.json();
       console.log("[上传成功] URL:", url);
+      // 预热验证: 确认刚上传的图片真正可访问(避开 CDN 首访窗口期), 再替换预览为远程 URL
+      await warmupImageUrl(url);
       setPhoto(url); // 替换为远程 URL
     } catch (err) {
       const msg = err instanceof Error ? err.message : "上传失败";
