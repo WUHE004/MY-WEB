@@ -299,7 +299,7 @@ export default function FinancePage() {
   const [priceSubmitting, setPriceSubmitting] = useState(false);
   // 直播改价: sale_id → 新售价(存于 settings.live_prices, 直播选品卡片角标显示)
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
-  const [priceEditProduct, setPriceEditProduct] = useState<{ sale_id: string; name: string; sellPrice: number } | null>(null);
+  const [priceEditProduct, setPriceEditProduct] = useState<{ sale_id: string; name: string; sellPrice: number; costPrice: number } | null>(null);
   const [priceInput, setPriceInput] = useState("");
   // 今日(北京时间)选品数, 选品模式按钮按日期刷新计数
   const [liveTodayCount, setLiveTodayCount] = useState(0);
@@ -390,7 +390,7 @@ export default function FinancePage() {
     });
   };
   // 打开改价弹窗(仅管理员)
-  const openPriceEdit = (p: { sale_id: string; name: string; sellPrice: number }) => {
+  const openPriceEdit = (p: { sale_id: string; name: string; sellPrice: number; costPrice: number }) => {
     if (typeof window !== "undefined" && (localStorage.getItem("member_role") || "") !== "admin") {
       showToast("仅管理员可以改价", "error");
       return;
@@ -2608,7 +2608,7 @@ export default function FinancePage() {
                                 {selectingIds.has(row.sale_id) ? "选品中..." : liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
                               </button>
                               <button
-                                onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price })}
+                                onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price, costPrice: Number(row.cost_price) || 0 })}
                                 className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
                                   livePrices[row.sale_id] != null
                                     ? "border-gray-900 bg-yellow-300 text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
@@ -3057,8 +3057,7 @@ export default function FinancePage() {
                           {/* 规范格子: 厂家/货架号(第一行双格) + 入库日期 + 入库时间 */}
                           <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
                             <div className="flex divide-x-2 divide-gray-200">
-                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">厂家</span>
+                              <div className="w-[40%] flex items-center px-1 py-1 min-w-0">
                                 <span className="font-extrabold text-[13px] text-gray-900 truncate">{curMfr || "-"}</span>
                               </div>
                               <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
@@ -3129,17 +3128,20 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* 移动端入库编辑弹窗 */}
+      {/* 移动端入库编辑弹窗(风格对齐直播改价弹窗: 底部抽屉+黑边框+黄主按钮) */}
       {mobileEditModal && (
-        <div className="fixed inset-0 z-[100] bg-black/60 flex items-end sm:items-center justify-center" onClick={() => setMobileEditModal(null)}>
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4" onClick={() => setMobileEditModal(null)}>
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 shadow-[0_-8px_30px_rgba(0,0,0,0.3)]"
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border-[3px] border-gray-900 bg-white p-5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-extrabold text-gray-900">编辑 {mobileEditModal.sale_id}</h3>
-              <button onClick={() => setMobileEditModal(null)} className="p-1 rounded-lg hover:bg-gray-100">
-                <X className="h-5 w-5" />
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-extrabold text-gray-900">
+                <Package className="h-5 w-5" />
+                编辑 - {mobileEditModal.sale_id}
+              </h3>
+              <button onClick={() => setMobileEditModal(null)} className="rounded-lg p-1 hover:bg-gray-100">
+                <X className="h-5 w-5 text-gray-500" />
               </button>
             </div>
 
@@ -3153,22 +3155,22 @@ export default function FinancePage() {
             <div className="space-y-2.5">
               {/* 进价 */}
               <div>
-                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">进价（元）</label>
+                <label className="text-xs font-extrabold text-gray-400 block mb-0.5">进价（元）</label>
                 <input
                   type="number" min="0" step="0.01"
                   value={mobileEditModal.cost_price}
                   onChange={(e) => setMobileEditModal({ ...mobileEditModal, cost_price: Number(e.target.value) || 0 })}
-                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-3 py-2.5 focus:outline-none"
                 />
               </div>
 
               {/* 厂家 */}
               <div>
-                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">厂家</label>
+                <label className="text-xs font-extrabold text-gray-400 block mb-0.5">厂家</label>
                 <select
                   value={mobileEditModal.manufacturer}
                   onChange={(e) => setMobileEditModal({ ...mobileEditModal, manufacturer: e.target.value })}
-                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-3 py-2.5 focus:outline-none"
                 >
                   <option value="">-</option>
                   {editManufacturers.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -3177,12 +3179,12 @@ export default function FinancePage() {
 
               {/* 货架号 - 三级选择 */}
               <div>
-                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">货架号</label>
+                <label className="text-xs font-extrabold text-gray-400 block mb-0.5">货架号</label>
                 <div className="flex gap-1.5">
                   <select
                     value={mobileShelfL1}
                     onChange={(e) => { setMobileShelfL1(e.target.value); setMobileShelfL2(""); setMobileShelfL3(""); }}
-                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500"
+                    className="flex-1 text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-2 py-2.5 focus:outline-none"
                   >
                     <option value="">排</option>
                     {Object.keys(editShelfData).map((k) => <option key={k} value={k}>{k}</option>)}
@@ -3191,7 +3193,7 @@ export default function FinancePage() {
                     value={mobileShelfL2}
                     onChange={(e) => { setMobileShelfL2(e.target.value); setMobileShelfL3(""); }}
                     disabled={!mobileShelfL1}
-                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                    className="flex-1 text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-2 py-2.5 focus:outline-none disabled:opacity-40"
                   >
                     <option value="">号</option>
                     {mobileShelfL1 && (editShelfData[mobileShelfL1] || []).map((n) => <option key={n} value={String(n)}>{n}</option>)}
@@ -3200,7 +3202,7 @@ export default function FinancePage() {
                     value={mobileShelfL3}
                     onChange={(e) => setMobileShelfL3(e.target.value)}
                     disabled={!mobileShelfL2}
-                    className="flex-1 text-sm font-bold border-2 border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                    className="flex-1 text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-2 py-2.5 focus:outline-none disabled:opacity-40"
                   >
                     <option value="">层</option>
                     {DEFAULT_LAYERS.map((n) => <option key={n} value={String(n)}>{n}</option>)}
@@ -3215,11 +3217,11 @@ export default function FinancePage() {
 
               {/* 季节 */}
               <div>
-                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">季节</label>
+                <label className="text-xs font-extrabold text-gray-400 block mb-0.5">季节</label>
                 <select
                   value={mobileEditModal.season}
                   onChange={(e) => setMobileEditModal({ ...mobileEditModal, season: e.target.value })}
-                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-3 py-2.5 focus:outline-none"
                 >
                   <option value="">-</option>
                   {editSeasonCategories.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -3228,11 +3230,11 @@ export default function FinancePage() {
 
               {/* 款式 */}
               <div>
-                <label className="text-xs font-extrabold text-gray-500 block mb-0.5">款式</label>
+                <label className="text-xs font-extrabold text-gray-400 block mb-0.5">款式</label>
                 <select
                   value={mobileEditModal.style_category}
                   onChange={(e) => setMobileEditModal({ ...mobileEditModal, style_category: e.target.value })}
-                  className="w-full text-sm font-bold border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  className="w-full text-sm font-bold rounded-xl border-[3px] border-gray-900 bg-white px-3 py-2.5 focus:outline-none"
                 >
                   <option value="">-</option>
                   <optgroup label="── 含尺码 ──">
@@ -3245,14 +3247,8 @@ export default function FinancePage() {
               </div>
             </div>
 
-            {/* 保存按钮 */}
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setMobileEditModal(null)}
-                className="flex-1 py-2.5 rounded-xl border-2 border-gray-300 bg-white text-gray-700 font-extrabold text-sm hover:bg-gray-50 transition-all"
-              >
-                取消
-              </button>
+            {/* 保存按钮(改价弹窗同款: 黄色主按钮 + 取消) */}
+            <div className="flex flex-col gap-2 mt-4">
               <button
                 onClick={async () => {
                   const shelfNo = mobileShelfL1 && mobileShelfL2 && mobileShelfL3
@@ -3271,9 +3267,16 @@ export default function FinancePage() {
                     showToast("保存失败", "error");
                   }
                 }}
-                className="flex-1 py-2.5 rounded-xl border-2 border-gray-900 bg-gray-900 text-white font-extrabold text-sm hover:bg-gray-800 transition-all"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#FFD43B] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
               >
+                <Save className="h-4 w-4" />
                 保存修改
+              </button>
+              <button
+                onClick={() => setMobileEditModal(null)}
+                className="h-9 rounded-xl border-2 border-gray-900 bg-white text-xs font-extrabold text-gray-700"
+              >
+                取消
               </button>
             </div>
           </div>
@@ -3612,7 +3615,7 @@ export default function FinancePage() {
               </button>
             </div>
             <p className="mb-3 truncate text-xs font-bold text-gray-400">
-              {priceEditProduct.name || "未命名"} · 当前售价: ¥{priceEditProduct.sellPrice}
+              {priceEditProduct.name || "未命名"} · <span className="text-red-500">当前售价: ¥{priceEditProduct.sellPrice}</span> · <span className="text-green-600">进价: ¥{fmt(priceEditProduct.costPrice)}</span>
             </p>
             <input
               type="number" inputMode="decimal" min="0" step="0.1" autoFocus

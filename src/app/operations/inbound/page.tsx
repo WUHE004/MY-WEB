@@ -1259,7 +1259,7 @@ export default function InboundPage() {
 
           {/* Cost Price */}
           <div>
-            <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
+            <label className="text-sm lg:text-base font-extrabold text-green-600 mb-1 block">
               进价 <span className="text-red-500">*</span>
             </label>
             <Input
@@ -1269,8 +1269,36 @@ export default function InboundPage() {
               value={costPrice}
               onChange={(e) => setCostPrice(e.target.value)}
               placeholder="例如: 29.9"
-              className="text-sm"
+              className="text-sm font-bold"
+              style={
+                costPrice !== "" && Number(costPrice) > 100
+                  ? { borderColor: "#ef4444", color: "#dc2626" }
+                  : { borderColor: "#22c55e", color: "#16a34a" }
+              }
             />
+            {/* 进价超过 100: 输入框标红 + 提示确认售价 */}
+            {costPrice !== "" && Number(costPrice) > 100 && (
+              <p className="mt-1 text-xs font-bold text-red-500 flex items-center gap-1">
+                ⚠️ 进价超过 100，请确认售价是否正常
+              </p>
+            )}
+            {/* 预选进价: 点击直接填入 */}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {["9.9", "15.9", "19.9", "25.9", "29.9"].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setCostPrice(v)}
+                  className={`rounded-lg border-2 border-green-600 px-3 py-1.5 text-sm font-extrabold transition-all ${
+                    costPrice === v
+                      ? "bg-green-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                      : "bg-white text-green-700 hover:bg-green-50"
+                  }`}
+                >
+                  ¥{v}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Shelf No - 三级货架选择 */}
