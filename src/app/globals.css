@@ -225,9 +225,11 @@ body {
   color: inherit;
 }
 
-/* Smooth scrolling */
+/* Smooth scrolling + 阻止微信内核的字体自动缩放(Font Boosting)导致 UI 尺寸不一致 */
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 /* Table hover row */

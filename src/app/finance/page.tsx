@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useDeferredValue, Fragment } from "react";
+import { useState, useEffect, useMemo, useDeferredValue, useRef, Fragment } from "react";
 import { motion } from "framer-motion";
 import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -140,6 +140,21 @@ function FilterTag({ label, active, onClick, value }: { label: string; active: b
   );
 }
 
+// 入库记录时间字段(UTC ISO)转北京时间 "YYYY-MM-DD" / "HH:mm"(与后端 sales-dates 的 toDateStr 同规则)
+function bjDate(v: unknown): string {
+  if (!v) return "";
+  try {
+    return new Date(v as string).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+  } catch { return String(v).slice(0, 10); }
+}
+
+function bjTime(v: unknown): string {
+  if (!v) return "";
+  try {
+    return new Date(v as string).toLocaleTimeString("sv-SE", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
+}
+
 // 筛选选项按钮（黑字黑框, 选中黑底白字）
 function FilterOption({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
@@ -153,6 +168,97 @@ function FilterOption({ label, active, onClick }: { label: string; active: boole
     >
       {label}
     </button>
+  );
+}
+
+// 视图排序/筛选下拉（与总表排序下拉同款：按钮+面板, 选项旁带↑↓箭头）
+// 取代售出/退货/入库视图原先的原生 <select>, 避免调起浏览器系统弹窗造成交互割裂
+type ViewAccent = "green" | "yellow" | "blue";
+
+const ACCENT_CLS: Record<ViewAccent, { btn: string; shadow: string }> = {
+  green: {
+    btn: "border-green-500 bg-white text-green-600 hover:bg-green-50",
+    shadow: "shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)]",
+  },
+  yellow: {
+    btn: "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50",
+    shadow: "shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)]",
+  },
+  blue: {
+    btn: "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5",
+    shadow: "shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]",
+  },
+};
+
+function ViewDropdown({
+  label,
+  options,
+  value,
+  onSelect,
+  accent,
+  showArrows = false,
+  stretch = false,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onSelect: (v: string) => void;
+  accent: ViewAccent;
+  /** 选项右侧显示↑↓箭头(排序类下拉), 与总表排序下拉一致 */
+  showArrows?: boolean;
+  /** flex-1 拉长均分(移动端拉长, 桌面端还原自适应宽度) */
+  stretch?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const c = ACCENT_CLS[accent];
+  const selected = options.find((o) => o.value === value && o.value !== "");
+
+  return (
+    <div ref={ref} className={`relative ${stretch ? "flex-1 lg:flex-none" : ""}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={`h-11 w-full inline-flex items-center justify-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all whitespace-nowrap ${c.btn} ${c.shadow}`}
+      >
+        {label}
+        {selected && <span className="text-[10px] opacity-80 max-w-[72px] truncate">({selected.label})</span>}
+        <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-2 w-[200px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+          {options.map((o) => {
+            const active = o.value === value;
+            return (
+              <button
+                key={o.value || "all"}
+                onClick={() => { onSelect(o.value); setOpen(false); }}
+                className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-colors ${
+                  active ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                <span className="truncate">{o.label}</span>
+                {showArrows && o.value !== "" && (
+                  <span className="flex items-center gap-0.5 shrink-0">
+                    <ArrowUp className={`h-3 w-3 ${active ? "opacity-30" : "opacity-20"}`} />
+                    <ArrowDown className={`h-3 w-3 ${active ? "opacity-100" : "opacity-20"}`} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -188,6 +294,9 @@ export default function FinancePage() {
   // 直播选品模式: 总表卡片右上角渠道角标变为选品按钮
   const [selectionMode, setSelectionMode] = useState(false);
   const [liveSelectedIds, setLiveSelectedIds] = useState<Set<string>>(new Set());
+  // 提交中的选品编号(按钮显示"选品中"并禁点, 防止重复点击和状态跳变误导)
+  const [selectingIds, setSelectingIds] = useState<Set<string>>(new Set());
+  const [priceSubmitting, setPriceSubmitting] = useState(false);
   // 直播改价: sale_id → 新售价(存于 settings.live_prices, 直播选品卡片角标显示)
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [priceEditProduct, setPriceEditProduct] = useState<{ sale_id: string; name: string; sellPrice: number } | null>(null);
@@ -250,7 +359,9 @@ export default function FinancePage() {
       showToast("仅管理员可以选品", "error");
       return;
     }
+    if (selectingIds.has(saleId)) return; // 提交中, 防重复点击
     const isOn = liveSelectedIds.has(saleId);
+    setSelectingIds((prev) => new Set(prev).add(saleId));
     setLiveSelectedIds((prev) => {
       const next = new Set(prev);
       if (isOn) next.delete(saleId);
@@ -270,7 +381,13 @@ export default function FinancePage() {
     } catch {
       showToast("选品同步失败，请重试", "error");
     }
-    fetchLiveSelections();
+    // 不立即重拉: 3 秒轮询会同步(POST 返回后立即 GET 可能读到旧数据, 把乐观更新覆盖回
+    // "未选"再由轮询变回"已选", 造成灰→亮→灰的跳变误导用户)
+    setSelectingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(saleId);
+      return next;
+    });
   };
   // 打开改价弹窗(仅管理员)
   const openPriceEdit = (p: { sale_id: string; name: string; sellPrice: number }) => {
@@ -308,37 +425,44 @@ export default function FinancePage() {
     } catch {
       showToast("改价同步失败，请重试", "error");
     }
-    fetchLiveSelections();
+    // 不立即重拉(同 toggleLiveSelection: 避免旧数据覆盖乐观更新造成状态跳变), 交给 3 秒轮询
   };
   // 改价选品: 直接选品并提交改价(弹窗主按钮)
   const confirmPriceSelect = async () => {
-    if (!priceEditProduct) return;
+    if (!priceEditProduct || priceSubmitting) return;
     const val = priceInput.trim();
     const num = Number(val);
     if (val === "" || Number.isNaN(num) || num < 0) {
       showToast("请输入正确的价格", "error");
       return;
     }
-    const member_name = localStorage.getItem("member_name") || "未知设备";
-    // 无条件提交选品: 本地 liveSelectedIds 每3秒才轮询一次, 可能滞后(如别处刚取消选品),
-    // 误判为已选会跳过提交导致"只改价没选品"; 服务端对同编号同天去重, 重复提交幂等无害
-    let addOk = true;
+    setPriceSubmitting(true);
     try {
-      const res = await fetch("/api/live-selections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ member_name, sale_id: priceEditProduct.sale_id, action: "add" }),
-      });
-      if (!res.ok) addOk = false;
-    } catch {
-      addOk = false;
+      const member_name = localStorage.getItem("member_name") || "未知设备";
+      // 无条件提交选品: 本地 liveSelectedIds 每3秒才轮询一次, 可能滞后(如别处刚取消选品),
+      // 误判为已选会跳过提交导致"只改价没选品"; 服务端对同编号同天去重, 重复提交幂等无害
+      let addOk = true;
+      try {
+        const res = await fetch("/api/live-selections", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ member_name, sale_id: priceEditProduct.sale_id, action: "add" }),
+        });
+        if (!res.ok) addOk = false;
+      } catch {
+        addOk = false;
+      }
+      if (!addOk) {
+        showToast("选品同步失败，请重试", "error");
+        return;
+      }
+      // 乐观更新: 立即把该编号标记为已选并应用改价, 避免弹窗关闭后按钮闪回"未选"
+      setLiveSelectedIds((prev) => new Set(prev).add(priceEditProduct.sale_id));
+      await saveLivePrice(priceEditProduct.sale_id, val);
+      setPriceEditProduct(null);
+    } finally {
+      setPriceSubmitting(false);
     }
-    if (!addOk) {
-      showToast("选品同步失败，请重试", "error");
-      return;
-    }
-    await saveLivePrice(priceEditProduct.sale_id, val);
-    setPriceEditProduct(null);
   };
 
   // 库存盘点提交的校准待办（桌面端标题右侧展示, 点击填入搜索筛选, 处理完删除）
@@ -416,6 +540,9 @@ export default function FinancePage() {
   // 移动端排序下拉框(售出/退货视图)
   const [salesSort, setSalesSort] = useState<"default" | "sold" | "profit" | "price" | "earn">("default");
   const [returnsSort, setReturnsSort] = useState<"default" | "qty" | "price" | "rate">("default");
+  // 入库视图: 日期筛选 + 排序(与售出/退货同款, 日期列表由 inboundData 前端提取, 无需后端)
+  const [inboundDateFilter, setInboundDateFilter] = useState("");
+  const [inboundSort, setInboundSort] = useState<"default" | "time" | "qty" | "id" | "price">("default");
   // 导出
   const [exportModal, setExportModal] = useState(false);
   const [exportFields, setExportFields] = useState<Set<string>>(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", "80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]));
@@ -464,7 +591,7 @@ export default function FinancePage() {
   }, [search]);
 
   // 切换视图/筛选时重置分页
-  useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, returnsDateFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
+  useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, returnsDateFilter, inboundDateFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
 
   // 日期筛选时获取对应 sale_ids 及该日期的聚合数据
   useEffect(() => {
@@ -1138,14 +1265,36 @@ export default function FinancePage() {
     return result;
   }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds, returnsDateRecords, returnsSort, data]);
 
+  // 入库日期列表(由 inboundData 前端提取, 北京时间口径, 最新在前)
+  const inboundDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of inboundData) {
+      const d = bjDate(r.inbound_date);
+      if (d) set.add(d);
+    }
+    return Array.from(set).sort().reverse();
+  }, [inboundData]);
+
   const filteredInbound = useMemo(() => {
     let result = inboundData;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.trim().toLowerCase();
       result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
     }
+    if (inboundDateFilter) {
+      result = result.filter((r) => bjDate(r.inbound_date) === inboundDateFilter);
+    }
+    // 排序(移动端下拉框): 入库时间新→旧 / 入库数量多→少 / 编号 A→Z / 进价高→低
+    if (inboundSort !== "default") {
+      result = [...result].sort((a, b) => {
+        if (inboundSort === "time") return new Date(b.inbound_date || 0).getTime() - new Date(a.inbound_date || 0).getTime();
+        if (inboundSort === "qty") return b.total - a.total;
+        if (inboundSort === "id") return a.sale_id.localeCompare(b.sale_id);
+        return (b.cost_price || 0) - (a.cost_price || 0);
+      });
+    }
     return result;
-  }, [inboundData, debouncedSearch]);
+  }, [inboundData, debouncedSearch, inboundDateFilter, inboundSort]);
 
   // ===== Map 索引：消除 data.find() 的 O(n²) 查找 =====
   const summaryBySaleId = useMemo(() => {
@@ -1312,7 +1461,7 @@ export default function FinancePage() {
                 </button>
                 <ChevronDown className={`h-4 w-4 transition-transform ${showCalibMenu ? "rotate-180" : ""}`} />
                 {showCalibMenu && (
-                  <span className="absolute left-0 top-full z-50 mt-2 block w-[380px] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  <span className="absolute left-0 top-full z-50 mt-2 block w-[380px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                     {calibList.map((c) => (
                       <span key={c.id} className={`flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 ${selectedCalibId === c.id ? "bg-[#FFC93C]" : "hover:bg-[#FFF9E0]"}`}>
                         <button onClick={() => applyCalibrationFilter(c.id, c.sale_id)} className="min-w-0 flex-1 text-left" title="点击填入搜索筛选">
@@ -1533,13 +1682,9 @@ export default function FinancePage() {
           />
         </div>
 
-        {/* 售出(移动端): 汇总数据 + 未入库 放搜索框右侧 */}
+        {/* 售出(移动端): 仅未入库(汇总数据按钮已按要求在移动端移除, 仅桌面端保留) */}
         {viewMode === "sales" && (
           <div className="flex gap-2 lg:hidden">
-            <button onClick={() => setConfirmSync(true)} disabled={syncing}
-              className="h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
-              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
-            </button>
             <button onClick={() => setUninboundFilter(!uninboundFilter)}
               className={`h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 uninboundFilter
@@ -1745,17 +1890,15 @@ export default function FinancePage() {
         {/* 售出：日期 + 编辑 + 同步数据 - 绿色系 */}
         {viewMode === "sales" && (
           <div className="flex gap-2 items-center w-full lg:w-auto">
-            {/* 日期下拉: 移动端拉长均分 */}
-            <select
+            {/* 日期下拉(自定义, 与总表同款): 移动端拉长均分 */}
+            <ViewDropdown
+              label="日期"
+              accent="green"
+              stretch
               value={salesDateFilter}
-              onChange={e => setSalesDateFilter(e.target.value)}
-              className="h-11 flex-1 lg:flex-none text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
-            >
-              <option value="">全部日期</option>
-              {salesDates.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
+              onSelect={(v) => setSalesDateFilter(v)}
+              options={[{ value: "", label: "全部日期" }, ...salesDates.map((d) => ({ value: d, label: d }))]}
+            />
             <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
               className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 salesEditMode
@@ -1765,17 +1908,22 @@ export default function FinancePage() {
               {salesEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
             {/* 移动端: 排序下拉框(替代编辑按钮), 拉长均分 */}
-            <select
-              value={salesSort}
-              onChange={(e) => setSalesSort(e.target.value as "default" | "sold" | "profit" | "price" | "earn")}
-              className="h-11 flex-1 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 font-extrabold bg-white text-green-600 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] cursor-pointer hover:bg-green-50 transition-all"
-            >
-              <option value="default">默认排序</option>
-              <option value="sold">按销量</option>
-              <option value="profit">按利润率</option>
-              <option value="price">按价格</option>
-              <option value="earn">按盈利</option>
-            </select>
+            <div className="flex-1 lg:hidden">
+              <ViewDropdown
+                label="排序"
+                accent="green"
+                showArrows
+                value={salesSort}
+                onSelect={(v) => setSalesSort(v as "default" | "sold" | "profit" | "price" | "earn")}
+                options={[
+                  { value: "default", label: "默认排序" },
+                  { value: "sold", label: "按销量" },
+                  { value: "profit", label: "按利润率" },
+                  { value: "price", label: "按价格" },
+                  { value: "earn", label: "按盈利" },
+                ]}
+              />
+            </div>
             {/* 汇总数据/未入库: 桌面端保留原位置(移动端已移至搜索框右侧) */}
             <button onClick={() => setConfirmSync(true)} disabled={syncing}
               className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
@@ -1794,17 +1942,15 @@ export default function FinancePage() {
 
         {/* 退货：日期 + 编辑 - 黄色系 */}
         {viewMode === "returns" && (
-          <div className="flex gap-2 items-center">
-            <select
+          <div className="flex gap-2 items-center w-full lg:w-auto">
+            <ViewDropdown
+              label="日期"
+              accent="yellow"
+              stretch
               value={returnsDateFilter}
-              onChange={e => setReturnsDateFilter(e.target.value)}
-              className="h-11 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-yellow-500 font-extrabold bg-white text-yellow-600 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] cursor-pointer hover:bg-yellow-50 transition-all"
-            >
-              <option value="">全部日期</option>
-              {returnsDates.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
+              onSelect={(v) => setReturnsDateFilter(v)}
+              options={[{ value: "", label: "全部日期" }, ...returnsDates.map((d) => ({ value: d, label: d }))]}
+            />
             <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
               className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 returnsEditMode
@@ -1814,24 +1960,55 @@ export default function FinancePage() {
               {returnsEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
             {/* 移动端: 排序下拉框(替代编辑按钮) */}
-            <select
-              value={returnsSort}
-              onChange={(e) => setReturnsSort(e.target.value as "default" | "qty" | "price" | "rate")}
-              className="h-11 lg:hidden text-xs sm:text-sm px-3 rounded-xl border-[3px] border-yellow-500 font-extrabold bg-white text-yellow-600 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] cursor-pointer hover:bg-yellow-50 transition-all"
-            >
-              <option value="default">默认排序</option>
-              <option value="price">按退货价</option>
-              <option value="qty">按退货量</option>
-              <option value="rate">按退货率</option>
-            </select>
+            <div className="flex-1 lg:hidden">
+              <ViewDropdown
+                label="排序"
+                accent="yellow"
+                showArrows
+                value={returnsSort}
+                onSelect={(v) => setReturnsSort(v as "default" | "qty" | "price" | "rate")}
+                options={[
+                  { value: "default", label: "默认排序" },
+                  { value: "price", label: "按退货价" },
+                  { value: "qty", label: "按退货量" },
+                  { value: "rate", label: "按退货率" },
+                ]}
+              />
+            </div>
           </div>
         )}
 
-        {/* 入库：修改 + 导出 - 蓝色系 */}
+        {/* 入库：修改 + 导出 - 蓝色系(仅桌面端; 移动端为日期筛选+排序下拉) */}
         {viewMode === "inbound" && (
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center w-full lg:w-auto">
+            {/* 移动端: 日期筛选 + 排序(拉长均分) */}
+            <div className="flex gap-2 flex-1 lg:hidden">
+              <ViewDropdown
+                label="日期"
+                accent="blue"
+                stretch
+                value={inboundDateFilter}
+                onSelect={(v) => setInboundDateFilter(v)}
+                options={[{ value: "", label: "全部日期" }, ...inboundDates.map((d) => ({ value: d, label: d }))]}
+              />
+              <ViewDropdown
+                label="排序"
+                accent="blue"
+                showArrows
+                stretch
+                value={inboundSort}
+                onSelect={(v) => setInboundSort(v as "default" | "time" | "qty" | "id" | "price")}
+                options={[
+                  { value: "default", label: "默认排序" },
+                  { value: "time", label: "按入库时间" },
+                  { value: "qty", label: "按入库数量" },
+                  { value: "id", label: "按编号" },
+                  { value: "price", label: "按进价" },
+                ]}
+              />
+            </div>
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
-              className={`h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
+              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
                 inboundEditMode
                   ? "bg-[#4A90E2] text-white border-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,1)]"
                   : "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5 shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]"
@@ -1839,7 +2016,7 @@ export default function FinancePage() {
               {inboundEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />修改</>}
             </button>
             <button onClick={() => setExportModal(true)}
-              className="h-11 inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] bg-white text-[#4A90E2] font-extrabold hover:bg-[#4A90E2]/5 transition-all shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]">
+              className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] bg-white text-[#4A90E2] font-extrabold hover:bg-[#4A90E2]/5 transition-all shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]">
               <Download className="h-4 w-4" />导出
             </button>
           </div>
@@ -2391,13 +2568,14 @@ export default function FinancePage() {
                             <div className="relative flex flex-col items-end gap-1 shrink-0">
                               <button
                                 onClick={() => toggleLiveSelection(row.sale_id)}
-                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
+                                disabled={selectingIds.has(row.sale_id)}
+                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap disabled:opacity-60 ${
                                   liveSelectedIds.has(row.sale_id)
                                     ? "border-gray-400 bg-gray-300 text-gray-500"
                                     : "border-gray-900 bg-[#4A90E2] text-white hover:bg-[#3A80D2] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
                                 }`}
                               >
-                                {liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
+                                {selectingIds.has(row.sale_id) ? "选品中..." : liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
                               </button>
                               <button
                                 onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price })}
@@ -2845,8 +3023,27 @@ export default function FinancePage() {
                             {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                           </div>
                           {curName && <div className="text-sm text-gray-500 truncate mt-1">{curName}</div>}
-                          {/* 入库日期 */}
-                          <div className="text-xs text-gray-500 mt-1">入库日期: {(row as Record<string, unknown>).inbound_date ? new Date(String((row as Record<string, unknown>).inbound_date)).toLocaleDateString("zh-CN") : "-"}</div>
+                          {/* 规范格子: 入库日期/入库时间 + 厂家 + 货架号 (对齐售出卡片) */}
+                          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                            <div className="flex divide-x-2 divide-gray-200">
+                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">入库日期</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{bjDate(row.inbound_date) || "-"}</span>
+                              </div>
+                              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">入库时间</span>
+                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{bjTime(row.inbound_date) || "-"}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
+                              <span className="text-gray-500 shrink-0">厂家</span>
+                              <span className="font-medium text-gray-700 truncate">{curMfr || "-"}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-1 px-1.5 py-1">
+                              <span className="text-gray-500 shrink-0">货架号</span>
+                              <span className="font-medium text-gray-700 truncate">{curShelf || "-"}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                       {/* 尺码全宽5列换行显示(对齐总表) */}
@@ -2860,17 +3057,14 @@ export default function FinancePage() {
                           );
                         })}
                       </div>
-                      {/* 总入库和进价 - 无框 */}
+                      {/* 总入库(左) / 进价(居中) / 总进价(最右, 进价×总入库) */}
                       <div className="flex justify-between items-center text-[10px]">
                         <div>
                           <span className="text-gray-400">总入库: </span>
                           <span className="font-extrabold text-blue-600">{row.total}</span>
                         </div>
-                        <div className="flex gap-2">
-                          <span className="text-gray-500">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price || 0)}</span></span>
-                          {curMfr && <span className="text-gray-400">{curMfr}</span>}
-                          {curShelf && <span className="text-gray-400">{curShelf}</span>}
-                        </div>
+                        <span className="text-gray-500">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price || 0)}</span></span>
+                        <span className="text-gray-500">总进价: <span className="font-extrabold text-gray-700">¥{fmt((row.cost_price || 0) * row.total)}</span></span>
                       </div>
                     </div>
                   </div>
@@ -3402,10 +3596,11 @@ export default function FinancePage() {
             </div>
             <button
               onClick={confirmPriceSelect}
-              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#FFD43B] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+              disabled={priceSubmitting}
+              className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border-[3px] border-gray-900 bg-[#FFD43B] px-4 py-2.5 text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:opacity-60"
             >
-              <Tag className="h-4 w-4" />
-              改价选品
+              <Tag className={`h-4 w-4 ${priceSubmitting ? "animate-spin" : ""}`} />
+              {priceSubmitting ? "选品中..." : "改价选品"}
             </button>
             <div className="mt-2 flex gap-2">
               <button

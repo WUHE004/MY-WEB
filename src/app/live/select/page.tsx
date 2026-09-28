@@ -707,7 +707,7 @@ export default function LiveSelectPage() {
             {showFilterMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
-                <div className="absolute right-0 top-full mt-2 z-50 w-[340px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
+                <div className="absolute left-0 top-full mt-2 z-50 w-[340px] max-w-[calc(100vw-6rem)] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
                   {/* 剩余库存 */}
                   <div className="mb-3">
                     <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">剩余库存</p>
@@ -809,7 +809,7 @@ export default function LiveSelectPage() {
             {showSortMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
-                <div className="absolute right-0 top-full mt-2 z-50 w-40 p-1.5 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div className="absolute left-0 top-full mt-2 z-50 w-40 p-1.5 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                   {([
                     { v: "", label: "默认排序" },
                     { v: "sales", label: "按销量" },
