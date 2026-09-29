@@ -1933,12 +1933,14 @@ export default function FinancePage() {
               )}
             </div>
 
-            {/* 错库存（保留独立按钮） */}
-            <FilterTag
-              label="错库存"
-              active={errorFilter}
-              onClick={() => setErrorFilter(!errorFilter)}
-            />
+            {/* 错库存（保留独立按钮）- 选品模式下隐藏, 避免窄屏上筛选/排序/错库存/选品挤成两排 */}
+            {!selectionMode && (
+              <FilterTag
+                label="错库存"
+                active={errorFilter}
+                onClick={() => setErrorFilter(!errorFilter)}
+              />
+            )}
             {/* 直播选品模式: 卡片角标变为选品按钮(计数=今天选品数, 按日期刷新) - 仅移动端显示 */}
             <div className="lg:hidden">
               <FilterTag
