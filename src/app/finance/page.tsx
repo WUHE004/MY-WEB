@@ -381,8 +381,10 @@ export default function FinancePage() {
       else next.add(saleId);
       return next;
     });
+    let ok = true;
+    let errMsg = "";
     try {
-      await fetch("/api/live-selections", {
+      const res = await fetch("/api/live-selections", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -391,8 +393,23 @@ export default function FinancePage() {
           action: isOn ? "remove" : "add",
         }),
       });
+      // HTTP 500/409 也会 resolve, 必须显式检查, 否则失败被当成功(按钮灰→亮跳变的根源)
+      if (!res.ok) {
+        ok = false;
+        try { errMsg = ((await res.json()) as { error?: string }).error || ""; } catch { /* ignore */ }
+      }
     } catch {
-      showToast("选品同步失败，请重试", "error");
+      ok = false;
+    }
+    if (!ok) {
+      // 失败回滚乐观更新, 按钮立即恢复原状态, 不等 3 秒轮询弹回
+      setLiveSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (isOn) next.add(saleId);
+        else next.delete(saleId);
+        return next;
+      });
+      showToast(errMsg ? `选品失败：${errMsg}` : "选品同步失败，请重试", "error");
     }
     // 不立即重拉: 3 秒轮询会同步(POST 返回后立即 GET 可能读到旧数据, 把乐观更新覆盖回
     // "未选"再由轮询变回"已选", 造成灰→亮→灰的跳变误导用户)
@@ -455,18 +472,22 @@ export default function FinancePage() {
       // 无条件提交选品: 本地 liveSelectedIds 每3秒才轮询一次, 可能滞后(如别处刚取消选品),
       // 误判为已选会跳过提交导致"只改价没选品"; 服务端对同编号同天去重, 重复提交幂等无害
       let addOk = true;
+      let addErrMsg = "";
       try {
         const res = await fetch("/api/live-selections", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ member_name, sale_id: priceEditProduct.sale_id, action: "add" }),
         });
-        if (!res.ok) addOk = false;
+        if (!res.ok) {
+          addOk = false;
+          try { addErrMsg = ((await res.json()) as { error?: string }).error || ""; } catch { /* ignore */ }
+        }
       } catch {
         addOk = false;
       }
       if (!addOk) {
-        showToast("选品同步失败，请重试", "error");
+        showToast(addErrMsg ? `选品失败：${addErrMsg}` : "选品同步失败，请重试", "error");
         return;
       }
       // 乐观更新: 立即把该编号标记为已选并应用改价, 避免弹窗关闭后按钮闪回"未选"

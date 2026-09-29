@@ -77,8 +77,28 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: delRes.error.message }, { status: 500 });
       }
       if (ids.length > 0) {
-        const { error: insErr } = await supabase.from("live_selections").insert(ids.map((sid) => ({ member_name, sale_id: sid })));
+        const rows = ids.map((sid) => ({ member_name, sale_id: sid }));
+        const { error: insErr } = await supabase.from("live_selections").insert(rows);
         if (insErr) {
+          // 旧唯一约束(member_name, sale_id)还在(未执行迁移005)时整批会原子失败;
+          // 降级为逐条插入, 跳过撞键编号, 其余正常入库; 迁移005后此分支不再触发
+          if ((insErr as { code?: string }).code === "23505") {
+            let insertedCount = 0;
+            let lastErr: string | null = null;
+            for (const sid of ids) {
+              const { error: e2 } = await supabase.from("live_selections").insert([{ member_name, sale_id: sid }]);
+              if (e2) {
+                if ((e2 as { code?: string }).code === "23505") continue;
+                lastErr = e2.message;
+                break;
+              }
+              insertedCount++;
+            }
+            if (lastErr) {
+              return NextResponse.json({ error: lastErr }, { status: 500 });
+            }
+            return NextResponse.json({ success: true, inserted: insertedCount, skipped: ids.length - insertedCount });
+          }
           return NextResponse.json({ error: insErr.message }, { status: 500 });
         }
       }
@@ -142,6 +162,11 @@ export async function POST(request: NextRequest) {
 
     const { error } = await supabase.from("live_selections").insert([{ member_name, sale_id }]);
     if (error) {
+      // 撞旧唯一约束(member_name, sale_id): 该成员曾选过此编号(任何日期),
+      // 数据库执行迁移005删除约束前, 跨天重选无法入库; 返回明确原因供前端提示
+      if ((error as { code?: string }).code === "23505") {
+        return NextResponse.json({ error: "该商品此前被选过，需执行数据库迁移005后才能跨天重选" }, { status: 409 });
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
