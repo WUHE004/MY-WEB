@@ -52,7 +52,40 @@ export async function POST(request: NextRequest) {
       member_name: string; sale_id: string; action: "add" | "remove" | "price"; price?: number | null;
     };
 
-    if (!member_name || !sale_id) {
+    if (!member_name) {
+      return NextResponse.json({ error: "缺少 member_name" }, { status: 400 });
+    }
+
+    // 北京时间今日区间 [start, end): 今日选品/取消只影响今日记录, 往日记录保留
+    const now = new Date();
+    const bj = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
+    const start = new Date(Date.UTC(bj.getFullYear(), bj.getMonth(), bj.getDate()) - 8 * 3600000);
+    const end = new Date(start.getTime() + 24 * 3600000);
+
+    // 旧版页面兼容: 老缓存页面(9-27 改版前)提交格式为 {member_name, sale_ids:[]},
+    // 且不检查响应错误(400 静默失败导致"选不过去"); 这里按"设置该成员今日选品"处理,
+    // 只替换今天的记录、历史日期保留, 让旧页面立即恢复可用
+    if (!action && Array.isArray(body.sale_ids)) {
+      const ids = Array.from(new Set((body.sale_ids as unknown[]).map((x) => String(x).trim()).filter(Boolean)));
+      const delRes = await supabase
+        .from("live_selections")
+        .delete()
+        .eq("member_name", member_name)
+        .gte("created_at", start.toISOString())
+        .lt("created_at", end.toISOString());
+      if (delRes.error) {
+        return NextResponse.json({ error: delRes.error.message }, { status: 500 });
+      }
+      if (ids.length > 0) {
+        const { error: insErr } = await supabase.from("live_selections").insert(ids.map((sid) => ({ member_name, sale_id: sid })));
+        if (insErr) {
+          return NextResponse.json({ error: insErr.message }, { status: 500 });
+        }
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    if (!sale_id) {
       return NextResponse.json({ error: "缺少 member_name 或 sale_id" }, { status: 400 });
     }
 
@@ -79,10 +112,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 北京时间今日区间 [start, end): 今日选品/取消只影响今日记录, 往日记录保留
-    const now = new Date();
-    const bj = new Date(now.getTime() + (8 * 60 + now.getTimezoneOffset()) * 60000);
-    const start = new Date(Date.UTC(bj.getFullYear(), bj.getMonth(), bj.getDate()) - 8 * 3600000);
-    const end = new Date(start.getTime() + 24 * 3600000);
+    // (已在上方计算: start/end)
 
     if (action === "remove") {
       // 取消选品: 只删除今日记录, 往日记录保留
@@ -156,7 +186,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "缺少 member_name、all 或 ids 参数" }, { status: 400 });
     }
 
-    let error: any = null;
+    let error: { message: string } | null = null;
     if (clearAll) {
       const res = await supabase.from("live_selections").delete().neq("member_name", "");
       error = res.error;
