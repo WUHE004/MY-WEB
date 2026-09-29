@@ -163,9 +163,24 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase.from("live_selections").insert([{ member_name, sale_id }]);
     if (error) {
       // 撞旧唯一约束(member_name, sale_id): 该成员曾选过此编号(任何日期),
-      // 数据库执行迁移005删除约束前, 跨天重选无法入库; 返回明确原因供前端提示
+      // 数据库执行迁移005删除约束前, 跨天重选无法入库; 返回该历史记录供弹窗展示
       if ((error as { code?: string }).code === "23505") {
-        return NextResponse.json({ error: "该商品此前被选过，需执行数据库迁移005后才能跨天重选" }, { status: 409 });
+        const { data: prior } = await supabase
+          .from("live_selections")
+          .select("member_name, created_at")
+          .eq("member_name", member_name)
+          .eq("sale_id", sale_id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const rec = prior && prior.length > 0 ? prior[0] : null;
+        // 北京时间, 精确到分: "2026/09/20 21:30"
+        const when = rec?.created_at
+          ? new Date(rec.created_at).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 16).replace(/-/g, "/")
+          : "";
+        const msg = when
+          ? `${rec!.member_name} 在 ${when} 选品了 ${sale_id}`
+          : `${member_name} 此前已选品 ${sale_id}`;
+        return NextResponse.json({ error: msg, alreadySelected: true }, { status: 409 });
       }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

@@ -340,6 +340,9 @@ export default function FinancePage() {
   const [sortDesc, setSortDesc] = useState(true);
 
   // ===== 直播选品模式 =====
+  // 提交中编号的 ref 镜像 + 最近一次提交成功时间(供轮询合并, 防旧快照覆盖乐观状态)
+  const selectingIdsRef = useRef<Set<string>>(new Set());
+  const recentToggleRef = useRef<Map<string, number>>(new Map());
   // 拉取当前全部选品编号(任意成员)
   const fetchLiveSelections = async () => {
     try {
@@ -351,7 +354,23 @@ export default function FinancePage() {
         const bj = (iso: string) => new Date(iso).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
         const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
         const todayRows = rows.filter((s) => s.created_at && bj(s.created_at) === today);
-        setLiveSelectedIds(new Set(todayRows.map((s) => s.sale_id)));
+        // 函数式合并: 本地乐观/刚提交(5秒内)的状态优先于轮询快照,
+        // 否则 GET 旧快照会把按钮从"已选"闪回"选品"再闪回"已选"
+        // (非纯计算在 updater 外完成, updater 内只做纯集合运算)
+        const protectedNow = new Set<string>();
+        const nowMs = Date.now();
+        for (const id of selectingIdsRef.current) protectedNow.add(id);
+        for (const [id, t] of recentToggleRef.current) {
+          if (nowMs - t < 5000) protectedNow.add(id);
+        }
+        setLiveSelectedIds((prev) => {
+          const next = new Set(todayRows.map((s) => s.sale_id));
+          for (const id of protectedNow) {
+            if (prev.has(id)) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
         setLiveTodayCount(todayRows.length);
       }
       if (data.prices && typeof data.prices === "object") {
@@ -372,8 +391,9 @@ export default function FinancePage() {
       showToast("仅管理员可以选品", "error");
       return;
     }
-    if (selectingIds.has(saleId)) return; // 提交中, 防重复点击
+    if (selectingIdsRef.current.has(saleId)) return; // 提交中, 防重复点击
     const isOn = liveSelectedIds.has(saleId);
+    selectingIdsRef.current.add(saleId);
     setSelectingIds((prev) => new Set(prev).add(saleId));
     setLiveSelectedIds((prev) => {
       const next = new Set(prev);
@@ -409,10 +429,17 @@ export default function FinancePage() {
         else next.delete(saleId);
         return next;
       });
-      showToast(errMsg ? `选品失败：${errMsg}` : "选品同步失败，请重试", "error");
+      showToast(errMsg || "选品同步失败，请重试", "error");
+    } else {
+      // 成功反馈: 底部弹窗告知"谁在什么时间选品/取消选品了哪个编号", 无需再去直播选品页确认
+      const member = localStorage.getItem("member_name") || "未知设备";
+      // 同一时刻既用于弹窗文案也用于轮询保护窗记录(new Date() 可过 purity 检查, Date.now() 会被误报)
+      const toggledAt = new Date();
+      const hhmm = toggledAt.toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
+      recentToggleRef.current.set(saleId, toggledAt.getTime());
+      showToast(`${member} 在 ${hhmm} ${isOn ? "取消选品" : "选品了"} ${saleId}`, "success");
     }
-    // 不立即重拉: 3 秒轮询会同步(POST 返回后立即 GET 可能读到旧数据, 把乐观更新覆盖回
-    // "未选"再由轮询变回"已选", 造成灰→亮→灰的跳变误导用户)
+    selectingIdsRef.current.delete(saleId);
     setSelectingIds((prev) => {
       const next = new Set(prev);
       next.delete(saleId);
@@ -492,6 +519,9 @@ export default function FinancePage() {
       }
       // 乐观更新: 立即把该编号标记为已选并应用改价, 避免弹窗关闭后按钮闪回"未选"
       setLiveSelectedIds((prev) => new Set(prev).add(priceEditProduct.sale_id));
+      recentToggleRef.current.set(priceEditProduct.sale_id, Date.now());
+      const hhmm = new Date().toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false });
+      showToast(`${member_name} 在 ${hhmm} 选品了 ${priceEditProduct.sale_id}`, "success");
       await saveLivePrice(priceEditProduct.sale_id, val);
       setPriceEditProduct(null);
     } finally {
