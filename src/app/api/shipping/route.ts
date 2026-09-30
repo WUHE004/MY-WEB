@@ -10,6 +10,16 @@ export async function GET(request: NextRequest) {
   const rate3 = Number(searchParams.get("rate3")) || 0;
 
   try {
+    // 多多每件快递费: 优先取页面传参, 未传时读 settings(默认 2 元/件)
+    let ddShip = Number(searchParams.get("ddShip")) || 0;
+    if (!ddShip) {
+      const { data: sRes } = await supabase
+        .from("settings")
+        .select("value")
+        .eq("key", "duoduo_ship_per_item")
+        .single();
+      ddShip = Number(sRes?.value) || 2;
+    }
     // 获取所有售卖记录
     let allRecords: Record<string, unknown>[] = [];
     let page = 0;
@@ -61,19 +71,27 @@ export async function GET(request: NextRequest) {
     }
 
     // 计算快递费
+    // 抖音面单: 按件数分档(1-4件=1公斤/5-7件=2公斤/8件以上=3公斤)
+    // 多多面单("多多+日期"): 按件计费 = 件数 × 每件单价, 不走重量分档
     const results: {
       tracking_number: string;
       total_qty: number;
       order_time: string;
       shipping_fee: number;
       weight_kg: number;
+      per_item: boolean; // true=多多按件计费(重量列显示"按件")
     }[] = [];
 
     for (const [tn, info] of trackingMap) {
       let weightKg = 1;
       let fee = rate1;
+      let perItem = false;
 
-      if (info.total_qty <= 4) {
+      if (tn.includes("多多")) {
+        perItem = true;
+        fee = info.total_qty * ddShip;
+        weightKg = 0;
+      } else if (info.total_qty <= 4) {
         weightKg = 1;
         fee = rate1;
       } else if (info.total_qty <= 7) {
@@ -90,6 +108,7 @@ export async function GET(request: NextRequest) {
         order_time: info.order_time ? info.order_time.slice(0, 10) : "",
         shipping_fee: fee,
         weight_kg: weightKg,
+        per_item: perItem,
       });
     }
 

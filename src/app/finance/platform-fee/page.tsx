@@ -194,6 +194,25 @@ export default function PlatformFeePage() {
         <h1 className="text-xl sm:text-2xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-red">平台抽点</span>
         </h1>
+        {/* 渠道切换: 标题右侧 */}
+        <div className="flex gap-1.5 ml-auto">
+          {([
+            { v: "douyin", label: "抖音" },
+            { v: "duoduo", label: "多多" },
+          ] as const).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setChannelTab(o.v)}
+              className={`px-3 sm:px-4 h-9 rounded-xl border-[3px] border-gray-900 text-xs sm:text-sm font-extrabold transition-all ${
+                channelTab === o.v
+                  ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                  : "bg-white text-gray-600 hover:bg-gray-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.6)]"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 数据加载失败横幅 */}
@@ -207,30 +226,9 @@ export default function PlatformFeePage() {
         />
       )}
 
-      {/* 渠道切换 */}
-      <div className="flex gap-1.5 mb-4">
-        {([
-          { v: "douyin", label: "抖音" },
-          { v: "duoduo", label: "多多" },
-        ] as const).map((o) => (
-          <button
-            key={o.v}
-            onClick={() => setChannelTab(o.v)}
-            className={`px-4 sm:px-5 h-10 rounded-xl border-[3px] border-gray-900 text-sm font-extrabold transition-all ${
-              channelTab === o.v
-                ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
-                : "bg-white text-gray-600 hover:bg-gray-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.6)]"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-
-      {/* 费率设置(跟随渠道页签: 抖音页签只显示抖音抽点, 多多页签只显示多多抽点) */}
+      {/* 抽点设置(跟随渠道页签: 抖音页签只显示抖音抽点, 多多页签只显示多多抽点) */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 lg:gap-3">
-          <span className="text-sm lg:text-base font-extrabold text-gray-900">费率设置</span>
           {channelTab === "douyin" ? (
             <div className="flex items-center gap-1">
               <span className="text-xs font-bold text-gray-500">抖音抽点</span>

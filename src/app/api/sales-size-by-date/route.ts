@@ -35,7 +35,7 @@ export async function GET() {
         Array.from({ length: pages }, (_, p) =>
           supabase
             .from("sales_records")
-            .select("registration_date, order_time, size, quantity, tracking_number")
+            .select("registration_date, order_time, size, quantity, tracking_number, sale_id")
             .order("registration_date", { ascending: false })
             .order("id", { ascending: false })
             .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
@@ -60,11 +60,17 @@ export async function GET() {
       const channel = channelOf(rec.tracking_number);
       const key = `${date}||${channel}`;
       if (!dailyMap[key]) {
-        dailyMap[key] = { date, channel };
+        dailyMap[key] = { date, channel, top_product: "", top_qty: 0 };
         for (const s of ALL_SIZES) dailyMap[key][`size_${s}`] = 0;
       }
       const sz = Number(rec.size) || 0;
       const qty = Number(rec.quantity) || 0;
+      // 当日该渠道售出最多的编号(最佳商品卡片用)
+      const sid = String(rec.sale_id || "").trim();
+      if (sid && qty > Number(dailyMap[key].top_qty)) {
+        dailyMap[key].top_product = sid;
+        dailyMap[key].top_qty = qty;
+      }
       const sizeKey = `size_${sz}`;
       if (sizeKey in dailyMap[key]) {
         dailyMap[key][sizeKey] = (Number(dailyMap[key][sizeKey]) || 0) + qty;

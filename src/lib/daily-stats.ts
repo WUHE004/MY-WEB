@@ -113,8 +113,11 @@ export function computeDailyChannelStats(
   };
 
   // 1. 销售聚合(按登记日期, 无登记日期回退下单时间)
-  // 同时统计每个编号在各渠道的售出件数(退货损失按比例分摊用)
-  const chanQtyMap = new Map<string, { douyin: number; duoduo: number }>();
+  // 同时记录每个编号每笔销售的(日期, 渠道, 件数), 供退货损失按时点渠道比例分摊:
+  // 退货只应分摊给"退货日当天(含)之前"实际卖过的渠道, 避免后期才上多多渠道的款
+  // 把早期退货也分摊到多多, 在多多无售卖的月份产生幽灵退货行
+  const sidSales = new Map<string, { date: string; ch: Channel; qty: number }[]>();
+  const chanQtyAll = new Map<string, { douyin: number; duoduo: number }>(); // 全量渠道比例(兜底用)
   for (const r of sales) {
     const date = toDateStrBJ(r.registration_date) || toDateStrBJ(r.order_time);
     if (!date) continue;
@@ -135,14 +138,21 @@ export function computeDailyChannelStats(
       }
     }
     if (sid) {
-      const cq = chanQtyMap.get(sid) || { douyin: 0, duoduo: 0 };
+      let arr = sidSales.get(sid);
+      if (!arr) {
+        arr = [];
+        sidSales.set(sid, arr);
+      }
+      arr.push({ date, ch, qty });
+      const cq = chanQtyAll.get(sid) || { douyin: 0, duoduo: 0 };
       cq[ch] += qty;
-      chanQtyMap.set(sid, cq);
+      chanQtyAll.set(sid, cq);
     }
   }
 
   // 2. 退货损失: 扣在退货发生日, 按(退货价或均价-成本)×件数计损失,
-  // 编号两渠道都卖过时按各渠道售出件数比例分摊。
+  // 编号两渠道都卖过时按"退货日(含)之前"各渠道累计售出件数比例分摊
+  // (退货早于该编号所有销售记录时, 回退到全量渠道比例)。
   // 注意: 退货日当天无销售时也创建独立行(total_amount=0, total_quantity=0, total_profit=-loss),
   // 否则退货发生在"没卖货的日子"会漏扣。调用方需保护归档行:
   // upsert 前若表中已有同 (date, channel) 行且本次计算行为 0 销量, 则跳过该行不覆盖。
@@ -158,7 +168,22 @@ export function computeDailyChannelStats(
     const cost = costMap.get(sid) || 0;
     const loss = (unitPrice - cost) * qty;
 
-    const cq = chanQtyMap.get(sid);
+    // 时点渠道比例: 只统计退货日(含)之前卖出的部分
+    let cq: { douyin: number; duoduo: number } | undefined;
+    const salesList = sid ? sidSales.get(sid) : undefined;
+    if (salesList) {
+      let dy = 0;
+      let dd = 0;
+      for (const s of salesList) {
+        if (s.date <= date) {
+          if (s.ch === "douyin") dy += s.qty;
+          else dd += s.qty;
+        }
+      }
+      if (dy + dd > 0) cq = { douyin: dy, duoduo: dd };
+    }
+    if (!cq) cq = sid ? chanQtyAll.get(sid) : undefined;
+
     const ddShare = cq && cq.douyin + cq.duoduo > 0 ? cq.duoduo / (cq.douyin + cq.duoduo) : 0;
     const losses: [Channel, number][] =
       cq && cq.douyin > 0 && cq.duoduo > 0

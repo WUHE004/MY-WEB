@@ -12,6 +12,7 @@ interface ShippingRecord {
   order_time: string;
   shipping_fee: number;
   weight_kg: number;
+  per_item: boolean; // true=多多按件计费
 }
 
 export default function ShippingPage() {
@@ -92,6 +93,7 @@ export default function ShippingPage() {
       params.set("rate1", rate1 || "0");
       params.set("rate2", rate2 || "0");
       params.set("rate3", rate3 || "0");
+      if (ddShip) params.set("ddShip", ddShip);
 
       const res = await fetch(`/api/shipping?${params}`);
       const data = await res.json();
@@ -111,7 +113,7 @@ export default function ShippingPage() {
     }, 400);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rate1, rate2, rate3]);
+  }, [rate1, rate2, rate3, ddShip]);
 
   // 保存费率
   const saveRates = async () => {
@@ -339,7 +341,7 @@ export default function ShippingPage() {
                     <td className="px-3 py-2 text-xs font-bold text-gray-900">{r.tracking_number}</td>
                     <td className="px-3 py-2 text-center text-xs font-bold">{r.total_qty}件</td>
                     <td className="px-3 py-2 text-center text-xs text-gray-500">{r.order_time}</td>
-                    <td className="px-3 py-2 text-center text-xs font-bold">{r.weight_kg}公斤</td>
+                    <td className="px-3 py-2 text-center text-xs font-bold">{r.per_item ? "按件" : `${r.weight_kg}公斤`}</td>
                     <td className="px-3 py-2 text-right text-xs font-extrabold text-red-500">¥{r.shipping_fee.toFixed(2)}</td>
                   </tr>
                 ))

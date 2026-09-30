@@ -62,6 +62,8 @@ interface DailyProfit {
 interface SizeByDateItem {
   date: string;
   channel: string; // douyin / duoduo（"全部"视图由前端合并两渠道行）
+  top_product: string; // 当日该渠道售出最多的商品编号
+  top_qty: number; // 该编号当日售出件数
   [sizeKey: string]: number | string;
 }
 
@@ -452,6 +454,19 @@ export default function DashboardPage() {
     return best;
   }, [filteredDailyStats]);
 
+  // ===== 最佳商品(仅渠道视图展示): 选中日期当日该渠道售出最多的商品编号 =====
+  const bestProduct = useMemo(() => {
+    if (channelView === "all" || !selectedDate) return null;
+    const rows = salesSizeByDate.filter(s => s.date === selectedDate && s.channel === channelView);
+    let top: { id: string; qty: number } | null = null;
+    for (const r of rows) {
+      const id = String(r.top_product || "");
+      const qty = Number(r.top_qty) || 0;
+      if (id && (!top || qty > top.qty)) top = { id, qty };
+    }
+    return top;
+  }, [salesSizeByDate, selectedDate, channelView]);
+
   // ===== 售卖尺码柱状图数据（仅当日 + 跟随渠道切换）=====
   const sizeChartData = useMemo(() => {
     const targetDate = selectedDate || (dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].date : "");
@@ -566,29 +581,8 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* 统计卡片 - 第一行 */}
+      {/* 统计卡片 - 第一行: 业绩/盈利/售卖/快递费(共用日期下拉) */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {/* 总售出 - 带月份下拉 */}
-        <StatCard
-          icon={<ShoppingCart className="h-5 w-5" />}
-          label="总售出"
-          numeric={selectedMonthSales}
-          suffix=" 件"
-          color="bg-green-500"
-          extra={
-            <select
-              value={selectedMonth}
-              onChange={e => setSelectedMonth(e.target.value)}
-              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-            >
-              <option value="">全部累计</option>
-              {availableMonths.map(m => (
-                <option key={m} value={m}>{m}（{monthlySales[m] || 0}件）</option>
-              ))}
-            </select>
-          }
-        />
-
         {/* 业绩 - 带日度/月度切换 + 日期下拉 */}
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
@@ -722,35 +716,8 @@ export default function DashboardPage() {
             </select>
           }
         />
-      </motion.div>
 
-      {/* 统计卡片 - 第二行 */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {/* 退货率 - 仅全部视图(库存/厂家数据无渠道归属, 渠道视图隐藏) */}
-        {channelView === "all" && (
-          <StatCard
-            icon={<Percent className="h-5 w-5" />}
-            label="退货率"
-            numeric={returnRate}
-            suffix="%"
-            decimals={2}
-            color="bg-rose-500"
-            extra={
-              <select
-                value={selectedReturnMonth}
-                onChange={e => setSelectedReturnMonth(e.target.value)}
-                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-              >
-                <option value="">全部累计</option>
-                {availableMonths.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            }
-          />
-        )}
-
-        {/* 快递费 - 与业绩/盈利/售卖同步同一套日期/月份下拉 */}
+        {/* 快递费 - 前移至售卖后面, 与业绩/盈利/售卖同步同一套日期/月份下拉 */}
         <StatCard
           icon={<Truck className="h-5 w-5" />}
           label="快递费"
@@ -794,6 +761,56 @@ export default function DashboardPage() {
             </select>
           }
         />
+      </motion.div>
+
+      {/* 统计卡片 - 第二行: 总售出/退货率/进货/库存(仅全部视图) + 最佳业绩/最佳商品(仅渠道视图) */}
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        {/* 总售出 - 带月份下拉, 移至退货率前面; 渠道视图隐藏 */}
+        {channelView === "all" && (
+          <StatCard
+            icon={<ShoppingCart className="h-5 w-5" />}
+            label="总售出"
+            numeric={selectedMonthSales}
+            suffix=" 件"
+            color="bg-green-500"
+            extra={
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                <option value="">全部累计</option>
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>{m}（{monthlySales[m] || 0}件）</option>
+                ))}
+              </select>
+            }
+          />
+        )}
+
+        {/* 退货率 - 仅全部视图(库存/厂家数据无渠道归属, 渠道视图隐藏) */}
+        {channelView === "all" && (
+          <StatCard
+            icon={<Percent className="h-5 w-5" />}
+            label="退货率"
+            numeric={returnRate}
+            suffix="%"
+            decimals={2}
+            color="bg-rose-500"
+            extra={
+              <select
+                value={selectedReturnMonth}
+                onChange={e => setSelectedReturnMonth(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                <option value="">全部累计</option>
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            }
+          />
+        )}
 
         {/* 最佳业绩 - 仅渠道视图展示该渠道历史单日最高业绩 */}
         {channelView !== "all" && (
@@ -808,6 +825,32 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs font-bold text-gray-500">
                 {bestPerf ? `日期: ${bestPerf.date}` : "暂无数据"}
               </div>
+            }
+          />
+        )}
+
+        {/* 最佳商品 - 仅渠道视图展示选中日期当日该渠道售出最多的商品编号 */}
+        {channelView !== "all" && (
+          <StatCard
+            icon={<Package className="h-5 w-5" />}
+            label={`最佳商品（${channelView === "douyin" ? "抖音" : "多多"}）`}
+            value={bestProduct ? bestProduct.id : "暂无数据"}
+            color="bg-cyan-500"
+            extra={
+              <>
+                <div className="text-[10px] sm:text-xs font-bold text-gray-500">
+                  {bestProduct ? `当日售出 ${bestProduct.qty} 件` : "该日期无售卖数据"}
+                </div>
+                <select
+                  value={selectedDate}
+                  onChange={e => setSelectedDate(e.target.value)}
+                  className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+                >
+                  {availableDates.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </>
             }
           />
         )}
