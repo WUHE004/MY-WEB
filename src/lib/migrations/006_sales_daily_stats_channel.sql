@@ -12,15 +12,24 @@ ALTER TABLE public.sales_daily_stats
   DROP CONSTRAINT IF EXISTS sales_daily_stats_date_key;
 ALTER TABLE public.sales_daily_stats
   DROP CONSTRAINT IF EXISTS sales_daily_stats_date_channel_key;
-ALTER TABLE public.sales_daily_stats
-  ADD CONSTRAINT sales_daily_stats_date_channel_key UNIQUE (date, channel);
+-- 幂等建约束: 已存在时跳过(防止上次执行"跑了一半"后重跑报错)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'sales_daily_stats_date_channel_key'
+  ) THEN
+    ALTER TABLE public.sales_daily_stats
+      ADD CONSTRAINT sales_daily_stats_date_channel_key UNIQUE (date, channel);
+  END IF;
+END $$;
 
 -- 3. 清空旧数据(混合渠道口径, 已不可用; 执行系统回填后按新口径重建)
 DELETE FROM public.sales_daily_stats;
 
 -- 4. 多多费率默认值(0.6% 抽点 + 每件 2 元快递), 已存在则不覆盖
+-- 注意: settings.value 是 jsonb 类型, 数字需用 to_jsonb() 转换
 INSERT INTO public.settings (key, value, updated_at)
 VALUES
-  ('duoduo_fee_rate', 0.6, NOW()),
-  ('duoduo_ship_per_item', 2, NOW())
+  ('duoduo_fee_rate', to_jsonb(0.6), NOW()),
+  ('duoduo_ship_per_item', to_jsonb(2), NOW())
 ON CONFLICT (key) DO NOTHING;
