@@ -54,6 +54,8 @@ export async function GET() {
 
     // 按登记日期+渠道聚合各尺码数量（前端按渠道切换过滤; "全部"视图由前端合并两渠道行）
     const dailyMap: Record<string, Record<string, number | string>> = {};
+    // 当日该渠道各编号累计售出件数(最佳商品取合计最大, 而非单条记录最大)
+    const sidQtyMap = new Map<string, Map<string, number>>();
     for (const rec of allRecords) {
       const date = toDateStr(rec.registration_date) || toDateStr(rec.order_time);
       if (!date) continue;
@@ -62,18 +64,35 @@ export async function GET() {
       if (!dailyMap[key]) {
         dailyMap[key] = { date, channel, top_product: "", top_qty: 0 };
         for (const s of ALL_SIZES) dailyMap[key][`size_${s}`] = 0;
+        sidQtyMap.set(key, new Map());
       }
       const sz = Number(rec.size) || 0;
       const qty = Number(rec.quantity) || 0;
-      // 当日该渠道售出最多的编号(最佳商品卡片用)
+      // 累计该编号当日件数
       const sid = String(rec.sale_id || "").trim();
-      if (sid && qty > Number(dailyMap[key].top_qty)) {
-        dailyMap[key].top_product = sid;
-        dailyMap[key].top_qty = qty;
+      if (sid && qty > 0) {
+        const m = sidQtyMap.get(key)!;
+        m.set(sid, (m.get(sid) || 0) + qty);
       }
       const sizeKey = `size_${sz}`;
       if (sizeKey in dailyMap[key]) {
         dailyMap[key][sizeKey] = (Number(dailyMap[key][sizeKey]) || 0) + qty;
+      }
+    }
+
+    // 按 (日期, 渠道) 汇总结果取累计件数最大的编号
+    for (const [key, m] of sidQtyMap) {
+      let topSid = "";
+      let topQty = 0;
+      for (const [sid, qty] of m) {
+        if (qty > topQty) {
+          topSid = sid;
+          topQty = qty;
+        }
+      }
+      if (topSid) {
+        dailyMap[key].top_product = topSid;
+        dailyMap[key].top_qty = topQty;
       }
     }
 

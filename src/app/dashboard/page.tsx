@@ -323,14 +323,20 @@ export default function DashboardPage() {
   }, [dailyStats, channelView]);
 
   // 可用日期列表: 去重(每日期有抖音/多多两行) + 排除未来日期(退货时区异常产生的"明天"行)
+  // 渠道视图下再排除当日该渠道售卖为 0 的日期(纯退货日不进下拉)
   const availableDates = useMemo(() => {
     const todayBJ = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
-    const set = new Set<string>();
+    const qtyByDate = new Map<string, number>();
     for (const d of filteredDailyStats) {
-      if (d.date <= todayBJ) set.add(d.date);
+      if (d.date > todayBJ) continue;
+      qtyByDate.set(d.date, (qtyByDate.get(d.date) || 0) + (d.quantity || 0));
+    }
+    const set = new Set<string>();
+    for (const [date, qty] of qtyByDate) {
+      if (channelView === "all" || qty > 0) set.add(date);
     }
     return [...set].sort().reverse();
-  }, [filteredDailyStats]);
+  }, [filteredDailyStats, channelView]);
 
   // 各月售卖件数(跟随渠道切换: 全部=抖音+多多)
   const monthlySales = useMemo(() => {
@@ -557,7 +563,16 @@ export default function DashboardPage() {
           ] as const).map((o) => (
             <button
               key={o.v}
-              onClick={() => setChannelView(o.v)}
+              onClick={() => {
+                setChannelView(o.v);
+                // 切换渠道后, 若当前选中日期在新渠道当日无售卖(下拉中不存在), 自动跳到该渠道最新有售卖的日期
+                if (o.v !== "all") {
+                  const chDays = dailyStats.filter(d => d.channel === o.v && (d.quantity || 0) > 0);
+                  if (chDays.length > 0 && !chDays.some(d => d.date === selectedDate)) {
+                    setSelectedDate(chDays[chDays.length - 1].date);
+                  }
+                }
+              }}
               className={`px-3 sm:px-4 h-9 rounded-xl border-[3px] border-gray-900 text-xs sm:text-sm font-extrabold transition-all ${
                 channelView === o.v
                   ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
@@ -829,28 +844,23 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* 最佳商品 - 仅渠道视图展示选中日期当日该渠道售出最多的商品编号 */}
+        {/* 最佳商品 - 仅渠道视图展示选中日期当日该渠道累计售出最多的商品编号 */}
         {channelView !== "all" && (
           <StatCard
             icon={<Package className="h-5 w-5" />}
             label={`最佳商品（${channelView === "douyin" ? "抖音" : "多多"}）`}
-            value={bestProduct ? bestProduct.id : "暂无数据"}
+            value={bestProduct ? `${bestProduct.id} · ${bestProduct.qty}件` : "暂无数据"}
             color="bg-cyan-500"
             extra={
-              <>
-                <div className="text-[10px] sm:text-xs font-bold text-gray-500">
-                  {bestProduct ? `当日售出 ${bestProduct.qty} 件` : "该日期无售卖数据"}
-                </div>
-                <select
-                  value={selectedDate}
-                  onChange={e => setSelectedDate(e.target.value)}
-                  className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-                >
-                  {availableDates.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </>
+              <select
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                {availableDates.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             }
           />
         )}
