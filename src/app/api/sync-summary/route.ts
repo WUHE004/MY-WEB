@@ -654,16 +654,27 @@ export async function POST(request: Request) {
       );
 
       // 批量 upsert 日统计（全量重算 → 直接覆盖, 按 (date, channel) 冲突覆盖; return_loss 仅参与展示, 不入库）
+      // 归档行保护: 退货-only 行(0 销量)若与表中已有行(如每月归档任务写入的)撞键, 跳过不覆盖
       if (rows.length > 0) {
-        const upsertRows = rows.map((r) => ({
-          date: r.date,
-          channel: r.channel,
-          total_amount: r.total_amount,
-          total_quantity: r.total_quantity,
-          total_profit: r.total_profit,
-          shipping_fee: r.shipping_fee,
-          platform_fee: r.platform_fee,
-        }));
+        const { data: existingStatRows } = await supabase
+          .from("sales_daily_stats")
+          .select("date,channel");
+        const existingKeys = new Set(
+          (existingStatRows || []).map((r: Record<string, unknown>) => `${r.date}|${r.channel}`)
+        );
+        const upsertRows = rows
+          .map((r) => ({
+            date: r.date,
+            channel: r.channel,
+            total_amount: r.total_amount,
+            total_quantity: r.total_quantity,
+            total_profit: r.total_profit,
+            shipping_fee: r.shipping_fee,
+            platform_fee: r.platform_fee,
+          }))
+          .filter(
+            (r) => !(r.total_quantity === 0 && r.total_amount === 0 && existingKeys.has(`${r.date}|${r.channel}`))
+          );
         const { error: dailyUpsertError } = await supabase
           .from("sales_daily_stats")
           .upsert(upsertRows, { onConflict: "date,channel" });

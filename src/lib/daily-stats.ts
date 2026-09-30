@@ -143,11 +143,12 @@ export function computeDailyChannelStats(
 
   // 2. 退货损失: 扣在退货发生日, 按(退货价或均价-成本)×件数计损失,
   // 编号两渠道都卖过时按各渠道售出件数比例分摊。
-  // 注意: 只扣"本次已有销售聚合的日期行", 不新建行 —— 每月归档清空明细后,
-  // 历史日期的退货损失已随归档扣过, 重算时不得重复扣/覆盖归档行。
+  // 注意: 退货日当天无销售时也创建独立行(total_amount=0, total_quantity=0, total_profit=-loss),
+  // 否则退货发生在"没卖货的日子"会漏扣。调用方需保护归档行:
+  // upsert 前若表中已有同 (date, channel) 行且本次计算行为 0 销量, 则跳过该行不覆盖。
   for (const r of returns) {
     const date = toDateStrBJ(r.return_time || r.created_at);
-    if (!date || !daily.has(date)) continue;
+    if (!date) continue;
     const sid = String(r.sale_id || "").toUpperCase();
     const qty = Number(r.quantity) || 0;
     if (qty <= 0) continue;
@@ -167,8 +168,7 @@ export function computeDailyChannelStats(
           : [["douyin", loss]];
     for (const [ch, l] of losses) {
       if (l === 0) continue;
-      const agg = daily.get(date)!.get(ch);
-      if (!agg) continue; // 该日该渠道本次无销售聚合(可能已归档), 不新建行防覆盖归档数据
+      const agg = getAgg(date, ch);
       agg.total_profit -= l;
       agg.return_loss += l;
     }

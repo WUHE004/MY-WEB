@@ -74,17 +74,28 @@ export async function POST() {
     });
 
     // ========== 5. 按 (date, channel) 覆盖写入 ==========
+    // 归档行保护: 退货-only 行(0 销量)若与表中已有行(如每月归档任务写入的)撞键, 跳过不覆盖
     let salesSynced = 0;
     if (rows.length > 0) {
-      const upsertRows = rows.map((r) => ({
-        date: r.date,
-        channel: r.channel,
-        total_amount: r.total_amount,
-        total_quantity: r.total_quantity,
-        total_profit: r.total_profit,
-        shipping_fee: r.shipping_fee,
-        platform_fee: r.platform_fee,
-      }));
+      const { data: existingRows } = await supabase
+        .from("sales_daily_stats")
+        .select("date,channel");
+      const existingKeys = new Set(
+        (existingRows || []).map((r: Record<string, unknown>) => `${r.date}|${r.channel}`)
+      );
+      const upsertRows = rows
+        .map((r) => ({
+          date: r.date,
+          channel: r.channel,
+          total_amount: r.total_amount,
+          total_quantity: r.total_quantity,
+          total_profit: r.total_profit,
+          shipping_fee: r.shipping_fee,
+          platform_fee: r.platform_fee,
+        }))
+        .filter(
+          (r) => !(r.total_quantity === 0 && r.total_amount === 0 && existingKeys.has(`${r.date}|${r.channel}`))
+        );
       const { error: upsertErr } = await supabase
         .from("sales_daily_stats")
         .upsert(upsertRows, { onConflict: "date,channel" });
