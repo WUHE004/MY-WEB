@@ -373,6 +373,7 @@ export async function DELETE(request: NextRequest) {
             .from("sales_daily_stats")
             .select("id, total_amount, total_quantity, total_profit")
             .eq("date", date)
+            .eq("channel", "douyin")
             .maybeSingle();
           if (existing) {
             await supabase
@@ -409,7 +410,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// 增量更新 sales_daily_stats 当日数据
+// 增量更新 sales_daily_stats 当日数据(网页下单无面单号 → 归抖音渠道)
 async function updateDailyStats(
   saleId: string,
   orderTime: string,
@@ -424,6 +425,7 @@ async function updateDailyStats(
     .from("sales_daily_stats")
     .select("id, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
     .eq("date", date)
+    .eq("channel", "douyin")
     .maybeSingle();
 
   if (existing) {
@@ -438,6 +440,7 @@ async function updateDailyStats(
   } else {
     await supabase.from("sales_daily_stats").insert({
       date,
+      channel: "douyin",
       total_amount: amount,
       total_quantity: quantity,
       total_profit: totalProfit,

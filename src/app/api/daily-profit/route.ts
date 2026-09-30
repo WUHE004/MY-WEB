@@ -3,10 +3,10 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    // 从 sales_daily_stats 读取每日盈利和快递费
+    // 从 sales_daily_stats 读取每日盈利和快递费(渠道化: douyin=抖音 / duoduo=多多)
     const { data: dailyData, error: dailyErr } = await supabase
       .from("sales_daily_stats")
-      .select("date, total_amount, total_quantity, total_profit, shipping_fee")
+      .select("date, channel, total_amount, total_quantity, total_profit, shipping_fee, platform_fee")
       .order("date", { ascending: true });
 
     if (dailyErr) {
@@ -16,10 +16,13 @@ export async function GET() {
 
     const stats = (dailyData || []).map((row: any) => ({
       date: row.date,
+      channel: row.channel || "douyin",
       total_amount: Number(row.total_amount) || 0,
       total_quantity: Number(row.total_quantity) || 0,
+      // total_profit 已扣当日退货损失(毛利口径), 前端展示净利时再减快递费/平台抽点
       total_profit: Number(row.total_profit) || 0,
       shipping_fee: Number(row.shipping_fee) || 0,
+      platform_fee: Number(row.platform_fee) || 0,
     }));
 
     return NextResponse.json({ stats });

@@ -9,13 +9,25 @@ import { CountUp } from "@/components/motion-primitives";
 
 interface PlatformRecord {
   date: string;
+  channel: string; // douyin=抖音 / duoduo=多多
   total_qty: number;
   total_revenue: number;
   total_cost: number;
-  total_profit: number;
+  return_loss: number; // 当日退货损失(利润里已扣)
+  total_profit: number; // 已扣退货损失的毛利
   shipping_fee: number;
   platform_fee: number;
   net_profit: number;
+}
+
+interface ChannelTotals {
+  total_revenue: number;
+  total_cost: number;
+  total_profit: number;
+  total_shipping: number;
+  total_platform_fee: number;
+  total_net_profit: number;
+  total_qty: number;
 }
 
 function fmt(n: number): string {
@@ -27,15 +39,23 @@ function fmt(n: number): string {
     : n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+const EMPTY_TOTALS: ChannelTotals = {
+  total_revenue: 0, total_cost: 0, total_profit: 0,
+  total_shipping: 0, total_platform_fee: 0, total_net_profit: 0, total_qty: 0,
+};
+
 export default function PlatformFeePage() {
-  const [rate, setRate] = useState("5");
+  const [rate, setRate] = useState("5"); // 抖音抽点%
+  const [ddRate, setDdRate] = useState("0.6"); // 多多抽点%
+  const [ddShip, setDdShip] = useState("2"); // 多多每件快递元
   const [rate1, setRate1] = useState("");
   const [rate2, setRate2] = useState("");
   const [rate3, setRate3] = useState("");
+  const [channelTab, setChannelTab] = useState<"douyin" | "duoduo">("douyin");
   const [records, setRecords] = useState<PlatformRecord[]>([]);
-  const [totals, setTotals] = useState({
-    total_revenue: 0, total_cost: 0, total_profit: 0,
-    total_shipping: 0, total_platform_fee: 0, total_net_profit: 0,
+  const [totals, setTotals] = useState<{ douyin: ChannelTotals; duoduo: ChannelTotals }>({
+    douyin: { ...EMPTY_TOTALS },
+    duoduo: { ...EMPTY_TOTALS },
   });
   const [loading, setLoading] = useState(true);
   // 配置/汇总数据加载失败标记
@@ -46,17 +66,21 @@ export default function PlatformFeePage() {
   const [ratesLoaded, setRatesLoaded] = useState(false);
   const [viewMode, setViewMode] = useState<"day" | "month">("day");
 
+  // 当前渠道明细(按视图模式聚合)
+  const channelRecords = useMemo(() => records.filter((r) => r.channel === channelTab), [records, channelTab]);
+
   // 按视图模式聚合数据（月度时按 YYYY-MM 汇总）
   const displayRecords = useMemo(() => {
-    if (viewMode === "day") return records;
+    if (viewMode === "day") return channelRecords;
     const monthMap = new Map<string, PlatformRecord>();
-    for (const r of records) {
+    for (const r of channelRecords) {
       const month = r.date.slice(0, 7);
       const existing = monthMap.get(month);
       if (existing) {
         existing.total_qty += r.total_qty;
         existing.total_revenue += r.total_revenue;
         existing.total_cost += r.total_cost;
+        existing.return_loss += r.return_loss;
         existing.total_profit += r.total_profit;
         existing.shipping_fee += r.shipping_fee;
         existing.platform_fee += r.platform_fee;
@@ -66,9 +90,9 @@ export default function PlatformFeePage() {
       }
     }
     return Array.from(monthMap.values()).sort((a, b) => b.date.localeCompare(a.date));
-  }, [records, viewMode]);
+  }, [channelRecords, viewMode]);
 
-  // 加载快递费率
+  // 加载快递费率(抖音三档, 在快递费设置页维护)
   useEffect(() => {
     fetch("/api/shipping-rates")
       .then((r) => r.json())
@@ -83,14 +107,14 @@ export default function PlatformFeePage() {
       .catch(() => { setRatesLoaded(true); });
   }, []);
 
-  // 加载平台抽点率
+  // 加载抖音/多多费率设置
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then((data) => {
-        if (data?.platform_fee_rate) {
-          setRate(String(data.platform_fee_rate));
-        }
+        if (data?.platform_fee_rate != null) setRate(String(data.platform_fee_rate));
+        if (data?.duoduo_fee_rate != null) setDdRate(String(data.duoduo_fee_rate));
+        if (data?.duoduo_ship_per_item != null) setDdShip(String(data.duoduo_ship_per_item));
       })
       .catch(() => setSettingsError(true));
   }, []);
@@ -103,18 +127,16 @@ export default function PlatformFeePage() {
       params.set("rate1", rate1 || "0");
       params.set("rate2", rate2 || "0");
       params.set("rate3", rate3 || "0");
+      params.set("ddRate", ddRate || "0.6");
+      params.set("ddShip", ddShip || "2");
 
       const res = await fetch(`/api/platform-fee?${params}`);
       const data = await res.json();
       if (!data.error) {
         setRecords(data.records || []);
         setTotals({
-          total_revenue: data.total_revenue || 0,
-          total_cost: data.total_cost || 0,
-          total_profit: data.total_profit || 0,
-          total_shipping: data.total_shipping || 0,
-          total_platform_fee: data.total_platform_fee || 0,
-          total_net_profit: data.total_net_profit || 0,
+          douyin: data.totals?.douyin || { ...EMPTY_TOTALS },
+          duoduo: data.totals?.duoduo || { ...EMPTY_TOTALS },
         });
         setFetchError(false);
       }
@@ -129,28 +151,38 @@ export default function PlatformFeePage() {
     if (ratesLoaded) fetchData();
   }, [ratesLoaded]);
 
+  // 保存抖音/多多费率(抖音快递三档在"快递费"设置页单独维护)
   const saveRate = async () => {
     setSaving(true);
     setSaveMsg("");
     try {
-      const res = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "platform_fee_rate", value: Number(rate) || 5 }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setSaveMsg("保存失败: " + data.error);
-      } else {
-        setSaveMsg("保存成功");
-        fetchData();
+      const items = [
+        { key: "platform_fee_rate", value: Number(rate) || 5 },
+        { key: "duoduo_fee_rate", value: Number(ddRate) || 0.6 },
+        { key: "duoduo_ship_per_item", value: Number(ddShip) || 2 },
+      ];
+      for (const item of items) {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(item),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setSaveMsg("保存失败: " + data.error);
+          return;
+        }
       }
+      setSaveMsg("保存成功");
+      fetchData();
     } catch {
       setSaveMsg("保存失败");
     } finally {
       setSaving(false);
     }
   };
+
+  const activeTotals = totals[channelTab];
 
   return (
     <PageWrapper>
@@ -178,11 +210,32 @@ export default function PlatformFeePage() {
         />
       )}
 
-      {/* 平台抽点设置 */}
+      {/* 渠道切换 */}
+      <div className="flex gap-1.5 mb-4">
+        {([
+          { v: "douyin", label: "抖音" },
+          { v: "duoduo", label: "多多" },
+        ] as const).map((o) => (
+          <button
+            key={o.v}
+            onClick={() => setChannelTab(o.v)}
+            className={`px-4 sm:px-5 h-10 rounded-xl border-[3px] border-gray-900 text-sm font-extrabold transition-all ${
+              channelTab === o.v
+                ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                : "bg-white text-gray-600 hover:bg-gray-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.6)]"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 费率设置 */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 lg:gap-3">
-          <span className="text-sm lg:text-base font-extrabold text-gray-900">平台抽点设置</span>
+          <span className="text-sm lg:text-base font-extrabold text-gray-900">费率设置</span>
           <div className="flex items-center gap-1">
+            <span className="text-xs font-bold text-gray-500">抖音抽点</span>
             <input
               type="number"
               value={rate}
@@ -192,6 +245,30 @@ export default function PlatformFeePage() {
               className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
             />
             <span className="text-xs font-bold text-gray-500">%</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-bold text-gray-500">多多抽点</span>
+            <input
+              type="number"
+              value={ddRate}
+              onChange={(e) => setDdRate(e.target.value)}
+              placeholder="0.6"
+              step="0.1"
+              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
+            />
+            <span className="text-xs font-bold text-gray-500">%</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-bold text-gray-500">多多快递</span>
+            <input
+              type="number"
+              value={ddShip}
+              onChange={(e) => setDdShip(e.target.value)}
+              placeholder="2"
+              step="0.1"
+              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
+            />
+            <span className="text-xs font-bold text-gray-500">元/件</span>
           </div>
           <button
             onClick={saveRate}
@@ -215,19 +292,20 @@ export default function PlatformFeePage() {
           )}
         </div>
         <p className="text-[10px] text-gray-400 mt-2">
-          规则: 当日售出超过100件时抽点为总营业额的{rate}%, 少于100件时为0
+          规则: 抖音抽点=销售额×{rate}%(无门槛, 快递按面单分档 {rate1}/{rate2}/{rate3} 元, 在快递费设置页维护);
+          多多抽点=销售额×{ddRate}%, 快递=件数×{ddShip}元; 利润已扣除退货损失(退货按编号渠道比例分摊); 无面单号的历史记录按抖音计算
         </p>
       </div>
 
       {/* 汇总统计 */}
       <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 lg:gap-3 mb-4">
         {[
-          { label: "总营业额", value: totals.total_revenue, color: "text-green-600" },
-          { label: "总成本", value: totals.total_cost, color: "text-gray-700" },
-          { label: "总利润", value: totals.total_profit, color: "text-blue-600" },
-          { label: "总快递费", value: totals.total_shipping, color: "text-orange-500" },
-          { label: "总抽点", value: totals.total_platform_fee, color: "text-red-500" },
-          { label: "净利润", value: totals.total_net_profit, color: "text-purple-600" },
+          { label: "总营业额", value: activeTotals.total_revenue, color: "text-green-600" },
+          { label: "总成本", value: activeTotals.total_cost, color: "text-gray-700" },
+          { label: "总利润", value: activeTotals.total_profit, color: "text-blue-600" },
+          { label: "总快递费", value: activeTotals.total_shipping, color: "text-orange-500" },
+          { label: "总抽点", value: activeTotals.total_platform_fee, color: "text-red-500" },
+          { label: "净利润", value: activeTotals.total_net_profit, color: "text-purple-600" },
         ].map((item) => (
           <div key={item.label} className="bg-white rounded-lg border-[2px] border-gray-300 p-2 lg:p-3 text-center">
             <p className="text-[10px] lg:text-xs text-gray-500 font-bold">{item.label}</p>
@@ -243,7 +321,7 @@ export default function PlatformFeePage() {
         {/* 日度/月度切换 */}
         <div className="flex items-center justify-between px-3 py-2 border-b-[2px] border-gray-200 bg-gray-50">
           <span className="text-xs font-extrabold text-gray-700">
-            {viewMode === "day" ? "按日统计" : "按月统计"}
+            {channelTab === "douyin" ? "抖音" : "多多"}·{viewMode === "day" ? "按日统计" : "按月统计"}
           </span>
           <div className="flex gap-1">
             <button
@@ -264,6 +342,7 @@ export default function PlatformFeePage() {
                 <th className="px-3 py-2 text-center font-extrabold">售出件数</th>
                 <th className="px-3 py-2 text-right font-extrabold">{viewMode === "day" ? "当日营业额" : "当月营业额"}</th>
                 <th className="px-3 py-2 text-right font-extrabold">进货成本</th>
+                <th className="px-3 py-2 text-right font-extrabold">退货损失</th>
                 <th className="px-3 py-2 text-right font-extrabold">{viewMode === "day" ? "当日利润" : "当月利润"}</th>
                 <th className="px-3 py-2 text-right font-extrabold">快递费</th>
                 <th className="px-3 py-2 text-right font-extrabold">平台抽点</th>
@@ -273,11 +352,11 @@ export default function PlatformFeePage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-gray-400 font-bold">加载中...</td>
+                  <td colSpan={9} className="text-center py-8 text-gray-400 font-bold">加载中...</td>
                 </tr>
               ) : displayRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-8 text-gray-400 font-bold">暂无数据</td>
+                  <td colSpan={9} className="text-center py-8 text-gray-400 font-bold">暂无数据</td>
                 </tr>
               ) : (
                 displayRecords.map((r, i) => (
@@ -286,6 +365,7 @@ export default function PlatformFeePage() {
                     <td className="px-3 py-2 text-center text-xs font-bold">{r.total_qty}件</td>
                     <td className="px-3 py-2 text-right text-xs font-bold text-green-600">¥{r.total_revenue.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-xs text-gray-500">¥{r.total_cost.toFixed(2)}</td>
+                    <td className={`px-3 py-2 text-right text-xs ${r.return_loss > 0 ? "text-red-400" : "text-gray-300"}`}>¥{r.return_loss.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-xs font-bold text-blue-600">¥{r.total_profit.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-xs text-orange-500">¥{r.shipping_fee.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-xs font-bold text-red-500">¥{r.platform_fee.toFixed(2)}</td>

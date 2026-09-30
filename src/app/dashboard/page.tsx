@@ -35,6 +35,7 @@ interface TrendItem {
   date: string;
   amount: number;
   quantity: number;
+  channel: string;
 }
 
 interface ReturnTrendItem {
@@ -52,8 +53,10 @@ interface DailyProfit {
   date: string;
   amount: number;
   quantity: number;
-  profit: number;
+  profit: number; // 已扣当日退货损失(毛利口径)
   shipping_fee: number;
+  platform_fee: number;
+  channel: string; // douyin=抖音 / duoduo=多多
 }
 
 interface SizeByDateItem {
@@ -95,6 +98,8 @@ export default function DashboardPage() {
   const [selectedShippingMonth, setSelectedShippingMonth] = useState<string>("");
   // 业绩/盈利/售卖框的月份选择（月度模式时）
   const [selectedPerfMonth, setSelectedPerfMonth] = useState<string>("");
+  // 渠道切换: all=全部 / douyin=抖音 / duoduo=多多(面单号"多多+日期"的记录)
+  const [channelView, setChannelView] = useState<"all" | "douyin" | "duoduo">("all");
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -130,6 +135,7 @@ export default function DashboardPage() {
                 date: r.date,
                 amount: Number(r.total_amount) || 0,
                 quantity: Number(r.total_quantity) || 0,
+                channel: r.channel || "douyin",
               }))
             : [];
         if (trendArr.length > 0) setTrendData(trendArr);
@@ -152,6 +158,8 @@ export default function DashboardPage() {
                 quantity: Number(r.total_quantity) || 0,
                 profit: Number(r.total_profit) || 0,
                 shipping_fee: Number(r.shipping_fee) || 0,
+                platform_fee: Number(r.platform_fee) || 0,
+                channel: r.channel || "douyin",
               }))
             : [];
         if (dailyArr.length > 0) {
@@ -172,11 +180,13 @@ export default function DashboardPage() {
     loadData();
   }, [loadData]);
 
-  // 售卖金额与售卖数量趋势数据
+  // 售卖金额与售卖数量趋势数据(按渠道切换过滤)
   const salesTrend = useMemo(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
+
+    const scopedTrend = channelView === "all" ? trendData : trendData.filter(t => t.channel === channelView);
 
     if (trendMode === "day") {
       const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
@@ -185,7 +195,7 @@ export default function DashboardPage() {
         const key = `${currentYear}-${String(currentMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
         dailyMap[key] = { date: key, amount: 0, quantity: 0 };
       }
-      for (const t of trendData) {
+      for (const t of scopedTrend) {
         const date = t.date.slice(0, 10);
         if (!dailyMap[date]) continue;
         dailyMap[date].amount += t.amount || 0;
@@ -200,7 +210,7 @@ export default function DashboardPage() {
         const key = `${currentYear}-${String(m).padStart(2, "0")}`;
         monthlyMap[key] = { date: key, amount: 0, quantity: 0 };
       }
-      for (const t of trendData) {
+      for (const t of scopedTrend) {
         const month = t.date.slice(0, 7);
         if (!monthlyMap[month]) continue;
         monthlyMap[month].amount += t.amount || 0;
@@ -210,7 +220,7 @@ export default function DashboardPage() {
         .filter(d => d.quantity > 0)
         .sort((a, b) => a.date.localeCompare(b.date));
     }
-  }, [trendData, trendMode]);
+  }, [trendData, trendMode, channelView]);
 
   // 厂家进货情况饼状图
   const mfrPie = useMemo(() => {
@@ -300,10 +310,16 @@ export default function DashboardPage() {
     return Array.from(set).sort().reverse();
   }, [trendData]);
 
+  // 渠道过滤后的日统计(业绩/盈利/售卖/快递费跟随渠道切换; 退货率/图表类保持全渠道)
+  const filteredDailyStats = useMemo(() => {
+    if (channelView === "all") return dailyStats;
+    return dailyStats.filter((d) => d.channel === channelView);
+  }, [dailyStats, channelView]);
+
   // 可用日期列表
   const availableDates = useMemo(() => {
-    return dailyStats.map(d => d.date).sort().reverse();
-  }, [dailyStats]);
+    return filteredDailyStats.map(d => d.date).sort().reverse();
+  }, [filteredDailyStats]);
 
   // 各月售卖件数
   const monthlySales = useMemo(() => {
@@ -322,10 +338,10 @@ export default function DashboardPage() {
   }, [selectedMonth, monthlySales, salesData]);
 
   // ===== 业绩/盈利/售卖框（日度/月度切换）=====
-  // 可用月份列表（从 dailyStats 聚合）
+  // 可用月份列表（从过滤后的 dailyStats 聚合）
   const availablePerfMonths = useMemo(() => {
     const map: Record<string, { amount: number; quantity: number; profit: number }> = {};
-    for (const d of dailyStats) {
+    for (const d of filteredDailyStats) {
       const m = d.date.slice(0, 7);
       if (!map[m]) map[m] = { amount: 0, quantity: 0, profit: 0 };
       map[m].amount += d.amount || 0;
@@ -335,52 +351,51 @@ export default function DashboardPage() {
     return Object.entries(map)
       .map(([month, v]) => ({ month, ...v }))
       .sort((a, b) => b.month.localeCompare(a.month));
-  }, [dailyStats]);
+  }, [filteredDailyStats]);
 
   // 业绩
   const performance = useMemo(() => {
     if (perfMode === "day") {
       if (!selectedDate) return 0;
-      const found = dailyStats.find(d => d.date === selectedDate);
+      const found = filteredDailyStats.find(d => d.date === selectedDate);
       return found ? found.amount : 0;
     } else {
       if (!selectedPerfMonth) {
-        return dailyStats.reduce((s, d) => s + (d.amount || 0), 0);
+        return filteredDailyStats.reduce((s, d) => s + (d.amount || 0), 0);
       }
       const found = availablePerfMonths.find(m => m.month === selectedPerfMonth);
       return found ? found.amount : 0;
     }
-  }, [dailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
+  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
 
-  // 盈利
+  // 盈利(净利润): 毛利已扣退货损失, 再减快递费和平台抽点 = 实际到手
   const dailyProfit = useMemo(() => {
+    const net = (d: DailyProfit) => d.profit - (d.shipping_fee || 0) - (d.platform_fee || 0);
     if (perfMode === "day") {
       if (!selectedDate) return 0;
-      const found = dailyStats.find(d => d.date === selectedDate);
-      return found ? found.profit : 0;
-    } else {
-      if (!selectedPerfMonth) {
-        return dailyStats.reduce((s, d) => s + (d.profit || 0), 0);
-      }
-      const found = availablePerfMonths.find(m => m.month === selectedPerfMonth);
-      return found ? found.profit : 0;
+      const found = filteredDailyStats.find(d => d.date === selectedDate);
+      return found ? net(found) : 0;
     }
-  }, [dailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
+    // 月度: 逐日净利求和(月份聚合行只有未减快递/抽点的毛利, 不能直接用)
+    return filteredDailyStats
+      .filter(d => !selectedPerfMonth || d.date.slice(0, 7) === selectedPerfMonth)
+      .reduce((s, d) => s + net(d), 0);
+  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth]);
 
   // 售卖件数（与业绩/盈利同步）
   const soldQuantity = useMemo(() => {
     if (perfMode === "day") {
       if (!selectedDate) return 0;
-      const found = dailyStats.find(d => d.date === selectedDate);
+      const found = filteredDailyStats.find(d => d.date === selectedDate);
       return found ? found.quantity : 0;
     } else {
       if (!selectedPerfMonth) {
-        return dailyStats.reduce((s, d) => s + (d.quantity || 0), 0);
+        return filteredDailyStats.reduce((s, d) => s + (d.quantity || 0), 0);
       }
       const found = availablePerfMonths.find(m => m.month === selectedPerfMonth);
       return found ? found.quantity : 0;
     }
-  }, [dailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
+  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
 
   // ===== 退货率 =====
   // 各月退货数
@@ -408,12 +423,12 @@ export default function DashboardPage() {
   // ===== 快递费 =====
   const totalShippingFee = useMemo(() => {
     if (!selectedShippingMonth) {
-      return dailyStats.reduce((s, d) => s + (d.shipping_fee || 0), 0);
+      return filteredDailyStats.reduce((s, d) => s + (d.shipping_fee || 0), 0);
     }
-    return dailyStats
+    return filteredDailyStats
       .filter(d => d.date.slice(0, 7) === selectedShippingMonth)
       .reduce((s, d) => s + (d.shipping_fee || 0), 0);
-  }, [dailyStats, selectedShippingMonth]);
+  }, [filteredDailyStats, selectedShippingMonth]);
 
   // ===== 售卖尺码柱状图数据（仅当日）=====
   const sizeChartData = useMemo(() => {
@@ -490,9 +505,31 @@ export default function DashboardPage() {
 
   return (
     <PageWrapper>
-      <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900 mb-6">
-        <span className="highlight-blue">数据仪表盘</span>
-      </h1>
+      <div className="flex items-center justify-between gap-2 flex-wrap mb-6">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
+          <span className="highlight-blue">数据仪表盘</span>
+        </h1>
+        {/* 渠道切换: 全部/抖音/多多(多多=面单号"多多+日期"的记录, 其余含无面单号归抖音) */}
+        <div className="flex gap-1.5">
+          {([
+            { v: "all", label: "全部" },
+            { v: "douyin", label: "抖音" },
+            { v: "duoduo", label: "多多" },
+          ] as const).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setChannelView(o.v)}
+              className={`px-3 sm:px-4 h-9 rounded-xl border-[3px] border-gray-900 text-xs sm:text-sm font-extrabold transition-all ${
+                channelView === o.v
+                  ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                  : "bg-white text-gray-600 hover:bg-gray-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.6)]"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* 数据加载失败横幅: 明确告知故障并支持重试, 避免误读 0 值 */}
       {dataError && (
@@ -573,10 +610,10 @@ export default function DashboardPage() {
           }
         />
 
-        {/* 盈利 - 与业绩同步（带日期下拉） */}
+        {/* 盈利 - 与业绩同步（带日期下拉）; 净利口径: 已扣退货损失+快递费+平台抽点 */}
         <StatCard
           icon={<DollarSign className="h-5 w-5" />}
-          label="盈利"
+          label="盈利(净)"
           numeric={dailyProfit}
           prefix="¥"
           decimals={2}

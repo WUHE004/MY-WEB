@@ -3,10 +3,10 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    // 从 sales_daily_stats 读取销售趋势
+    // 从 sales_daily_stats 读取销售趋势(渠道化: 每个日期含 douyin/duoduo 两行, 前端按需聚合)
     const { data: salesData, error: salesErr } = await supabase
       .from("sales_daily_stats")
-      .select("date, total_amount, total_quantity, total_profit")
+      .select("date, channel, total_amount, total_quantity, total_profit")
       .order("date", { ascending: true });
 
     if (salesErr) {
@@ -16,6 +16,7 @@ export async function GET() {
 
     const salesTrend = (salesData || []).map((row: any) => ({
       date: row.date,
+      channel: row.channel || "douyin",
       total_amount: Number(row.total_amount) || 0,
       total_quantity: Number(row.total_quantity) || 0,
       total_profit: Number(row.total_profit) || 0,

@@ -6,12 +6,12 @@ export async function GET() {
     // 全部查询并行（原先串行 5 个查询 + 2 个全表日期列表，~1.8s）
     // 日期列表已删除：无调用方使用（finance 页用的是 /api/sales-dates）
     const [latestStatsRes, latestReturnsRes, latestSelRes] = await Promise.all([
-      // 最新日期的快递费/平台抽点（sales_daily_stats 按日期倒序取第一条）
+      // 最新日期的快递费/平台抽点(渠道化后同一日期有 douyin/duoduo 两行, 取最新日期的全部行)
       supabase
         .from("sales_daily_stats")
         .select("date, shipping_fee, platform_fee")
         .order("date", { ascending: false })
-        .limit(1),
+        .limit(4),
       // 最新退货数据
       supabase
         .from("returns_daily_stats")
@@ -36,10 +36,12 @@ export async function GET() {
       console.error("live_selections 查询失败:", latestSelRes.error.message);
     }
 
-    const latest =
-      latestStatsRes.data && latestStatsRes.data.length > 0
-        ? latestStatsRes.data[0]
-        : null;
+    // 最新日期的多渠道行合计(渠道化后同一日期最多两行: douyin + duoduo)
+    const statRows = (latestStatsRes.data || []) as { date: string; shipping_fee: unknown; platform_fee: unknown }[];
+    const latestDate = statRows.length > 0 ? statRows[0].date : "";
+    const latestRows = statRows.filter((r) => r.date === latestDate);
+    const latestShipping = latestRows.reduce((s, r) => s + (Number(r.shipping_fee) || 0), 0);
+    const latestPlatform = latestRows.reduce((s, r) => s + (Number(r.platform_fee) || 0), 0);
 
     // 最近选品日期(北京时间) + 当日选品款数
     let selected_date = "";
@@ -63,9 +65,9 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      latest_shipping_fee: latest ? Number(latest.shipping_fee) || 0 : 0,
-      latest_platform_fee: latest ? Number(latest.platform_fee) || 0 : 0,
-      latest_date: latest ? latest.date : "",
+      latest_shipping_fee: latestShipping,
+      latest_platform_fee: latestPlatform,
+      latest_date: latestDate,
       selected_count,
       selected_date,
     });

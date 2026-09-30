@@ -1,17 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { computeDailyChannelStats } from "@/lib/daily-stats";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
-
-// 时区安全取日期(北京时间): 数据库返回 UTC ISO 字符串, 直接 slice 会差一天
-function toDateStr(v: unknown): string {
-  if (!v) return "";
-  try {
-    return new Date(v as string).toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
-  } catch {
-    return String(v).slice(0, 10);
-  }
-}
 
 async function getSalesSummaryColumns(): Promise<string[]> {
   // 命中缓存直接返回（表结构很少变化，避免每次调用都探测）
@@ -626,87 +617,65 @@ export async function POST(request: Request) {
       }
     }
 
-    // ========== 归档每日统计到 sales_daily_stats（含快递费和平台抽点）==========
+    // ========== 归档每日统计到 sales_daily_stats（渠道化: 抖音/多多, 利润扣退货损失）==========
     let dailyStatsSynced = 0;
     if (allSalesRecords.length > 0) {
-      // 并行读取快递费率和平台抽点率
-      const [shippingRatesResult, platformRateResult] = await Promise.all([
+      // 并行读取费率设置: 抖音快递三档/抖音抽点 + 多多抽点/多多每件快递
+      const [shippingRatesResult, platformRateResult, ddRateResult, ddShipResult] = await Promise.all([
         supabase.from("settings").select("value").eq("key", "shipping_rates").single(),
         supabase.from("settings").select("value").eq("key", "platform_fee_rate").single(),
+        supabase.from("settings").select("value").eq("key", "duoduo_fee_rate").single(),
+        supabase.from("settings").select("value").eq("key", "duoduo_ship_per_item").single(),
       ]);
       const sRates = (shippingRatesResult.data?.value as Record<string, unknown>) || {};
-      const sRate1 = Number(sRates.rate1) || 0;
-      const sRate2 = Number(sRates.rate2) || 0;
-      const sRate3 = Number(sRates.rate3) || 0;
       const sPlatformRate = Number(platformRateResult.data?.value) || 5;
+      const sDdRate = Number(ddRateResult.data?.value) || 0.6;
+      const sDdShip = Number(ddShipResult.data?.value) || 2;
 
-      const dailyMap = new Map<string, {
-        total_amount: number; total_quantity: number; total_profit: number;
-        trackingMap: Map<string, number>;
-      }>();
-      const inboundCostMap = new Map<string, number>();
-      for (const ib of allInboundRecords) {
-        inboundCostMap.set(String(ib.sale_id || "").toUpperCase(), Number(ib.cost_price) || 0);
-      }
+      // 退货记录(利润要扣退货损失; 独立拉取, 不依赖上方退货汇总分支是否执行)
+      const returnRows = await readAllPages(
+        "return_records",
+        "sale_id,quantity,return_price,return_time,created_at"
+      );
+      diagnostics.push(`读取 ${returnRows.length} 条退货记录(利润扣减用)`);
 
-      for (const row of allSalesRecords) {
-        // 日统计按登记日期(registration_date)归档，无登记日期时回退 order_time
-        const date = toDateStr(row.registration_date) || toDateStr(row.order_time);
-        if (!date) continue;
-        if (!dailyMap.has(date)) dailyMap.set(date, { total_amount: 0, total_quantity: 0, total_profit: 0, trackingMap: new Map() });
-        const entry = dailyMap.get(date)!;
-        const price = Number(row.sell_price) || 0;
-        const qty = Number(row.quantity) || 0;
-        const cost = inboundCostMap.get(String(row.sale_id || "").toUpperCase()) || 0;
-        entry.total_amount += price * qty;
-        entry.total_quantity += qty;
-        entry.total_profit += (price - cost) * qty;
-
-        // 按面单号累计件数
-        const tn = String(row.tracking_number || "").trim();
-        if (tn && tn !== "0") {
-          entry.trackingMap.set(tn, (entry.trackingMap.get(tn) || 0) + qty);
+      const rows = computeDailyChannelStats(
+        allSalesRecords,
+        allInboundRecords,
+        returnRows,
+        {
+          rate1: Number(sRates.rate1) || 0,
+          rate2: Number(sRates.rate2) || 0,
+          rate3: Number(sRates.rate3) || 0,
+          platformRate: sPlatformRate,
+          ddRate: sDdRate,
+          ddShip: sDdShip,
         }
-      }
+      );
 
-      // 批量 upsert 日统计（全量重算 → 直接覆盖，不累加，避免重复执行导致数据翻倍）
-      const allDates = Array.from(dailyMap.keys());
-      if (allDates.length > 0) {
-        const dailyUpsertBatch = allDates.map((date) => {
-          const stats = dailyMap.get(date)!;
-          // 计算快递费
-          let shippingFee = 0;
-          for (const [, qty] of stats.trackingMap) {
-            if (qty <= 4) shippingFee += sRate1;
-            else if (qty <= 7) shippingFee += sRate2;
-            else shippingFee += sRate3;
-          }
-          // 计算平台抽点
-          const platformFee = stats.total_quantity >= 100 ? stats.total_amount * (sPlatformRate / 100) : 0;
-
-          // 覆盖模式：直接用本次全量聚合结果，不累加已有值
-          return {
-            date,
-            total_amount: stats.total_amount,
-            total_quantity: stats.total_quantity,
-            total_profit: stats.total_profit,
-            shipping_fee: shippingFee,
-            platform_fee: platformFee,
-          };
-        });
-
+      // 批量 upsert 日统计（全量重算 → 直接覆盖, 按 (date, channel) 冲突覆盖; return_loss 仅参与展示, 不入库）
+      if (rows.length > 0) {
+        const upsertRows = rows.map((r) => ({
+          date: r.date,
+          channel: r.channel,
+          total_amount: r.total_amount,
+          total_quantity: r.total_quantity,
+          total_profit: r.total_profit,
+          shipping_fee: r.shipping_fee,
+          platform_fee: r.platform_fee,
+        }));
         const { error: dailyUpsertError } = await supabase
           .from("sales_daily_stats")
-          .upsert(dailyUpsertBatch, { onConflict: "date" });
+          .upsert(upsertRows, { onConflict: "date,channel" });
 
         if (dailyUpsertError) {
           diagnostics.push(`销售日统计批量写入失败: ${dailyUpsertError.message}`);
         } else {
-          dailyStatsSynced = dailyUpsertBatch.length;
+          dailyStatsSynced = rows.length;
         }
       }
     }
-    diagnostics.push(`销售日统计归档: ${dailyStatsSynced} 天`);
+    diagnostics.push(`销售日统计归档: ${dailyStatsSynced} 行(日期×渠道)`);
 
     // ========== 归档每日退货统计到 returns_daily_stats ==========
     let returnDailySynced = 0;
