@@ -18,6 +18,9 @@ export default function ShippingPage() {
   const [rate1, setRate1] = useState("");
   const [rate2, setRate2] = useState("");
   const [rate3, setRate3] = useState("");
+  const [ddShip, setDdShip] = useState("");
+  const [ddShipSaving, setDdShipSaving] = useState(false);
+  const [ddShipMsg, setDdShipMsg] = useState("");
   const [dateFilter, setDateFilter] = useState("");
   const [dates, setDates] = useState<string[]>([]);
   const [records, setRecords] = useState<ShippingRecord[]>([]);
@@ -28,7 +31,7 @@ export default function ShippingPage() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
 
-  // 加载快递费率
+  // 加载快递费率 + 多多每件快递费
   useEffect(() => {
     fetch("/api/shipping-rates")
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
@@ -41,7 +44,32 @@ export default function ShippingPage() {
         setSettingsError(false);
       })
       .catch(() => setSettingsError(true));
+    fetch("/api/settings")
+      .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then((data) => {
+        if (data?.duoduo_ship_per_item != null) setDdShip(String(data.duoduo_ship_per_item));
+      })
+      .catch(() => { /* 多多费率加载失败不阻塞页面 */ });
   }, []);
+
+  // 保存多多每件快递费
+  const saveDdShip = async () => {
+    setDdShipSaving(true);
+    setDdShipMsg("");
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "duoduo_ship_per_item", value: Number(ddShip) || 2 }),
+      });
+      const data = await res.json();
+      setDdShipMsg(data.error ? "保存失败: " + data.error : "保存成功");
+    } catch {
+      setDdShipMsg("保存失败");
+    } finally {
+      setDdShipSaving(false);
+    }
+  };
 
   // 加载可选日期
   useEffect(() => {
@@ -193,6 +221,34 @@ export default function ShippingPage() {
         <p className="text-[10px] text-gray-400 mt-2">
           计费规则: 同一面单号下 1-4件=1公斤, 5-7件=2公斤, 8-10件=3公斤
         </p>
+        {/* 多多快递费(按件计费) */}
+        <div className="flex flex-wrap items-center gap-2 lg:gap-3 mt-3 pt-3 border-t-[2px] border-dashed border-gray-200">
+          <span className="text-sm font-extrabold text-gray-900">多多快递费</span>
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              value={ddShip}
+              onChange={(e) => setDdShip(e.target.value)}
+              placeholder="2"
+              step="0.1"
+              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
+            />
+            <span className="text-xs font-bold text-gray-500">元/件</span>
+          </div>
+          <button
+            onClick={saveDdShip}
+            disabled={ddShipSaving}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border-[2px] border-green-500 bg-green-500 text-white font-extrabold hover:bg-green-600 transition-all disabled:opacity-50"
+          >
+            <Save className="h-3 w-3" />{ddShipSaving ? "保存中..." : "保存"}
+          </button>
+          {ddShipMsg && (
+            <span className={`text-xs font-bold ${ddShipMsg.includes("失败") ? "text-red-500" : "text-green-500"}`}>
+              {ddShipMsg}
+            </span>
+          )}
+          <span className="text-[10px] text-gray-400">多多订单无面单分档, 按件数 × 单价计费</span>
+        </div>
       </div>
 
       {/* 日期筛选和总快递费 */}

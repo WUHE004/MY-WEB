@@ -51,6 +51,13 @@ export async function POST(request: NextRequest) {
     const records = Array.isArray(body) ? body : [body];
 
     const inserted = [];
+    // 裸时间(无时区后缀, 来自 datetime-local 输入)是北京时间, 存库前转为正确 UTC,
+    // 否则 Postgres 按 UTC 解析导致晚间登记的退货日期跳到第二天
+    const toUtcIso = (v: string): string => {
+      if (/(?:Z$|[+-]\d{2}:?\d{2}$)/i.test(v)) return v;
+      const d = new Date(`${v}+08:00`);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    };
     for (const record of records) {
       const row = {
         sale_id: record.sale_id || "",
@@ -59,7 +66,7 @@ export async function POST(request: NextRequest) {
         return_price: Number(record.return_price) || 0,
         remarks: record.remarks || "",
         registrant: record.registrant || "",
-        return_time: (record.return_time && record.return_time !== "0") ? record.return_time : new Date().toISOString(),
+        return_time: (record.return_time && record.return_time !== "0") ? toUtcIso(String(record.return_time)) : new Date().toISOString(),
       };
 
       const { data, error } = await supabase

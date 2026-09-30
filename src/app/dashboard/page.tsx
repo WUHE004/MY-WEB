@@ -149,18 +149,22 @@ export default function DashboardPage() {
         if (retTrendArr.length > 0) setReturnTrendData(retTrendArr);
         if (Array.isArray(returnsRes)) setReturnData(returnsRes);
         // daily-profit 返回 { stats: [...] }
+        // 过滤未来日期行(退货时区异常产生的"明天"行), 且默认选中最新真实日期
+        const todayBJ = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
         const dailyArr = Array.isArray(dailyRes)
           ? dailyRes
           : Array.isArray(dailyRes?.stats)
-            ? dailyRes.stats.map((r: any) => ({
-                date: r.date,
-                amount: Number(r.total_amount) || 0,
-                quantity: Number(r.total_quantity) || 0,
-                profit: Number(r.total_profit) || 0,
-                shipping_fee: Number(r.shipping_fee) || 0,
-                platform_fee: Number(r.platform_fee) || 0,
-                channel: r.channel || "douyin",
-              }))
+            ? dailyRes.stats
+                .filter((r: { date: string }) => String(r.date) <= todayBJ)
+                .map((r: any) => ({
+                    date: r.date,
+                    amount: Number(r.total_amount) || 0,
+                    quantity: Number(r.total_quantity) || 0,
+                    profit: Number(r.total_profit) || 0,
+                    shipping_fee: Number(r.shipping_fee) || 0,
+                    platform_fee: Number(r.platform_fee) || 0,
+                    channel: r.channel || "douyin",
+                  }))
             : [];
         if (dailyArr.length > 0) {
           setDailyStats(dailyArr);
@@ -316,20 +320,26 @@ export default function DashboardPage() {
     return dailyStats.filter((d) => d.channel === channelView);
   }, [dailyStats, channelView]);
 
-  // 可用日期列表
+  // 可用日期列表: 去重(每日期有抖音/多多两行) + 排除未来日期(退货时区异常产生的"明天"行)
   const availableDates = useMemo(() => {
-    return filteredDailyStats.map(d => d.date).sort().reverse();
+    const todayBJ = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+    const set = new Set<string>();
+    for (const d of filteredDailyStats) {
+      if (d.date <= todayBJ) set.add(d.date);
+    }
+    return [...set].sort().reverse();
   }, [filteredDailyStats]);
 
-  // 各月售卖件数
+  // 各月售卖件数(跟随渠道切换: 全部=抖音+多多)
   const monthlySales = useMemo(() => {
+    const scoped = channelView === "all" ? trendData : trendData.filter(t => t.channel === channelView);
     const map: Record<string, number> = {};
-    for (const t of trendData) {
+    for (const t of scoped) {
       const month = t.date.slice(0, 7);
       map[month] = (map[month] || 0) + (t.quantity || 0);
     }
     return map;
-  }, [trendData]);
+  }, [trendData, channelView]);
 
   // 当月售卖件数（总售出卡片）
   const selectedMonthSales = useMemo(() => {
@@ -613,7 +623,7 @@ export default function DashboardPage() {
         {/* 盈利 - 与业绩同步（带日期下拉）; 净利口径: 已扣退货损失+快递费+平台抽点 */}
         <StatCard
           icon={<DollarSign className="h-5 w-5" />}
-          label="盈利(净)"
+          label="盈利"
           numeric={dailyProfit}
           prefix="¥"
           decimals={2}

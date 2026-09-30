@@ -83,7 +83,10 @@ function normalizeTimestamp(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
   if (!s || s === "0") return null;
   const normalized = s.replace(/\//g, "-").replace(" ", "T");
-  const d = new Date(normalized);
+  // 无时区后缀的裸时间(如 Excel 里填的 "2026-09-30 18:09")是北京时间,
+  // 必须显式 +08:00, 否则 UTC 服务器的 new Date() 会按 UTC 解析导致 +8h 偏差
+  const hasTZ = /(?:Z$|[+-]\d{2}:?\d{2}$)/i.test(normalized);
+  const d = new Date(hasTZ ? normalized : `${normalized}+08:00`);
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 

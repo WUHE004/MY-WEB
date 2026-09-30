@@ -1,0 +1,9 @@
+-- 007: 修正 return_records.return_time 的时区存储错误
+-- 背景: 手动登记(datetime-local)和 Excel 导入的退货时间均为北京时间裸字符串,
+--       曾被按 UTC 解析/存储, 导致时间快了 8 小时(晚间登记的退货日期跳到第二天,
+--       仪表盘出现"未来日期"如 10 月 1 日的统计行)。
+-- 状态: 2026-09-30 已由脚本将存量 2024 条全部回移 8 小时(逐条 PATCH, 全部成功),
+--       ⚠️ 本迁移【勿重复执行】, 仅作修复记录。
+-- 代码层已同步修复: import/route.ts normalizeTimestamp 与 return-records/route.ts
+-- 对无时区裸时间显式按 +08:00 解析后再存 UTC, 新数据不会再出现此问题。
+-- 修复后需在系统里触发一次 backfill 重算 sales_daily_stats / returns_daily_stats。

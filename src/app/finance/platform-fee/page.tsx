@@ -151,30 +151,27 @@ export default function PlatformFeePage() {
     if (ratesLoaded) fetchData();
   }, [ratesLoaded]);
 
-  // 保存抖音/多多费率(抖音快递三档在"快递费"设置页单独维护)
+  // 保存当前渠道的费率(抖音抽点 / 多多抽点; 多多快递费在"快递费"设置页维护)
   const saveRate = async () => {
     setSaving(true);
     setSaveMsg("");
+    const item =
+      channelTab === "douyin"
+        ? { key: "platform_fee_rate", value: Number(rate) || 5 }
+        : { key: "duoduo_fee_rate", value: Number(ddRate) || 0.6 };
     try {
-      const items = [
-        { key: "platform_fee_rate", value: Number(rate) || 5 },
-        { key: "duoduo_fee_rate", value: Number(ddRate) || 0.6 },
-        { key: "duoduo_ship_per_item", value: Number(ddShip) || 2 },
-      ];
-      for (const item of items) {
-        const res = await fetch("/api/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(item),
-        });
-        const data = await res.json();
-        if (data.error) {
-          setSaveMsg("保存失败: " + data.error);
-          return;
-        }
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(item),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSaveMsg("保存失败: " + data.error);
+      } else {
+        setSaveMsg("保存成功");
+        fetchData();
       }
-      setSaveMsg("保存成功");
-      fetchData();
     } catch {
       setSaveMsg("保存失败");
     } finally {
@@ -230,46 +227,37 @@ export default function PlatformFeePage() {
         ))}
       </div>
 
-      {/* 费率设置 */}
+      {/* 费率设置(跟随渠道页签: 抖音页签只显示抖音抽点, 多多页签只显示多多抽点) */}
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 lg:gap-3">
           <span className="text-sm lg:text-base font-extrabold text-gray-900">费率设置</span>
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-bold text-gray-500">抖音抽点</span>
-            <input
-              type="number"
-              value={rate}
-              onChange={(e) => setRate(e.target.value)}
-              placeholder="5"
-              step="0.1"
-              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
-            />
-            <span className="text-xs font-bold text-gray-500">%</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-bold text-gray-500">多多抽点</span>
-            <input
-              type="number"
-              value={ddRate}
-              onChange={(e) => setDdRate(e.target.value)}
-              placeholder="0.6"
-              step="0.1"
-              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
-            />
-            <span className="text-xs font-bold text-gray-500">%</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs font-bold text-gray-500">多多快递</span>
-            <input
-              type="number"
-              value={ddShip}
-              onChange={(e) => setDdShip(e.target.value)}
-              placeholder="2"
-              step="0.1"
-              className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
-            />
-            <span className="text-xs font-bold text-gray-500">元/件</span>
-          </div>
+          {channelTab === "douyin" ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-bold text-gray-500">抖音抽点</span>
+              <input
+                type="number"
+                value={rate}
+                onChange={(e) => setRate(e.target.value)}
+                placeholder="5"
+                step="0.1"
+                className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
+              />
+              <span className="text-xs font-bold text-gray-500">%</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-bold text-gray-500">多多抽点</span>
+              <input
+                type="number"
+                value={ddRate}
+                onChange={(e) => setDdRate(e.target.value)}
+                placeholder="0.6"
+                step="0.1"
+                className="w-14 lg:w-20 px-1.5 py-1.5 lg:px-2 lg:py-2 rounded-lg border-[2px] border-gray-900 text-xs lg:text-sm font-bold"
+              />
+              <span className="text-xs font-bold text-gray-500">%</span>
+            </div>
+          )}
           <button
             onClick={saveRate}
             disabled={saving}
@@ -292,8 +280,10 @@ export default function PlatformFeePage() {
           )}
         </div>
         <p className="text-[10px] text-gray-400 mt-2">
-          规则: 抖音抽点=销售额×{rate}%(无门槛, 快递按面单分档 {rate1}/{rate2}/{rate3} 元, 在快递费设置页维护);
-          多多抽点=销售额×{ddRate}%, 快递=件数×{ddShip}元; 利润已扣除退货损失(退货按编号渠道比例分摊); 无面单号的历史记录按抖音计算
+          {channelTab === "douyin"
+            ? `规则: 抖音抽点=销售额×${rate}%(无门槛), 快递按面单分档 ${rate1}/${rate2}/${rate3} 元(在"快递费"设置页维护)`
+            : `规则: 多多抽点=销售额×${ddRate}%(无门槛), 快递=件数×${ddShip}元/件(在"快递费"设置页维护)`}
+          ; 利润已扣除退货损失; 无面单号的历史记录按抖音计算
         </p>
       </div>
 
