@@ -13,7 +13,12 @@ function toDateStr(v: unknown): string {
   }
 }
 
-// 按日期聚合各尺码售出数量（从 sales_records 原始表读取，按登记日期归档）
+// 渠道判定与归档口径一致: 面单号含"多多" → 多多, 其余(正常面单/无面单/网页下单) → 抖音
+function channelOf(tn: unknown): string {
+  return String(tn || "").includes("多多") ? "duoduo" : "douyin";
+}
+
+// 按登记日期+渠道聚合各尺码售出数量（从 sales_records 原始表读取）
 export async function GET() {
   try {
     // 并行拉取全表：count + 全页并行（原先 21 页串行 ~7.4s，并行后 ~1.5s）
@@ -30,7 +35,7 @@ export async function GET() {
         Array.from({ length: pages }, (_, p) =>
           supabase
             .from("sales_records")
-            .select("registration_date, order_time, size, quantity")
+            .select("registration_date, order_time, size, quantity, tracking_number")
             .order("registration_date", { ascending: false })
             .order("id", { ascending: false })
             .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
@@ -47,20 +52,22 @@ export async function GET() {
       console.error("sales-size-by-date count 失败:", countErr.message);
     }
 
-    // 按登记日期聚合各尺码数量
+    // 按登记日期+渠道聚合各尺码数量（前端按渠道切换过滤; "全部"视图由前端合并两渠道行）
     const dailyMap: Record<string, Record<string, number | string>> = {};
     for (const rec of allRecords) {
       const date = toDateStr(rec.registration_date) || toDateStr(rec.order_time);
       if (!date) continue;
-      if (!dailyMap[date]) {
-        dailyMap[date] = { date };
-        for (const s of ALL_SIZES) dailyMap[date][`size_${s}`] = 0;
+      const channel = channelOf(rec.tracking_number);
+      const key = `${date}||${channel}`;
+      if (!dailyMap[key]) {
+        dailyMap[key] = { date, channel };
+        for (const s of ALL_SIZES) dailyMap[key][`size_${s}`] = 0;
       }
       const sz = Number(rec.size) || 0;
       const qty = Number(rec.quantity) || 0;
       const sizeKey = `size_${sz}`;
-      if (sizeKey in dailyMap[date]) {
-        dailyMap[date][sizeKey] = (Number(dailyMap[date][sizeKey]) || 0) + qty;
+      if (sizeKey in dailyMap[key]) {
+        dailyMap[key][sizeKey] = (Number(dailyMap[key][sizeKey]) || 0) + qty;
       }
     }
 

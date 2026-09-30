@@ -61,6 +61,7 @@ interface DailyProfit {
 
 interface SizeByDateItem {
   date: string;
+  channel: string; // douyin / duoduo（"全部"视图由前端合并两渠道行）
   [sizeKey: string]: number | string;
 }
 
@@ -93,9 +94,8 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [selectedMfrCost, setSelectedMfrCost] = useState<string>("全部");
   const [selectedMfrValue, setSelectedMfrValue] = useState<string>("全部");
-  // 退货率/快递费月份筛选
+  // 退货率月份筛选(仅"全部"视图显示该卡片)
   const [selectedReturnMonth, setSelectedReturnMonth] = useState<string>("");
-  const [selectedShippingMonth, setSelectedShippingMonth] = useState<string>("");
   // 业绩/盈利/售卖框的月份选择（月度模式时）
   const [selectedPerfMonth, setSelectedPerfMonth] = useState<string>("");
   // 渠道切换: all=全部 / douyin=抖音 / duoduo=多多(面单号"多多+日期"的记录)
@@ -341,11 +341,13 @@ export default function DashboardPage() {
     return map;
   }, [trendData, channelView]);
 
-  // 当月售卖件数（总售出卡片）
+  // 当月售卖件数（总售出卡片）; 未选月份时按渠道视图累计(全部=抖音+多多)
   const selectedMonthSales = useMemo(() => {
-    if (!selectedMonth) return salesData.reduce((s, i) => s + (i.total_sold || 0), 0);
+    if (!selectedMonth) {
+      return Object.values(monthlySales).reduce((s, v) => s + v, 0);
+    }
     return monthlySales[selectedMonth] || 0;
-  }, [selectedMonth, monthlySales, salesData]);
+  }, [selectedMonth, monthlySales]);
 
   // ===== 业绩/盈利/售卖框（日度/月度切换）=====
   // 可用月份列表（从过滤后的 dailyStats 聚合）
@@ -363,12 +365,16 @@ export default function DashboardPage() {
       .sort((a, b) => b.month.localeCompare(a.month));
   }, [filteredDailyStats]);
 
+  // 当日各渠道行(全部=抖音+多多两行, 业绩/盈利/售卖/快递费均需合并求和而非只取一行)
+  const dayRows = useMemo(() => {
+    if (!selectedDate) return [];
+    return filteredDailyStats.filter(d => d.date === selectedDate);
+  }, [filteredDailyStats, selectedDate]);
+
   // 业绩
   const performance = useMemo(() => {
     if (perfMode === "day") {
-      if (!selectedDate) return 0;
-      const found = filteredDailyStats.find(d => d.date === selectedDate);
-      return found ? found.amount : 0;
+      return dayRows.reduce((s, d) => s + (d.amount || 0), 0);
     } else {
       if (!selectedPerfMonth) {
         return filteredDailyStats.reduce((s, d) => s + (d.amount || 0), 0);
@@ -376,28 +382,24 @@ export default function DashboardPage() {
       const found = availablePerfMonths.find(m => m.month === selectedPerfMonth);
       return found ? found.amount : 0;
     }
-  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
+  }, [dayRows, filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
 
   // 盈利(净利润): 毛利已扣退货损失, 再减快递费和平台抽点 = 实际到手
   const dailyProfit = useMemo(() => {
     const net = (d: DailyProfit) => d.profit - (d.shipping_fee || 0) - (d.platform_fee || 0);
     if (perfMode === "day") {
-      if (!selectedDate) return 0;
-      const found = filteredDailyStats.find(d => d.date === selectedDate);
-      return found ? net(found) : 0;
+      return dayRows.reduce((s, d) => s + net(d), 0);
     }
     // 月度: 逐日净利求和(月份聚合行只有未减快递/抽点的毛利, 不能直接用)
     return filteredDailyStats
       .filter(d => !selectedPerfMonth || d.date.slice(0, 7) === selectedPerfMonth)
       .reduce((s, d) => s + net(d), 0);
-  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth]);
+  }, [dayRows, filteredDailyStats, selectedDate, perfMode, selectedPerfMonth]);
 
   // 售卖件数（与业绩/盈利同步）
   const soldQuantity = useMemo(() => {
     if (perfMode === "day") {
-      if (!selectedDate) return 0;
-      const found = filteredDailyStats.find(d => d.date === selectedDate);
-      return found ? found.quantity : 0;
+      return dayRows.reduce((s, d) => s + (d.quantity || 0), 0);
     } else {
       if (!selectedPerfMonth) {
         return filteredDailyStats.reduce((s, d) => s + (d.quantity || 0), 0);
@@ -405,7 +407,7 @@ export default function DashboardPage() {
       const found = availablePerfMonths.find(m => m.month === selectedPerfMonth);
       return found ? found.quantity : 0;
     }
-  }, [filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
+  }, [dayRows, filteredDailyStats, selectedDate, perfMode, selectedPerfMonth, availablePerfMonths]);
 
   // ===== 退货率 =====
   // 各月退货数
@@ -431,26 +433,38 @@ export default function DashboardPage() {
   }, [returnTrendData, trendData, selectedReturnMonth, monthlyReturns, monthlySales]);
 
   // ===== 快递费 =====
+  // 与业绩/盈利/售卖同一套日期/月份筛选: 日度=选中日期(全渠道两行合计), 月度=选中月份
   const totalShippingFee = useMemo(() => {
-    if (!selectedShippingMonth) {
-      return filteredDailyStats.reduce((s, d) => s + (d.shipping_fee || 0), 0);
+    if (perfMode === "day") {
+      return dayRows.reduce((s, d) => s + (d.shipping_fee || 0), 0);
     }
     return filteredDailyStats
-      .filter(d => d.date.slice(0, 7) === selectedShippingMonth)
+      .filter(d => !selectedPerfMonth || d.date.slice(0, 7) === selectedPerfMonth)
       .reduce((s, d) => s + (d.shipping_fee || 0), 0);
-  }, [filteredDailyStats, selectedShippingMonth]);
+  }, [dayRows, filteredDailyStats, perfMode, selectedPerfMonth]);
 
-  // ===== 售卖尺码柱状图数据（仅当日）=====
+  // ===== 最佳业绩(仅渠道视图展示): 该渠道历史单日最高业绩 =====
+  const bestPerf = useMemo(() => {
+    let best: DailyProfit | null = null;
+    for (const d of filteredDailyStats) {
+      if (!best || (d.amount || 0) > (best.amount || 0)) best = d;
+    }
+    return best;
+  }, [filteredDailyStats]);
+
+  // ===== 售卖尺码柱状图数据（仅当日 + 跟随渠道切换）=====
   const sizeChartData = useMemo(() => {
     const targetDate = selectedDate || (dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].date : "");
     if (!targetDate) return [];
-    const found = salesSizeByDate.find(s => s.date === targetDate);
-    if (!found) return [];
+    const rows = salesSizeByDate.filter(
+      s => s.date === targetDate && (channelView === "all" || s.channel === channelView)
+    );
+    if (rows.length === 0) return [];
     return ALL_SIZES.map(sz => ({
       size: `${sz}`,
-      quantity: Number(found[`size_${sz}`]) || 0,
+      quantity: rows.reduce((sum, r) => sum + (Number(r[`size_${sz}`]) || 0), 0),
     })).filter(d => d.quantity > 0);
-  }, [salesSizeByDate, selectedDate, dailyStats]);
+  }, [salesSizeByDate, selectedDate, dailyStats, channelView]);
 
   // ===== 厂家尺码剩余雷达图数据 =====
   const radarData = useMemo(() => {
@@ -712,29 +726,31 @@ export default function DashboardPage() {
 
       {/* 统计卡片 - 第二行 */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {/* 退货率 */}
-        <StatCard
-          icon={<Percent className="h-5 w-5" />}
-          label="退货率"
-          numeric={returnRate}
-          suffix="%"
-          decimals={2}
-          color="bg-rose-500"
-          extra={
-            <select
-              value={selectedReturnMonth}
-              onChange={e => setSelectedReturnMonth(e.target.value)}
-              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-            >
-              <option value="">全部累计</option>
-              {availableMonths.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          }
-        />
+        {/* 退货率 - 仅全部视图(库存/厂家数据无渠道归属, 渠道视图隐藏) */}
+        {channelView === "all" && (
+          <StatCard
+            icon={<Percent className="h-5 w-5" />}
+            label="退货率"
+            numeric={returnRate}
+            suffix="%"
+            decimals={2}
+            color="bg-rose-500"
+            extra={
+              <select
+                value={selectedReturnMonth}
+                onChange={e => setSelectedReturnMonth(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                <option value="">全部累计</option>
+                {availableMonths.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            }
+          />
+        )}
 
-        {/* 快递费 */}
+        {/* 快递费 - 与业绩/盈利/售卖同步同一套日期/月份下拉 */}
         <StatCard
           icon={<Truck className="h-5 w-5" />}
           label="快递费"
@@ -742,61 +758,105 @@ export default function DashboardPage() {
           prefix="¥"
           decimals={2}
           color="bg-indigo-500"
+          modeToggle={
+            <div className="flex gap-1">
+              <button
+                onClick={() => setPerfMode("day")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "day" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >日度</button>
+              <button
+                onClick={() => setPerfMode("month")}
+                className={`px-1.5 py-0.5 rounded-md border-[2px] border-gray-900 text-[9px] font-extrabold transition-all ${perfMode === "month" ? "bg-gray-900 text-white" : "bg-white text-gray-600"}`}
+              >月度</button>
+            </div>
+          }
           extra={
             <select
-              value={selectedShippingMonth}
-              onChange={e => setSelectedShippingMonth(e.target.value)}
+              value={perfMode === "day" ? selectedDate : selectedPerfMonth}
+              onChange={e => {
+                if (perfMode === "day") setSelectedDate(e.target.value);
+                else setSelectedPerfMonth(e.target.value);
+              }}
               className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
             >
-              <option value="">全部累计</option>
-              {availableMonths.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
+              {perfMode === "day" ? (
+                availableDates.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))
+              ) : (
+                <>
+                  <option value="">全部累计</option>
+                  {availablePerfMonths.map(m => (
+                    <option key={m.month} value={m.month}>{m.month}（¥{m.amount.toFixed(0)}）</option>
+                  ))}
+                </>
+              )}
             </select>
           }
         />
 
-        {/* 进货总花费 */}
-        <StatCard
-          icon={<Package className="h-5 w-5" />}
-          label="进货总花费"
-          numeric={inboundCost}
-          prefix="¥"
-          color="bg-red-500"
-          extra={
-            <select
-              value={selectedMfrCost}
-              onChange={e => setSelectedMfrCost(e.target.value)}
-              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-            >
-              <option value="全部">全部厂家</option>
-              {manufacturers.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          }
-        />
+        {/* 最佳业绩 - 仅渠道视图展示该渠道历史单日最高业绩 */}
+        {channelView !== "all" && (
+          <StatCard
+            icon={<TrendingUp className="h-5 w-5" />}
+            label={`最佳业绩（${channelView === "douyin" ? "抖音" : "多多"}）`}
+            numeric={bestPerf ? bestPerf.amount : 0}
+            prefix="¥"
+            decimals={2}
+            color="bg-emerald-500"
+            extra={
+              <div className="mt-1 text-[10px] sm:text-xs font-bold text-gray-500">
+                {bestPerf ? `日期: ${bestPerf.date}` : "暂无数据"}
+              </div>
+            }
+          />
+        )}
 
-        {/* 库存剩余价值 */}
-        <StatCard
-          icon={<RotateCcw className="h-5 w-5" />}
-          label="库存剩余价值"
-          numeric={remainingValue}
-          prefix="¥"
-          color="bg-purple-500"
-          extra={
-            <select
-              value={selectedMfrValue}
-              onChange={e => setSelectedMfrValue(e.target.value)}
-              className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
-            >
-              <option value="全部">全部厂家</option>
-              {manufacturers.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          }
-        />
+        {/* 进货总花费 - 仅全部视图 */}
+        {channelView === "all" && (
+          <StatCard
+            icon={<Package className="h-5 w-5" />}
+            label="进货总花费"
+            numeric={inboundCost}
+            prefix="¥"
+            color="bg-red-500"
+            extra={
+              <select
+                value={selectedMfrCost}
+                onChange={e => setSelectedMfrCost(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                <option value="全部">全部厂家</option>
+                {manufacturers.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            }
+          />
+        )}
+
+        {/* 库存剩余价值 - 仅全部视图 */}
+        {channelView === "all" && (
+          <StatCard
+            icon={<RotateCcw className="h-5 w-5" />}
+            label="库存剩余价值"
+            numeric={remainingValue}
+            prefix="¥"
+            color="bg-purple-500"
+            extra={
+              <select
+                value={selectedMfrValue}
+                onChange={e => setSelectedMfrValue(e.target.value)}
+                className="mt-1 w-full text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1 py-0.5 bg-white font-bold text-gray-700 truncate"
+              >
+                <option value="全部">全部厂家</option>
+                {manufacturers.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            }
+          />
+        )}
       </motion.div>
 
       {/* 图表区 */}
@@ -885,8 +945,9 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* 厂家进货件数饼状图 */}
-        <ChartCard title="厂家进货件数">
+        {/* 厂家进货件数饼状图 - 仅全部视图(进货数据无渠道归属) */}
+        {channelView === "all" && (
+          <ChartCard title="厂家进货件数">
           {mfrPie.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">暂无数据</div>
           ) : (
@@ -927,8 +988,10 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </ChartCard>
+        )}
 
-        {/* 厂家剩余库存柱状图 */}
+        {/* 厂家剩余库存柱状图 - 仅全部视图 */}
+        {channelView === "all" && (
         <ChartCard title="厂家剩余库存">
           {mfrBar.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">暂无数据</div>
@@ -954,6 +1017,7 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </ChartCard>
+        )}
 
         {/* 各厂家售卖/退货数量 */}
         <ChartCard

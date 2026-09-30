@@ -24,6 +24,8 @@ export default function ShippingPage() {
   const [dateFilter, setDateFilter] = useState("");
   const [dates, setDates] = useState<string[]>([]);
   const [records, setRecords] = useState<ShippingRecord[]>([]);
+  // 渠道视图: douyin=抖音面单(含无面单) / duoduo=多多面单("多多+日期"格式), 切换设置栏和数据
+  const [shipChannel, setShipChannel] = useState<"douyin" | "duoduo">("douyin");
   const [totalFee, setTotalFee] = useState(0);
   const [loading, setLoading] = useState(true);
   // 费率/日期配置加载失败标记
@@ -136,9 +138,15 @@ export default function ShippingPage() {
   };
 
   const filteredRecords = useMemo(() => {
-    if (!dateFilter) return records;
-    return records.filter((r) => r.order_time === dateFilter);
-  }, [records, dateFilter]);
+    // 先按渠道分流: 面单号含"多多" → 多多, 其余(正常面单/无面单) → 抖音
+    const channelRecords = records.filter((r) =>
+      shipChannel === "duoduo"
+        ? r.tracking_number.includes("多多")
+        : !r.tracking_number.includes("多多")
+    );
+    if (!dateFilter) return channelRecords;
+    return channelRecords.filter((r) => r.order_time === dateFilter);
+  }, [records, dateFilter, shipChannel]);
 
   // 总快递费根据筛选日期实时统计
   const filteredTotalFee = useMemo(() => {
@@ -158,6 +166,25 @@ export default function ShippingPage() {
         <h1 className="text-xl sm:text-2xl lg:text-4xl font-extrabold text-gray-900">
           <span className="highlight-blue">快递费用</span>
         </h1>
+        {/* 渠道切换: 抖音/多多, 切换费率设置栏和快递记录视图 */}
+        <div className="flex gap-1.5 ml-auto">
+          {([
+            { v: "douyin", label: "抖音" },
+            { v: "duoduo", label: "多多" },
+          ] as const).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setShipChannel(o.v)}
+              className={`px-3 sm:px-4 h-9 rounded-xl border-[3px] border-gray-900 text-xs sm:text-sm font-extrabold transition-all ${
+                shipChannel === o.v
+                  ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"
+                  : "bg-white text-gray-600 hover:bg-gray-100 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.6)]"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 配置加载失败横幅 */}
@@ -170,10 +197,11 @@ export default function ShippingPage() {
         />
       )}
 
-      {/* 快递费率设置 */}
+      {/* 快递费率设置(抖音视图) */}
+      {shipChannel === "douyin" && (
       <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">
         <div className="flex flex-wrap items-center gap-2 lg:gap-3">
-          <span className="text-sm lg:text-base font-extrabold text-gray-900">快递费率设置</span>
+          <span className="text-sm lg:text-base font-extrabold text-gray-900">抖音快递费率设置</span>
           <div className="flex items-center gap-1 lg:gap-2">
             <input
               type="number"
@@ -221,9 +249,14 @@ export default function ShippingPage() {
         <p className="text-[10px] text-gray-400 mt-2">
           计费规则: 同一面单号下 1-4件=1公斤, 5-7件=2公斤, 8-10件=3公斤
         </p>
-        {/* 多多快递费(按件计费) */}
-        <div className="flex flex-wrap items-center gap-2 lg:gap-3 mt-3 pt-3 border-t-[2px] border-dashed border-gray-200">
-          <span className="text-sm font-extrabold text-gray-900">多多快递费</span>
+      </div>
+      )}
+
+      {/* 多多快递费设置(多多视图) */}
+      {shipChannel === "duoduo" && (
+      <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4 lg:p-6 mb-6">
+        <div className="flex flex-wrap items-center gap-2 lg:gap-3">
+          <span className="text-sm lg:text-base font-extrabold text-gray-900">多多快递费设置</span>
           <div className="flex items-center gap-1">
             <input
               type="number"
@@ -242,6 +275,14 @@ export default function ShippingPage() {
           >
             <Save className="h-3 w-3" />{ddShipSaving ? "保存中..." : "保存"}
           </button>
+          <button
+            onClick={fetchShipping}
+            disabled={loading}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white font-extrabold hover:bg-gray-800 transition-all"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+            刷新
+          </button>
           {ddShipMsg && (
             <span className={`text-xs font-bold ${ddShipMsg.includes("失败") ? "text-red-500" : "text-green-500"}`}>
               {ddShipMsg}
@@ -250,6 +291,7 @@ export default function ShippingPage() {
           <span className="text-[10px] text-gray-400">多多订单无面单分档, 按件数 × 单价计费</span>
         </div>
       </div>
+      )}
 
       {/* 日期筛选和总快递费 */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
