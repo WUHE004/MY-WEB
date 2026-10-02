@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/error-state";
 import { CountUp, staggerContainer, staggerItem } from "@/components/motion-primitives";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ComposedChart, Line, PieChart, Pie, Cell, Legend,
+  ComposedChart, Line, PieChart, Pie, Cell, Legend, LabelList,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent } from "lucide-react";
@@ -509,11 +509,21 @@ export default function DashboardPage() {
     const target = selectedReturnSizeMonth || (availableReturnSizeMonths[0]?.month ?? "");
     const found = returnSizeByMonth.find(r => r.month === target);
     if (!found) return [];
-    return ALL_SIZES.map(sz => ({
-      size: `${sz}`,
-      quantity: Number(found[`size_${sz}`]) || 0,
-    })).filter(d => d.quantity > 0);
-  }, [returnSizeByMonth, selectedReturnSizeMonth, availableReturnSizeMonths]);
+    // 当月各尺码售卖件数(全渠道合计, 与退货柱叠加对比算退货率)
+    const salesBySize: Record<number, number> = {};
+    for (const s of salesSizeByDate) {
+      if (s.date.slice(0, 7) !== target) continue;
+      for (const sz of ALL_SIZES) {
+        salesBySize[sz] = (salesBySize[sz] || 0) + (Number(s[`size_${sz}`]) || 0);
+      }
+    }
+    return ALL_SIZES.map(sz => {
+      const returns = Number(found[`size_${sz}`]) || 0;
+      const sales = salesBySize[sz] || 0;
+      const rate = sales > 0 ? `${((returns / sales) * 100).toFixed(1)}%` : "";
+      return { size: `${sz}`, quantity: returns, sales, rate };
+    }).filter(d => d.quantity > 0 || d.sales > 0);
+  }, [returnSizeByMonth, salesSizeByDate, selectedReturnSizeMonth, availableReturnSizeMonths]);
 
   // ===== 抖音直播情况(仅抖音视图): 单一日期抖音售卖>50件 记为一场直播 =====
   const LIVE_MIN_QTY = 50;
@@ -1087,26 +1097,33 @@ export default function DashboardPage() {
         <ChartCard
           title="退货尺码分布（按月）"
           extra={
-            <select
-              value={selectedReturnSizeMonth}
-              onChange={e => setSelectedReturnSizeMonth(e.target.value)}
-              className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
-            >
-              {availableReturnSizeMonths.map(m => (
-                <option key={m.month} value={m.month}>
-                  {m.month}（{m.total}件）
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:flex items-center gap-1 text-[10px] font-bold text-gray-500">
+                <span className="h-2 w-2 rounded-sm bg-[#4CD964]" />售卖
+                <span className="h-2 w-2 rounded-sm bg-[#FF6B6B] ml-1" />退货
+              </span>
+              <select
+                value={selectedReturnSizeMonth}
+                onChange={e => setSelectedReturnSizeMonth(e.target.value)}
+                className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
+              >
+                {availableReturnSizeMonths.map(m => (
+                  <option key={m.month} value={m.month}>
+                    {m.month}（{m.total}件）
+                  </option>
+                ))}
+              </select>
+            </div>
           }
         >
           {returnSizeChartData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">
-              该月份无退货数据
+              该月份无退货/售卖数据
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={returnSizeChartData} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
+              {/* barGap 负值让两条柱完全重叠: 绿色(售卖)在后, 红色(退货)在前 */}
+              <BarChart data={returnSizeChartData} barGap={-30} margin={{ left: 0, right: 20, top: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
                 <YAxis tick={{ fontSize: 11 }} width={35} />
@@ -1121,7 +1138,15 @@ export default function DashboardPage() {
                   }}
                   formatter={(value: unknown) => `${Number(value).toLocaleString()} 件`}
                 />
-                <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={30} />
+                <Bar dataKey="sales" name="售卖数量" fill="#4CD964" radius={[4, 4, 0, 0]} barSize={30} />
+                <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={30}>
+                  <LabelList
+                    dataKey="rate"
+                    position="top"
+                    style={{ fontSize: 10, fontWeight: "bold", fill: "#FF6B6B" }}
+                    formatter={(v: unknown) => (v ? String(v) : "")}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
