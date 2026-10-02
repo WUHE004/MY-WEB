@@ -493,13 +493,20 @@ export default function DashboardPage() {
   }, [salesSizeByDate, selectedDate, channelView]);
 
   // ===== 退货尺码分布(按月) =====
+  // 下拉选项带当月退货总件数, 更直观
   const availableReturnSizeMonths = useMemo(
-    () => returnSizeByMonth.map(r => r.month).sort().reverse(),
+    () =>
+      returnSizeByMonth
+        .map(r => ({
+          month: r.month,
+          total: ALL_SIZES.reduce((s, sz) => s + (Number(r[`size_${sz}`]) || 0), 0),
+        }))
+        .sort((a, b) => b.month.localeCompare(a.month)),
     [returnSizeByMonth]
   );
 
   const returnSizeChartData = useMemo(() => {
-    const target = selectedReturnSizeMonth || (availableReturnSizeMonths[0] ?? "");
+    const target = selectedReturnSizeMonth || (availableReturnSizeMonths[0]?.month ?? "");
     const found = returnSizeByMonth.find(r => r.month === target);
     if (!found) return [];
     return ALL_SIZES.map(sz => ({
@@ -1086,7 +1093,9 @@ export default function DashboardPage() {
               className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
             >
               {availableReturnSizeMonths.map(m => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m.month} value={m.month}>
+                  {m.month}（{m.total}件）
+                </option>
               ))}
             </select>
           }

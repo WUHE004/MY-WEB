@@ -306,7 +306,6 @@ export default function LinksPage() {
           >
             <ClipboardCheck className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
             <span className="text-xs lg:text-base font-extrabold text-white">库存盘点</span>
-            <span className="hidden lg:block text-xs text-white/90 font-medium">按货架分区清点库存</span>
           </motion.a>
           <motion.a
             href="/operations/data-clean"
@@ -318,7 +317,6 @@ export default function LinksPage() {
           >
             <FileSpreadsheet className="h-5 w-5 lg:h-10 lg:w-10 text-gray-900" />
             <span className="text-xs lg:text-base font-extrabold text-gray-900">数据清洗</span>
-            <span className="hidden lg:block text-xs text-gray-800/80 font-medium">售出数据提取与导出</span>
           </motion.a>
         </div>
       </div>

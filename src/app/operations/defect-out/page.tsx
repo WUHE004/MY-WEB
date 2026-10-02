@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { ArrowLeft, AlertTriangle, Plus, X, Settings2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { motion } from "framer-motion";
+import { ArrowLeft, AlertTriangle, Plus, X, Settings2, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { NumberPop } from "@/components/motion-primitives";
@@ -15,6 +16,19 @@ const SIZE_OPTIONS = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 1
 // 瑕疵细节预设(首次使用时写入 settings, 之后可在页面自由增删)
 const DEFAULT_DEFECT_OPTIONS = ["一级瑕疵：破损", "二级瑕疵：污渍", "三级瑕疵：线头"];
 const DEFECT_KEY = "defect_options";
+
+// 瑕疵分级(只能在这三级中添加或删减): 一级红 / 二级黄 / 三级绿
+const DEFECT_LEVELS = [
+  { level: 1, prefix: "一级瑕疵：", label: "一级瑕疵", color: "#FF6B6B" },
+  { level: 2, prefix: "二级瑕疵：", label: "二级瑕疵", color: "#FFC93C" },
+  { level: 3, prefix: "三级瑕疵：", label: "三级瑕疵", color: "#4CD964" },
+] as const;
+
+function defectLevelOf(opt: string): number {
+  if (opt.startsWith("一级瑕疵")) return 1;
+  if (opt.startsWith("二级瑕疵")) return 2;
+  return 3;
+}
 
 interface InboundRecord {
   sale_id: string;
@@ -49,10 +63,36 @@ export default function DefectOutPage() {
   const [selectedRecord, setSelectedRecord] = useState<InboundRecord | null>(null);
   const [notFound, setNotFound] = useState(false);
 
-  // 瑕疵细节选项(settings 持久化, 可自由增删)
+  // 瑕疵细节选项(settings 持久化, 可自由增删, 只在三级框架内)
   const [defectOptions, setDefectOptions] = useState<string[]>(DEFAULT_DEFECT_OPTIONS);
   const [showDefectManage, setShowDefectManage] = useState(false);
+  const [showDefectDropdown, setShowDefectDropdown] = useState(false);
   const [newDefect, setNewDefect] = useState("");
+  const [newDefectLevel, setNewDefectLevel] = useState<number>(1);
+
+  // 按级别分组(下拉与管理弹窗共用): 只展示有内容的级别由调用方判断
+  const defectGroups = useMemo(
+    () =>
+      DEFECT_LEVELS.map((lv) => ({
+        ...lv,
+        items: defectOptions.filter((o) => defectLevelOf(o) === lv.level),
+      })),
+    [defectOptions]
+  );
+
+  const addDefectOption = () => {
+    // 用户若手输"X级瑕疵："前缀则去掉, 级别由选中按钮决定
+    const name = newDefect.trim().replace(/^[一二三]级瑕疵[：:]/, "");
+    if (!name) return;
+    const lv = DEFECT_LEVELS.find((l) => l.level === newDefectLevel) || DEFECT_LEVELS[0];
+    const full = lv.prefix + name;
+    if (defectOptions.includes(full)) {
+      showToast("该瑕疵细节已存在", "error");
+      return;
+    }
+    saveDefectOptions([...defectOptions, full]);
+    setNewDefect("");
+  };
 
   const fetchTotalOutQty = async () => {
     try {
@@ -422,86 +462,81 @@ export default function DefectOutPage() {
           />
         </div>
 
-        {/* 瑕疵细节 */}
+        {/* 瑕疵细节: 自定义分级下拉 + 设置按钮(同入库登记厂家设置按钮样式) */}
         <div className="mb-6">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-sm lg:text-base font-extrabold text-gray-900">
-              瑕疵细节 <span className="text-red-500">*</span>
-            </label>
+          <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
+            瑕疵细节 <span className="text-red-500">*</span>
+          </label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <button
+                type="button"
+                onClick={() => setShowDefectDropdown((v) => !v)}
+                className="neo-input w-full text-sm flex items-center justify-between text-left cursor-pointer"
+              >
+                <span className={`truncate ${defectType ? "font-bold" : "text-gray-400"}`}>
+                  {defectType || "请选择瑕疵细节..."}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${showDefectDropdown ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {showDefectDropdown && (
+                <>
+                  {/* 点击面板外关闭 */}
+                  <div className="fixed inset-0 z-40" onClick={() => setShowDefectDropdown(false)} />
+                  <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2">
+                    {defectGroups.map((g) =>
+                      g.items.length > 0 ? (
+                        <div key={g.level} className="mb-1 last:mb-0">
+                          <div className="flex items-center gap-1.5 px-1.5 py-1">
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                            <span className="text-[11px] font-extrabold" style={{ color: g.color }}>
+                              {g.label}
+                            </span>
+                          </div>
+                          {g.items.map((name) => {
+                            const full = g.prefix + name;
+                            return (
+                              <button
+                                key={full}
+                                type="button"
+                                onClick={() => {
+                                  setDefectType(full);
+                                  setShowDefectDropdown(false);
+                                }}
+                                className={`w-full text-left px-2.5 py-2 rounded-lg text-sm font-bold transition-colors ${
+                                  defectType === full
+                                    ? "bg-gray-900 text-white"
+                                    : "text-gray-700 hover:bg-gray-100"
+                                }`}
+                              >
+                                {name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null
+                    )}
+                    {defectOptions.length === 0 && (
+                      <p className="px-2 py-3 text-xs text-gray-400 font-bold">
+                        暂无瑕疵细节，请点击右侧设置按钮添加
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => setShowDefectManage((v) => !v)}
-              className="flex items-center gap-1 text-xs font-bold text-[#4A90E2] hover:underline"
+              onClick={() => setShowDefectManage(true)}
+              className="flex h-[42px] w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+              title="管理瑕疵细节"
             >
-              <Settings2 className="h-3.5 w-3.5" />管理瑕疵细节
+              <Settings2 className="h-5 w-5" />
             </button>
           </div>
-          <select
-            value={defectType}
-            onChange={(e) => setDefectType(e.target.value)}
-            className="neo-input w-full text-sm"
-          >
-            <option value="">请选择瑕疵细节...</option>
-            {defectOptions.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-
-          {/* 瑕疵细节管理(增删, 存 settings 表) */}
-          {showDefectManage && (
-            <div className="mt-3 p-3 rounded-xl border-[3px] border-gray-900 bg-gray-50">
-              <div className="flex gap-2 mb-2">
-                <Input
-                  value={newDefect}
-                  onChange={(e) => setNewDefect(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && newDefect.trim()) {
-                      if (!defectOptions.includes(newDefect.trim())) {
-                        saveDefectOptions([...defectOptions, newDefect.trim()]);
-                      }
-                      setNewDefect("");
-                    }
-                  }}
-                  placeholder="输入新瑕疵细节，回车添加..."
-                  className="text-sm flex-1"
-                />
-                <Button
-                  type="button"
-                  onClick={() => {
-                    if (!newDefect.trim()) return;
-                    if (defectOptions.includes(newDefect.trim())) {
-                      showToast("该瑕疵细节已存在", "error");
-                      return;
-                    }
-                    saveDefectOptions([...defectOptions, newDefect.trim()]);
-                    setNewDefect("");
-                  }}
-                  className="neo-btn px-3 h-[42px] bg-[#4CD964] text-white shrink-0"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {defectOptions.map((opt) => (
-                  <span
-                    key={opt}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-bold"
-                  >
-                    {opt}
-                    <button
-                      type="button"
-                      aria-label={`删除 ${opt}`}
-                      onClick={() => saveDefectOptions(defectOptions.filter((o) => o !== opt))}
-                      className="text-red-400 hover:text-red-600"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-              <p className="text-[10px] text-gray-400 mt-2">增删后会保存到设置，全站生效</p>
-            </div>
-          )}
         </div>
 
         {/* Notes */}
@@ -528,6 +563,108 @@ export default function DefectOutPage() {
           {submitting ? "提交中..." : "提交瑕疵出库"}
         </Button>
       </div>
+
+      {/* 瑕疵细节管理弹窗(厂家管理同款样式, 只能在三级框架内增删) */}
+      {showDefectManage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-full max-w-md max-h-[80vh] bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-6 flex flex-col"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-extrabold">瑕疵细节管理</h2>
+              <button
+                onClick={() => setShowDefectManage(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* 级别选择: 只能添加到这三个级别 */}
+            <div className="flex gap-1.5 mb-2">
+              {DEFECT_LEVELS.map((lv) => (
+                <button
+                  key={lv.level}
+                  type="button"
+                  onClick={() => setNewDefectLevel(lv.level)}
+                  className={`flex-1 px-2 py-1.5 rounded-lg border-[2px] text-[11px] font-extrabold transition-all ${
+                    newDefectLevel === lv.level
+                      ? "border-gray-900 text-white"
+                      : "border-gray-300 bg-white text-gray-500 hover:bg-gray-50"
+                  }`}
+                  style={newDefectLevel === lv.level ? { backgroundColor: lv.color } : undefined}
+                >
+                  {lv.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 添加新瑕疵细节 */}
+            <div className="flex gap-2 mb-4">
+              <Input
+                value={newDefect}
+                onChange={(e) => setNewDefect(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addDefectOption()}
+                placeholder={`输入新${DEFECT_LEVELS.find((l) => l.level === newDefectLevel)?.label || "瑕疵"}名称，如: 破洞`}
+                className="text-sm flex-1"
+              />
+              <button
+                onClick={addDefectOption}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#4CD964] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+                title="添加"
+              >
+                <Plus className="h-5 w-5 text-white" />
+              </button>
+            </div>
+
+            {/* 分级列表 */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {defectGroups.map((g) => (
+                <div key={g.level}>
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                    <span className="text-xs font-extrabold" style={{ color: g.color }}>
+                      {g.label}
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-bold">({g.items.length})</span>
+                  </div>
+                  {g.items.length === 0 ? (
+                    <p className="text-[11px] text-gray-300 font-bold px-1">暂无</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {g.items.map((name) => {
+                        const full = g.prefix + name;
+                        return (
+                          <span
+                            key={full}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border-[2px] bg-white text-xs font-bold"
+                            style={{ borderColor: g.color }}
+                          >
+                            {name}
+                            <button
+                              type="button"
+                              aria-label={`删除 ${full}`}
+                              onClick={() => saveDefectOptions(defectOptions.filter((o) => o !== full))}
+                              className="text-red-400 hover:text-red-600"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-3">
+              只能在一级/二级/三级中添加或删减，保存后全站生效
+            </p>
+          </motion.div>
+        </div>
+      )}
     </PageWrapper>
   );
 }
