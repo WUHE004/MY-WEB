@@ -40,11 +40,12 @@ async function fetchAllSaleIds(
 
 export async function GET() {
   try {
-    // 三张表并行统计 distinct sale_id（原先串行逐表逐页）
-    const [inboundRes, salesRes, returnRes] = await Promise.all([
+    // 三张表并行统计 distinct sale_id（原先串行逐表逐页）+ 瑕疵出库累计件数
+    const [inboundRes, salesRes, returnRes, defectRes] = await Promise.all([
       fetchAllSaleIds("inbound_records", "inbound_date"),
       fetchAllSaleIds("sales_records", "registration_date"),
       fetchAllSaleIds("return_records", "created_at"),
+      supabase.from("defect_out_records").select("quantity").limit(10000),
     ]);
 
     const err = inboundRes.error || salesRes.error || returnRes.error;
@@ -52,10 +53,17 @@ export async function GET() {
       return NextResponse.json({ error: err }, { status: 500 });
     }
 
+    // 瑕疵出库表可能尚未建(迁移 008 未执行), 失败时按 0 处理不阻塞统计
+    let defectOutQty = 0;
+    if (!defectRes.error && Array.isArray(defectRes.data)) {
+      defectOutQty = defectRes.data.reduce((s: number, r: { quantity?: number }) => s + (Number(r.quantity) || 0), 0);
+    }
+
     return NextResponse.json({
       inboundCount: inboundRes.ids.size,
       salesCount: salesRes.ids.size,
       returnCount: returnRes.ids.size,
+      defectOutQty,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

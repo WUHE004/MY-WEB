@@ -11,6 +11,7 @@ import {
   Rows4,
   Banknote,
   TrendingUp,
+  PackageX,
   Video,
   ClipboardCheck,
   FileSpreadsheet,
@@ -28,6 +29,7 @@ interface Stats {
   inboundCount: number;
   salesCount: number;
   returnCount: number;
+  defectOutQty: number;
 }
 
 interface LinkData {
@@ -39,7 +41,7 @@ interface LinkData {
 }
 
 export default function LinksPage() {
-  const [stats, setStats] = useState<Stats>({ inboundCount: 0, salesCount: 0, returnCount: 0 });
+  const [stats, setStats] = useState<Stats>({ inboundCount: 0, salesCount: 0, returnCount: 0, defectOutQty: 0 });
   const [linkData, setLinkData] = useState<LinkData>({    latest_shipping_fee: 0,
     latest_platform_fee: 0,
     latest_date: "",
@@ -274,21 +276,26 @@ export default function LinksPage() {
           <span className="highlight-pink">运营操作台</span>
         </h1>
         <p className="hidden lg:block text-sm lg:text-lg text-gray-600 font-medium mb-3 lg:mb-4">
-          赛道资讯 · 库存盘点 · 数据清洗
+          瑕疵出库 · 库存盘点 · 数据清洗
         </p>
         <div className="grid grid-cols-3 gap-3 lg:gap-6">
-          <motion.a
-            href="/live/track-news"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="neo-card flex flex-col items-center justify-center gap-2 lg:gap-3 p-3 lg:p-8 cursor-pointer hover:-translate-y-1 transition-all bg-[#4A90E2]"
-            style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}
-          >
-            <TrendingUp className="h-5 w-5 lg:h-10 lg:w-10 text-white" />
-            <span className="text-xs lg:text-base font-extrabold text-white">赛道资讯</span>
-            <span className="hidden lg:block text-xs text-white/90 font-medium">童装母婴赛道每日资讯</span>
-          </motion.a>
+          {/* 瑕疵出库 - 入库登记卡片样式, 中间动态显示累计出库件数 */}
+          <Link href="/operations/defect-out">
+            <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
+              <CardContent className="p-3 lg:p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] lg:text-sm font-bold text-gray-500">瑕疵出库</p>
+                  <p className="text-lg lg:text-3xl font-extrabold">
+                    {loading ? "..." : <CountUp value={stats.defectOutQty} />}
+                  </p>
+                  <p className="text-[10px] lg:text-xs text-gray-400 font-medium">件 · 瑕疵退厂</p>
+                </div>
+                <div className="flex h-8 w-8 lg:h-12 lg:w-12 items-center justify-center rounded-lg lg:rounded-xl border-[3px] border-gray-900 bg-[#FF6B7A]">
+                  <PackageX className="h-4 w-4 lg:h-6 lg:w-6 text-white" />
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
           <motion.a
             href="/operations/stocktake"
             initial={{ opacity: 0, y: 20 }}

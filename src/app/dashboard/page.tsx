@@ -67,6 +67,11 @@ interface SizeByDateItem {
   [sizeKey: string]: number | string;
 }
 
+interface ReturnSizeMonthItem {
+  month: string;
+  [sizeKey: string]: number | string;
+}
+
 interface MfrSizeStockItem {
   manufacturer: string;
   total: number;
@@ -88,6 +93,11 @@ export default function DashboardPage() {
   // 新增数据
   const [salesSizeByDate, setSalesSizeByDate] = useState<SizeByDateItem[]>([]);
   const [mfrSizeStock, setMfrSizeStock] = useState<MfrSizeStockItem[]>([]);
+  // 退货尺码分布(按月汇总)
+  const [returnSizeByMonth, setReturnSizeByMonth] = useState<ReturnSizeMonthItem[]>([]);
+  const [selectedReturnSizeMonth, setSelectedReturnSizeMonth] = useState<string>("");
+  // 抖音直播情况图(日度/月度)
+  const [liveMode, setLiveMode] = useState<"day" | "month">("day");
   // 业绩/盈利/售卖框的模式（日度/月度）
   const [perfMode, setPerfMode] = useState<"day" | "month">("day");
 
@@ -118,7 +128,7 @@ export default function DashboardPage() {
       }
     };
     try {
-      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes] = await Promise.all([
+      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes, returnSizeRes] = await Promise.all([
         safeFetch("/api/sales-summary"),
         safeFetch("/api/inbound-records"),
         safeFetch("/api/sales-trend"),
@@ -126,6 +136,7 @@ export default function DashboardPage() {
         safeFetch("/api/daily-profit"),
         safeFetch("/api/sales-size-by-date"),
         safeFetch("/api/manufacturer-size-stock"),
+        safeFetch("/api/return-size-by-month"),
       ]);
         if (Array.isArray(salesRes)) setSalesData(salesRes);
         if (Array.isArray(prodsRes)) setProducts(prodsRes);
@@ -170,10 +181,18 @@ export default function DashboardPage() {
             : [];
         if (dailyArr.length > 0) {
           setDailyStats(dailyArr);
-          setSelectedDate(dailyArr[dailyArr.length - 1].date);
+          // 默认选中最新一个有实际售卖的日期(纯退货日不作为默认)
+          const soldDays = dailyArr.filter((r: { quantity?: number }) => (r.quantity || 0) > 0);
+          setSelectedDate(soldDays.length > 0 ? soldDays[soldDays.length - 1].date : dailyArr[dailyArr.length - 1].date);
         }
         if (Array.isArray(sizeByDateRes)) setSalesSizeByDate(sizeByDateRes);
         if (Array.isArray(mfrSizeRes)) setMfrSizeStock(mfrSizeRes);
+        if (Array.isArray(returnSizeRes)) {
+          setReturnSizeByMonth(returnSizeRes);
+          if (returnSizeRes.length > 0) {
+            setSelectedReturnSizeMonth(returnSizeRes[returnSizeRes.length - 1].month);
+          }
+        }
       } catch (e) {
         console.error("Dashboard data load error:", e);
         failed = true;
@@ -473,6 +492,51 @@ export default function DashboardPage() {
     return top;
   }, [salesSizeByDate, selectedDate, channelView]);
 
+  // ===== 退货尺码分布(按月) =====
+  const availableReturnSizeMonths = useMemo(
+    () => returnSizeByMonth.map(r => r.month).sort().reverse(),
+    [returnSizeByMonth]
+  );
+
+  const returnSizeChartData = useMemo(() => {
+    const target = selectedReturnSizeMonth || (availableReturnSizeMonths[0] ?? "");
+    const found = returnSizeByMonth.find(r => r.month === target);
+    if (!found) return [];
+    return ALL_SIZES.map(sz => ({
+      size: `${sz}`,
+      quantity: Number(found[`size_${sz}`]) || 0,
+    })).filter(d => d.quantity > 0);
+  }, [returnSizeByMonth, selectedReturnSizeMonth, availableReturnSizeMonths]);
+
+  // ===== 抖音直播情况(仅抖音视图): 单一日期抖音售卖>50件 记为一场直播 =====
+  const LIVE_MIN_QTY = 50;
+  interface LiveRow { date: string; month: string; quantity: number; shows: number; amount: number }
+  const nowForLive = new Date();
+  const currentLiveMonth = `${nowForLive.getFullYear()}-${String(nowForLive.getMonth() + 1).padStart(2, "0")}`;
+
+  // 日度: 当月抖音售卖>50件的日期
+  const liveDailyData = useMemo((): LiveRow[] => {
+    return trendData
+      .filter(t => t.channel === "douyin" && t.date.slice(0, 7) === currentLiveMonth && (t.quantity || 0) > LIVE_MIN_QTY)
+      .map(t => ({ date: t.date.slice(5), month: "", quantity: t.quantity, shows: 0, amount: t.amount }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [trendData, currentLiveMonth]);
+
+  // 月度: 各月直播场数(>50件的日期数)与直播营业额(这些日期的销售额合计)
+  const liveMonthlyData = useMemo((): LiveRow[] => {
+    const map: Record<string, { shows: number; amount: number }> = {};
+    for (const t of trendData) {
+      if (t.channel !== "douyin" || (t.quantity || 0) <= LIVE_MIN_QTY) continue;
+      const month = t.date.slice(0, 7);
+      if (!map[month]) map[month] = { shows: 0, amount: 0 };
+      map[month].shows += 1;
+      map[month].amount += t.amount || 0;
+    }
+    return Object.entries(map)
+      .map(([month, v]) => ({ date: "", month, quantity: 0, shows: v.shows, amount: v.amount }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+  }, [trendData]);
+
   // ===== 售卖尺码柱状图数据（仅当日 + 跟随渠道切换）=====
   const sizeChartData = useMemo(() => {
     const targetDate = selectedDate || (dailyStats.length > 0 ? dailyStats[dailyStats.length - 1].date : "");
@@ -565,12 +629,14 @@ export default function DashboardPage() {
               key={o.v}
               onClick={() => {
                 setChannelView(o.v);
-                // 切换渠道后, 若当前选中日期在新渠道当日无售卖(下拉中不存在), 自动跳到该渠道最新有售卖的日期
-                if (o.v !== "all") {
-                  const chDays = dailyStats.filter(d => d.channel === o.v && (d.quantity || 0) > 0);
-                  if (chDays.length > 0 && !chDays.some(d => d.date === selectedDate)) {
-                    setSelectedDate(chDays[chDays.length - 1].date);
-                  }
+                // 切换视图时统一默认到该视图最新一个有实际售卖的日期(纯退货日不算)
+                const chDays =
+                  o.v === "all"
+                    ? dailyStats
+                    : dailyStats.filter(d => d.channel === o.v);
+                const soldDays = chDays.filter(d => (d.quantity || 0) > 0);
+                if (soldDays.length > 0) {
+                  setSelectedDate(soldDays[soldDays.length - 1].date);
                 }
               }}
               className={`px-3 sm:px-4 h-9 rounded-xl border-[3px] border-gray-900 text-xs sm:text-sm font-extrabold transition-all ${
@@ -914,6 +980,58 @@ export default function DashboardPage() {
 
       {/* 图表区 */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        {/* 抖音直播情况 - 仅抖音视图, 放在售卖尺码分布前面 */}
+        {channelView === "douyin" && (
+          <ChartCard
+            title="抖音直播情况"
+            extra={
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setLiveMode("day")}
+                  className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${liveMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+                >日度</button>
+                <button
+                  onClick={() => setLiveMode("month")}
+                  className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${liveMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+                >月度</button>
+              </div>
+            }
+          >
+            {(liveMode === "day" ? liveDailyData.length === 0 : liveMonthlyData.length === 0) ? (
+              <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 text-sm font-bold gap-1">
+                <span>{liveMode === "day" ? `${currentLiveMonth} 暂无单日售卖超过 ${LIVE_MIN_QTY} 件的直播` : "暂无直播数据"}</span>
+                <span className="text-xs font-normal">单日抖音售卖大于 {LIVE_MIN_QTY} 件记为一场直播</span>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={liveMode === "day" ? liveDailyData : liveMonthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey={liveMode === "day" ? "date" : "month"}
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={v => liveMode === "day" ? String(v).slice(3) : String(v).slice(2)}
+                  />
+                  <YAxis yAxisId="left" tick={{ fontSize: 10 }} width={35} label={{ value: liveMode === "day" ? "件数" : "场数", angle: -90, position: "insideLeft", style: { fontSize: 10 }, offset: 0 }} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} width={45} tickFormatter={v => `¥${Number(v).toFixed(0)}`} label={{ value: "金额", angle: 90, position: "insideRight", style: { fontSize: 10 }, offset: 0 }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "3px solid #171717",
+                      borderRadius: "12px",
+                      boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: "12px", fontWeight: "bold", paddingTop: "10px" }} />
+                  <Bar yAxisId="left" dataKey={liveMode === "day" ? "quantity" : "shows"} name={liveMode === "day" ? "售卖件数(件)" : "直播场数(场)"} fill="#FF6B7A" radius={[4, 4, 0, 0]} barSize={liveMode === "day" ? 16 : 24} />
+                  <Line yAxisId="right" type="monotone" dataKey="amount" name={liveMode === "day" ? "当日售卖金额(¥)" : "直播营业额(¥)"} stroke="#4A90E2" strokeWidth={3} dot={{ r: 5, fill: "#4A90E2", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 8 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </ChartCard>
+        )}
+
         {/* 售卖尺码柱状图 - 仅当日数据 */}
         <ChartCard
           title="售卖尺码分布"
@@ -953,6 +1071,48 @@ export default function DashboardPage() {
                 <Bar dataKey="quantity" name="售出数量" fill="#9B59B6" radius={[4, 4, 0, 0]} barSize={30}>
                   <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
                 </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        {/* 退货尺码分布(按月汇总) - 放在售卖尺码分布下方 */}
+        <ChartCard
+          title="退货尺码分布（按月）"
+          extra={
+            <select
+              value={selectedReturnSizeMonth}
+              onChange={e => setSelectedReturnSizeMonth(e.target.value)}
+              className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
+            >
+              {availableReturnSizeMonths.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          }
+        >
+          {returnSizeChartData.length === 0 ? (
+            <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">
+              该月份无退货数据
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={returnSizeChartData} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
+                <YAxis tick={{ fontSize: 11 }} width={35} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "white",
+                    border: "3px solid #171717",
+                    borderRadius: "12px",
+                    boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                  }}
+                  formatter={(value: unknown) => `${Number(value).toLocaleString()} 件`}
+                />
+                <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={30} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -1072,7 +1232,8 @@ export default function DashboardPage() {
         </ChartCard>
         )}
 
-        {/* 各厂家售卖/退货数量 */}
+        {/* 各厂家售卖/退货数量 - 仅全部视图(厂家数据无渠道归属) */}
+        {channelView === "all" && (
         <ChartCard
           title={mfrMode === "sales" ? "各厂家售卖数量" : "各厂家退货数量"}
           extra={
@@ -1112,8 +1273,10 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </ChartCard>
+        )}
 
-        {/* 厂家尺码剩余雷达图 */}
+        {/* 厂家尺码剩余雷达图 - 仅全部视图 */}
+        {channelView === "all" && (
         <ChartCard title="厂家尺码剩余分布（雷达图）">
           {radarData.data.length === 0 || radarData.mfrs.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">暂无数据</div>
@@ -1155,6 +1318,7 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </ChartCard>
+        )}
       </motion.div>
     </PageWrapper>
   );

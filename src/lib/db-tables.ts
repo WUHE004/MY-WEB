@@ -11,7 +11,7 @@ export const TABLE_COLUMNS: Record<string, string[]> = {
   model_usage: ["id", "member_id", "model_name", "created_at"],
   live_selections: ["id", "member_name", "sale_id", "created_at"],
   live_shoot_scripts: ["id", "user_idea", "script_content", "created_at"],
-  live_track_news: ["id", "date", "hot_topics", "top_anchors", "douyin_hashtags", "category_insights", "raw_search_results", "created_at", "updated_at"],
+  defect_out_records: ["id", "sale_id", "size", "quantity", "cost_price", "defect_type", "notes", "registrant", "created_at"],
   douyin_links: ["id", "name", "live_url", "qr_code", "created_at"],
   pack_records: ["id", "tracking_number", "status", "submitter", "packer", "created_at", "updated_at"],
   pack_items: ["id", "pack_id", "sale_id", "photo", "product_name", "size", "quantity", "sell_price", "shelf_no", "order_time", "manufacturer", "created_at"],
