@@ -40,23 +40,35 @@ async function fetchAllSaleIds(
 
 export async function GET() {
   try {
+    // 瑕疵出库累计件数: PostgREST 有 db-max-rows=1000 上限, 必须分页读全(.limit 大值会被静默截断)
+    const fetchDefectQty = async (): Promise<number> => {
+      let total = 0;
+      let page = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("defect_out_records")
+          .select("quantity")
+          .order("id", { ascending: true })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        if (error || !data || data.length === 0) break;
+        total += data.reduce((s: number, r: { quantity?: number }) => s + (Number(r.quantity) || 0), 0);
+        if (data.length < PAGE_SIZE) break;
+        page++;
+      }
+      return total;
+    };
+
     // 三张表并行统计 distinct sale_id（原先串行逐表逐页）+ 瑕疵出库累计件数
-    const [inboundRes, salesRes, returnRes, defectRes] = await Promise.all([
+    const [inboundRes, salesRes, returnRes, defectOutQty] = await Promise.all([
       fetchAllSaleIds("inbound_records", "inbound_date"),
       fetchAllSaleIds("sales_records", "registration_date"),
       fetchAllSaleIds("return_records", "created_at"),
-      supabase.from("defect_out_records").select("quantity").limit(10000),
+      fetchDefectQty(),
     ]);
 
     const err = inboundRes.error || salesRes.error || returnRes.error;
     if (err) {
       return NextResponse.json({ error: err }, { status: 500 });
-    }
-
-    // 瑕疵出库表可能尚未建(迁移 008 未执行), 失败时按 0 处理不阻塞统计
-    let defectOutQty = 0;
-    if (!defectRes.error && Array.isArray(defectRes.data)) {
-      defectOutQty = defectRes.data.reduce((s: number, r: { quantity?: number }) => s + (Number(r.quantity) || 0), 0);
     }
 
     return NextResponse.json({

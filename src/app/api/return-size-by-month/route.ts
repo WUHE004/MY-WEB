@@ -14,20 +14,31 @@ function toDateStr(v: unknown): string {
 }
 
 // 按月聚合退货各尺码数量(仪表盘"退货尺码分布"图用)
+// 注意: Supabase PostgREST 有 db-max-rows=1000 服务端上限, .limit(10000) 只会静默返回 1000 行,
+// 必须用 .range() 分页读全, 否则退货数据丢一半(仪表盘月份合计对不上总件数)
 export async function GET() {
   try {
-    const { data, error } = await supabase
-      .from("return_records")
-      .select("size, quantity, return_time, created_at")
-      .limit(10000);
-
-    if (error) {
-      console.error("return-size-by-month 查询失败:", error.message);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const PAGE = 1000;
+    let allRows: Record<string, unknown>[] = [];
+    let page = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("return_records")
+        .select("size, quantity, return_time, created_at")
+        .order("id", { ascending: true })
+        .range(page * PAGE, (page + 1) * PAGE - 1);
+      if (error) {
+        console.error("return-size-by-month 查询失败:", error.message);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      if (!data || data.length === 0) break;
+      allRows = allRows.concat(data as unknown as Record<string, unknown>[]);
+      if (data.length < PAGE) break;
+      page++;
     }
 
     const monthMap: Record<string, Record<string, number | string>> = {};
-    for (const rec of data || []) {
+    for (const rec of allRows) {
       const date = toDateStr(rec.return_time) || toDateStr(rec.created_at);
       if (!date) continue;
       const month = date.slice(0, 7);
