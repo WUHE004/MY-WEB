@@ -40,14 +40,27 @@ async function readAll(table: string, select: string): Promise<Record<string, un
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const rate = Number(searchParams.get("rate")) || 5; // 抖音抽点%, 默认5
-  const rate1 = Number(searchParams.get("rate1")) || 0;
-  const rate2 = Number(searchParams.get("rate2")) || 0;
-  const rate3 = Number(searchParams.get("rate3")) || 0;
-  const ddRate = Number(searchParams.get("ddRate")) || 0.6; // 多多抽点%, 默认0.6
-  const ddShip = Number(searchParams.get("ddShip")) || 2; // 多多每件快递元, 默认2
-
   try {
+    // 无参数调用(如仪表盘台账)时, 费率从 settings 表读取; 有参数则用参数(平台抽点页显式传参)
+    let rate = Number(searchParams.get("rate")) || 0; // 抖音抽点%, 默认5
+    let rate1 = Number(searchParams.get("rate1")) || 0;
+    let rate2 = Number(searchParams.get("rate2")) || 0;
+    let rate3 = Number(searchParams.get("rate3")) || 0;
+    let ddRate = Number(searchParams.get("ddRate")) || 0; // 多多抽点%, 默认0.6
+    let ddShip = Number(searchParams.get("ddShip")) || 0; // 多多每件快递元, 默认2
+
+    if (!searchParams.has("rate") && !searchParams.has("ddRate")) {
+      const { data: settingRows } = await supabase.from("settings").select("key,value");
+      const S: Record<string, unknown> = {};
+      for (const row of settingRows || []) S[row.key] = row.value;
+      rate = Number(S.platform_fee_rate) || 5;
+      ddRate = Number(S.duoduo_fee_rate) || 0.6;
+      ddShip = Number(S.duoduo_ship_per_item) || 2;
+      const sr = (S.shipping_rates || {}) as Record<string, unknown>;
+      rate1 = Number(sr.rate1) || 0;
+      rate2 = Number(sr.rate2) || 0;
+      rate3 = Number(sr.rate3) || 0;
+    }
     const [sales, inbound, returns] = await Promise.all([
       readAll("sales_records", "sale_id, sell_price, quantity, tracking_number, registration_date, order_time"),
       readAll("inbound_records", "sale_id, cost_price"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
@@ -8,7 +8,7 @@ import { CountUp, staggerContainer, staggerItem } from "@/components/motion-prim
 import { authFetch } from "@/lib/auth-fetch";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  ComposedChart, Line, PieChart, Pie, Cell, Legend, LabelList,
+  ComposedChart, Line, PieChart, Pie, Cell, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
 import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent } from "lucide-react";
@@ -79,6 +79,20 @@ interface MfrSizeStockItem {
   [sizeKey: string]: number | string;
 }
 
+// 经营台账行(平台抽点接口实时重算, 与平台抽点页同源同口径)
+interface PlatformRecord {
+  date: string;
+  channel: string; // douyin=抖音 / duoduo=多多
+  total_qty: number;
+  total_revenue: number;
+  total_cost: number;
+  return_loss: number;
+  total_profit: number; // 已扣退货损失的毛利
+  shipping_fee: number;
+  platform_fee: number;
+  net_profit: number;
+}
+
 export default function DashboardPage() {
   const [salesData, setSalesData] = useState<SalesSummary[]>([]);
   const [products, setProducts] = useState<InboundRecord[]>([]);
@@ -97,6 +111,9 @@ export default function DashboardPage() {
   // 退货尺码分布(按月汇总)
   const [returnSizeByMonth, setReturnSizeByMonth] = useState<ReturnSizeMonthItem[]>([]);
   const [selectedReturnSizeMonth, setSelectedReturnSizeMonth] = useState<string>("");
+  // 经营台账(平台抽点数据, 跟随渠道切换; 日度/月度)
+  const [platformRecords, setPlatformRecords] = useState<PlatformRecord[]>([]);
+  const [ledgerMode, setLedgerMode] = useState<"day" | "month">("day");
   // 抖音直播情况图(日度/月度)
   const [liveMode, setLiveMode] = useState<"day" | "month">("day");
   // 业绩/盈利/售卖框的模式（日度/月度）
@@ -129,7 +146,7 @@ export default function DashboardPage() {
       }
     };
     try {
-      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes, returnSizeRes] = await Promise.all([
+      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes, returnSizeRes, platRes] = await Promise.all([
         safeFetch("/api/sales-summary"),
         safeFetch("/api/inbound-records"),
         safeFetch("/api/sales-trend"),
@@ -138,6 +155,8 @@ export default function DashboardPage() {
         safeFetch("/api/sales-size-by-date"),
         safeFetch("/api/manufacturer-size-stock"),
         safeFetch("/api/return-size-by-month"),
+        // 平台抽点接口(无参数时服务端自动读 settings 费率), 经营台账用
+        safeFetch("/api/platform-fee"),
       ]);
         if (Array.isArray(salesRes)) setSalesData(salesRes);
         if (Array.isArray(prodsRes)) setProducts(prodsRes);
@@ -194,6 +213,8 @@ export default function DashboardPage() {
             setSelectedReturnSizeMonth(returnSizeRes[returnSizeRes.length - 1].month);
           }
         }
+        // 平台抽点返回 { records: [...] }
+        if (Array.isArray(platRes?.records)) setPlatformRecords(platRes.records);
       } catch (e) {
         console.error("Dashboard data load error:", e);
         failed = true;
@@ -592,30 +613,56 @@ export default function DashboardPage() {
     return ALL_SIZES.map(sz => {
       const returns = Number(found[`size_${sz}`]) || 0;
       const sales = salesBySize[sz] || 0;
-      const rate = sales > 0 ? `${((returns / sales) * 100).toFixed(1)}%` : "";
-      return { size: `${sz}`, quantity: returns, sales, rate };
+      return { size: `${sz}`, quantity: returns, sales };
     }).filter(d => d.quantity > 0 || d.sales > 0);
   }, [returnSizeByMonth, salesSizeByDate, selectedReturnSizeMonth, availableReturnSizeMonths]);
 
-  // ===== 叠柱宽度: recharts 在 柱宽×2+gap ≥ 刻度带宽 时会强制取消负 gap 变并排(手机窄屏必触发)。
-  // 按容器宽度动态算柱宽(≤带宽一半), 保证绿/红两柱任何屏幕都完全重叠 =====
-  const returnChartRef = useRef<HTMLDivElement | null>(null);
-  const [returnChartW, setReturnChartW] = useState(0);
-  useEffect(() => {
-    const el = returnChartRef.current;
-    if (!el) return;
-    const update = () => setReturnChartW(el.clientWidth);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const returnBarSize = useMemo(() => {
-    // 绘图区宽 ≈ 容器宽 - Y轴宽(35) - 右边距(20) - 余量(10); 13 个尺码刻度
-    const plotW = Math.max(0, returnChartW - 35 - 20 - 10);
-    const band = plotW / 13;
-    return Math.max(4, Math.min(30, Math.floor(band / 2) - 1));
-  }, [returnChartW]);
+  // ===== 经营台账: 平台抽点数据按渠道过滤, "全部"视图按日期合并抖音+多多两行 =====
+  const ledgerRows = useMemo(() => {
+    let rows: PlatformRecord[];
+    if (channelView === "all") {
+      const map = new Map<string, PlatformRecord>();
+      for (const r of platformRecords) {
+        const cur = map.get(r.date);
+        if (cur) {
+          cur.total_qty += r.total_qty;
+          cur.total_revenue += r.total_revenue;
+          cur.total_cost += r.total_cost;
+          cur.return_loss += r.return_loss;
+          cur.total_profit += r.total_profit;
+          cur.shipping_fee += r.shipping_fee;
+          cur.platform_fee += r.platform_fee;
+          cur.net_profit += r.net_profit;
+        } else {
+          map.set(r.date, { ...r });
+        }
+      }
+      rows = Array.from(map.values());
+    } else {
+      rows = platformRecords.filter(r => r.channel === channelView);
+    }
+    if (ledgerMode === "month") {
+      const map = new Map<string, PlatformRecord>();
+      for (const r of rows) {
+        const month = r.date.slice(0, 7);
+        const cur = map.get(month);
+        if (cur) {
+          cur.total_qty += r.total_qty;
+          cur.total_revenue += r.total_revenue;
+          cur.total_cost += r.total_cost;
+          cur.return_loss += r.return_loss;
+          cur.total_profit += r.total_profit;
+          cur.shipping_fee += r.shipping_fee;
+          cur.platform_fee += r.platform_fee;
+          cur.net_profit += r.net_profit;
+        } else {
+          map.set(month, { ...r, date: month });
+        }
+      }
+      rows = Array.from(map.values());
+    }
+    return rows.sort((a, b) => b.date.localeCompare(a.date));
+  }, [platformRecords, channelView, ledgerMode]);
 
   // ===== 抖音直播情况(仅抖音视图): 单一日期抖音售卖>50件 记为一场直播 =====
   const LIVE_MIN_QTY = 50;
@@ -1087,6 +1134,83 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
+      {/* 经营台账 - 平台抽点数据, 跟随顶部渠道切换(全部=抖音+多多合计), 放在售卖尺码分布上方 */}
+      <ChartCard
+        title={`经营台账（${channelView === "all" ? "抖音+多多合计" : channelView === "douyin" ? "抖音" : "多多"}）`}
+        extra={
+          <div className="flex gap-1">
+            <button
+              onClick={() => setLedgerMode("day")}
+              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+            >日度</button>
+            <button
+              onClick={() => setLedgerMode("month")}
+              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+            >月度</button>
+          </div>
+        }
+      >
+        {ledgerRows.length === 0 ? (
+          <div className="flex items-center justify-center h-[120px] text-gray-400 text-sm font-bold">
+            暂无台账数据
+          </div>
+        ) : (
+          <>
+            {/* 桌面端: 完整表格 */}
+            <div className="hidden sm:block overflow-x-auto max-h-[420px] overflow-y-auto">
+              <table className="w-full text-sm whitespace-nowrap">
+                <thead className="sticky top-0 z-10 bg-gray-900 text-white">
+                  <tr>
+                    <th className="px-2 py-2 text-left font-extrabold">{ledgerMode === "day" ? "日期" : "月份"}</th>
+                    <th className="px-2 py-2 text-center font-extrabold">售出件数</th>
+                    <th className="px-2 py-2 text-right font-extrabold">营业额</th>
+                    <th className="px-2 py-2 text-right font-extrabold">进货成本</th>
+                    <th className="px-2 py-2 text-right font-extrabold">退货损失</th>
+                    <th className="px-2 py-2 text-right font-extrabold">利润</th>
+                    <th className="px-2 py-2 text-right font-extrabold">快递费</th>
+                    <th className="px-2 py-2 text-right font-extrabold">平台抽点</th>
+                    <th className="px-2 py-2 text-right font-extrabold">净利润</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerRows.map((r, i) => (
+                    <tr key={r.date} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                      <td className="px-2 py-2 text-xs font-bold text-gray-900">{r.date}</td>
+                      <td className="px-2 py-2 text-center text-xs font-bold">{r.total_qty}件</td>
+                      <td className="px-2 py-2 text-right text-xs font-bold text-green-600">¥{r.total_revenue.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-500">¥{r.total_cost.toFixed(2)}</td>
+                      <td className={`px-2 py-2 text-right text-xs ${r.return_loss > 0 ? "text-red-400" : "text-gray-300"}`}>¥{r.return_loss.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-xs font-bold text-blue-600">¥{r.total_profit.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-xs text-orange-500">¥{r.shipping_fee.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-xs font-bold text-red-500">¥{r.platform_fee.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right text-xs font-extrabold text-purple-600">¥{r.net_profit.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* 移动端: 卡片列表(关键数字大号显示, 细节收进第二三行) */}
+            <div className="sm:hidden max-h-[420px] overflow-y-auto space-y-2 pr-1">
+              {ledgerRows.map(r => (
+                <div key={r.date} className="rounded-xl border-[2px] border-gray-900 bg-white p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-extrabold text-gray-900">{r.date}</span>
+                    <span className="text-sm font-extrabold text-purple-600">净利 ¥{r.net_profit.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-700 mb-0.5">
+                    <span>{r.total_qty}件</span>
+                    <span className="text-green-600">营业额 ¥{r.total_revenue.toFixed(2)}</span>
+                  </div>
+                  <div className="text-[10px] text-gray-400 font-bold">
+                    利润 ¥{r.total_profit.toFixed(2)} · 成本 ¥{r.total_cost.toFixed(2)} · 快递 ¥{r.shipping_fee.toFixed(2)} · 抽点 ¥{r.platform_fee.toFixed(2)} · 退货损失 ¥{r.return_loss.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </ChartCard>
+
       {/* 图表区 */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* 抖音直播情况 - 仅抖音视图, 放在售卖尺码分布前面 */}
@@ -1189,59 +1313,80 @@ export default function DashboardPage() {
         <ChartCard
           title="退货尺码分布（按月）"
           extra={
-            <div className="flex items-center gap-2">
-              <span className="hidden sm:flex items-center gap-1 text-[10px] font-bold text-gray-500">
-                <span className="h-2 w-2 rounded-sm bg-[#4CD964]" />售卖
-                <span className="h-2 w-2 rounded-sm bg-[#FF6B6B] ml-1" />退货
-              </span>
-              <select
-                value={selectedReturnSizeMonth}
-                onChange={e => setSelectedReturnSizeMonth(e.target.value)}
-                className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
-              >
-                {availableReturnSizeMonths.map(m => (
-                  <option key={m.month} value={m.month}>
-                    {m.month}（{m.total}件）
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={selectedReturnSizeMonth}
+              onChange={e => setSelectedReturnSizeMonth(e.target.value)}
+              className="text-[10px] sm:text-xs border-[2px] border-gray-900 rounded-lg px-1.5 py-0.5 bg-white font-bold text-gray-700"
+            >
+              {availableReturnSizeMonths.map(m => (
+                <option key={m.month} value={m.month}>
+                  {m.month}（{m.total}件）
+                </option>
+              ))}
+            </select>
           }
         >
           {returnSizeChartData.length === 0 ? (
-            <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">
+            <div className="flex items-center justify-center h-[200px] text-gray-400 text-sm font-bold">
               该月份无退货/售卖数据
             </div>
           ) : (
-            <div ref={returnChartRef}>
-              <ResponsiveContainer width="100%" height={300}>
-                {/* barGap 取负柱宽使两条柱完全重叠: 绿色(售卖)在后, 红色(退货)在前 */}
-                <BarChart data={returnSizeChartData} barGap={-returnBarSize} margin={{ left: 0, right: 20, top: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
-                  <YAxis tick={{ fontSize: 11 }} width={35} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "white",
-                      border: "3px solid #171717",
-                      borderRadius: "12px",
-                      boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
-                      fontSize: "12px",
-                      fontWeight: "bold",
-                    }}
-                    formatter={(value: unknown) => `${Number(value).toLocaleString()} 件`}
-                  />
-                  <Bar dataKey="sales" name="售卖数量" fill="#4CD964" radius={[4, 4, 0, 0]} barSize={returnBarSize} />
-                  <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={returnBarSize}>
-                    <LabelList
-                      dataKey="rate"
-                      position="top"
-                      style={{ fontSize: 10, fontWeight: "bold", fill: "#FF6B6B" }}
-                      formatter={(v: unknown) => (v ? String(v) : "")}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div>
+              {/* 图例 */}
+              <div className="flex items-center justify-end gap-3 text-[10px] font-bold text-gray-500 mb-2">
+                <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-[#4CD964]" />售卖</span>
+                <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-[#FF6B6B]" />退货</span>
+              </div>
+              {/* 横向对比条: 每行一个尺码, 绿条=售卖 红条=退货, 同一比例尺, 右侧退货率 */}
+              <div className="max-h-[430px] overflow-y-auto pr-1 space-y-2.5">
+                {returnSizeChartData.map(d => {
+                  const maxV = Math.max(...returnSizeChartData.map(x => Math.max(x.sales, x.quantity)), 1);
+                  const pct = (v: number) => `${Math.max((v / maxV) * 100, v > 0 ? 2 : 0)}%`;
+                  const rateNum = d.sales > 0 ? (d.quantity / d.sales) * 100 : null;
+                  const rateColor =
+                    rateNum == null ? "bg-gray-100 text-gray-400"
+                    : rateNum < 5 ? "bg-emerald-100 text-emerald-600"
+                    : rateNum < 15 ? "bg-amber-100 text-amber-600"
+                    : "bg-rose-100 text-rose-600";
+                  return (
+                    <div key={d.size} className="flex items-center gap-2">
+                      <span className="w-8 shrink-0 text-xs font-extrabold text-gray-900">{d.size}</span>
+                      <div className="flex-1 min-w-0 space-y-1">
+                        {/* 售卖绿条 */}
+                        <div className="relative h-3.5">
+                          <div className="h-3.5 rounded-r-md bg-gray-100" style={{ width: pct(d.sales) }} />
+                          {d.sales > 0 && (
+                            <div className="absolute inset-y-0 left-0 rounded-r-md bg-[#4CD964]" style={{ width: pct(d.sales) }} />
+                          )}
+                          <span
+                            className="absolute top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-gray-700 whitespace-nowrap"
+                            style={{ left: `calc(${pct(d.sales)} + 4px)` }}
+                          >
+                            {d.sales}件
+                          </span>
+                        </div>
+                        {/* 退货红条 */}
+                        <div className="relative h-3.5">
+                          <div className="h-3.5 rounded-r-md bg-gray-100" style={{ width: pct(d.quantity) }} />
+                          {d.quantity > 0 && (
+                            <div className="absolute inset-y-0 left-0 rounded-r-md bg-[#FF6B6B]" style={{ width: pct(d.quantity) }} />
+                          )}
+                          <span
+                            className="absolute top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-gray-700 whitespace-nowrap"
+                            style={{ left: `calc(${pct(d.quantity)} + 4px)` }}
+                          >
+                            {d.quantity}件
+                          </span>
+                        </div>
+                      </div>
+                      {/* 退货率徽章(<5%绿 / 5-15%黄 / ≥15%红) */}
+                      <span className={`w-14 shrink-0 text-center text-[10px] font-extrabold rounded-full py-0.5 ${rateColor}`}>
+                        {rateNum == null ? "未售" : `${rateNum.toFixed(1)}%`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </ChartCard>
