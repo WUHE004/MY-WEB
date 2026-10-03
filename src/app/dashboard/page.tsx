@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
 import { CountUp, staggerContainer, staggerItem } from "@/components/motion-primitives";
+import { authFetch } from "@/lib/auth-fetch";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ComposedChart, Line, PieChart, Pie, Cell, Legend, LabelList,
@@ -204,6 +205,77 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // 统计表(每日业绩/退货汇总)只在数据导入或手动同步时刷新, 平时新登记的售卖/退货不会进仪表盘。
+  // 打开仪表盘时静默触发一次全量重算(30 分钟节流), 完成后轻量刷新受影响的数据
+  const lightRefresh = useCallback(async () => {
+    const safe = async (url: string) => {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        return await r.json();
+      } catch {
+        return null;
+      }
+    };
+    const [dailyRes, trendRes, returnsRes, returnSizeRes] = await Promise.all([
+      safe("/api/daily-profit"),
+      safe("/api/sales-trend"),
+      safe("/api/returns-summary"),
+      safe("/api/return-size-by-month"),
+    ]);
+    const todayBJ = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Shanghai" });
+    const dailyArr = Array.isArray(dailyRes?.stats)
+      ? dailyRes.stats
+          .filter((r: { date: string }) => String(r.date) <= todayBJ)
+          .map((r: {
+            date: string; total_amount: unknown; total_quantity: unknown;
+            total_profit: unknown; shipping_fee: unknown; platform_fee: unknown; channel: string;
+          }) => ({
+            date: r.date,
+            amount: Number(r.total_amount) || 0,
+            quantity: Number(r.total_quantity) || 0,
+            profit: Number(r.total_profit) || 0,
+            shipping_fee: Number(r.shipping_fee) || 0,
+            platform_fee: Number(r.platform_fee) || 0,
+            channel: r.channel || "douyin",
+          }))
+      : null;
+    if (dailyArr && dailyArr.length > 0) setDailyStats(dailyArr);
+    const trendArr = Array.isArray(trendRes?.salesTrend)
+      ? trendRes.salesTrend.map((r: { date: string; total_amount: unknown; total_quantity: unknown; channel: string }) => ({
+          date: r.date,
+          amount: Number(r.total_amount) || 0,
+          quantity: Number(r.total_quantity) || 0,
+          channel: r.channel || "douyin",
+        }))
+      : null;
+    if (trendArr && trendArr.length > 0) setTrendData(trendArr);
+    if (Array.isArray(returnsRes)) setReturnData(returnsRes);
+    if (Array.isArray(returnSizeRes) && returnSizeRes.length > 0) setReturnSizeByMonth(returnSizeRes);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const KEY = "last_stats_sync_at";
+          const last = Number(localStorage.getItem(KEY) || "0");
+          if (Date.now() - last < 30 * 60 * 1000) return;
+          localStorage.setItem(KEY, String(Date.now()));
+          const res = await authFetch("/api/sync-summary", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          });
+          if (res.ok) lightRefresh();
+        } catch {
+          /* 后台同步失败不影响当前页面 */
+        }
+      })();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [lightRefresh]);
 
   // 售卖金额与售卖数量趋势数据(按渠道切换过滤)
   const salesTrend = useMemo(() => {
@@ -524,6 +596,26 @@ export default function DashboardPage() {
       return { size: `${sz}`, quantity: returns, sales, rate };
     }).filter(d => d.quantity > 0 || d.sales > 0);
   }, [returnSizeByMonth, salesSizeByDate, selectedReturnSizeMonth, availableReturnSizeMonths]);
+
+  // ===== 叠柱宽度: recharts 在 柱宽×2+gap ≥ 刻度带宽 时会强制取消负 gap 变并排(手机窄屏必触发)。
+  // 按容器宽度动态算柱宽(≤带宽一半), 保证绿/红两柱任何屏幕都完全重叠 =====
+  const returnChartRef = useRef<HTMLDivElement | null>(null);
+  const [returnChartW, setReturnChartW] = useState(0);
+  useEffect(() => {
+    const el = returnChartRef.current;
+    if (!el) return;
+    const update = () => setReturnChartW(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const returnBarSize = useMemo(() => {
+    // 绘图区宽 ≈ 容器宽 - Y轴宽(35) - 右边距(20) - 余量(10); 13 个尺码刻度
+    const plotW = Math.max(0, returnChartW - 35 - 20 - 10);
+    const band = plotW / 13;
+    return Math.max(4, Math.min(30, Math.floor(band / 2) - 1));
+  }, [returnChartW]);
 
   // ===== 抖音直播情况(仅抖音视图): 单一日期抖音售卖>50件 记为一场直播 =====
   const LIVE_MIN_QTY = 50;
@@ -1121,34 +1213,36 @@ export default function DashboardPage() {
               该月份无退货/售卖数据
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              {/* barGap 负值让两条柱完全重叠: 绿色(售卖)在后, 红色(退货)在前 */}
-              <BarChart data={returnSizeChartData} barGap={-30} margin={{ left: 0, right: 20, top: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
-                <YAxis tick={{ fontSize: 11 }} width={35} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "white",
-                    border: "3px solid #171717",
-                    borderRadius: "12px",
-                    boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                  }}
-                  formatter={(value: unknown) => `${Number(value).toLocaleString()} 件`}
-                />
-                <Bar dataKey="sales" name="售卖数量" fill="#4CD964" radius={[4, 4, 0, 0]} barSize={30} />
-                <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={30}>
-                  <LabelList
-                    dataKey="rate"
-                    position="top"
-                    style={{ fontSize: 10, fontWeight: "bold", fill: "#FF6B6B" }}
-                    formatter={(v: unknown) => (v ? String(v) : "")}
+            <div ref={returnChartRef}>
+              <ResponsiveContainer width="100%" height={300}>
+                {/* barGap 取负柱宽使两条柱完全重叠: 绿色(售卖)在后, 红色(退货)在前 */}
+                <BarChart data={returnSizeChartData} barGap={-returnBarSize} margin={{ left: 0, right: 20, top: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
+                  <YAxis tick={{ fontSize: 11 }} width={35} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "white",
+                      border: "3px solid #171717",
+                      borderRadius: "12px",
+                      boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)",
+                      fontSize: "12px",
+                      fontWeight: "bold",
+                    }}
+                    formatter={(value: unknown) => `${Number(value).toLocaleString()} 件`}
                   />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                  <Bar dataKey="sales" name="售卖数量" fill="#4CD964" radius={[4, 4, 0, 0]} barSize={returnBarSize} />
+                  <Bar dataKey="quantity" name="退货数量" fill="#FF6B6B" radius={[4, 4, 0, 0]} barSize={returnBarSize}>
+                    <LabelList
+                      dataKey="rate"
+                      position="top"
+                      style={{ fontSize: 10, fontWeight: "bold", fill: "#FF6B6B" }}
+                      formatter={(v: unknown) => (v ? String(v) : "")}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </ChartCard>
 
