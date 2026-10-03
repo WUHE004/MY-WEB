@@ -11,7 +11,7 @@ import {
   ComposedChart, Line, PieChart, Pie, Cell, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
-import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent, X, NotebookText } from "lucide-react";
+import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent, NotebookText, ChevronDown } from "lucide-react";
 
 const COLORS = ["#4A90E2", "#50C878", "#FFC93C", "#FF6B6B", "#9B59B6", "#F39C12", "#1ABC9C", "#E74C3C", "#3498DB", "#2ECC71", "#E67E22", "#8E44AD", "#16A085", "#D35400", "#2980B9", "#27AE60"];
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
@@ -1302,7 +1302,7 @@ export default function DashboardPage() {
               </div>
               {/* 横向对比条: 每行一个尺码, 绿条=售卖 红条=退货, 同一比例尺, 右侧退货率 */}
               <div className="max-h-[430px] overflow-y-auto pr-1 space-y-2.5">
-                {returnSizeChartData.map(d => {
+                {returnSizeChartData.map((d, i) => {
                   const maxV = Math.max(...returnSizeChartData.map(x => Math.max(x.sales, x.quantity)), 1);
                   const pct = (v: number) => `${Math.max((v / maxV) * 100, v > 0 ? 2 : 0)}%`;
                   const rateNum = d.sales > 0 ? (d.quantity / d.sales) * 100 : null;
@@ -1312,7 +1312,7 @@ export default function DashboardPage() {
                     : rateNum < 15 ? "bg-amber-100 text-amber-600"
                     : "bg-rose-100 text-rose-600";
                   return (
-                    <div key={d.size} className="flex items-center gap-2">
+                    <div key={d.size} className={`flex items-center gap-2 rounded-lg px-1.5 py-1 ${i % 2 === 0 ? "bg-gray-100/70" : "bg-white"}`}>
                       <span className="w-8 shrink-0 text-xs font-extrabold text-gray-900">{d.size}</span>
                       <div className="flex-1 min-w-0 space-y-1">
                         {/* 售卖绿条 */}
@@ -1557,48 +1557,52 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* ===== 经营台账悬浮按钮 + 右侧抽屉 ===== */}
-      {/* 悬浮按钮(右下角): 点击打开/收起台账抽屉 */}
+      {/* ===== 经营台账悬浮按钮 + 底部抽屉 ===== */}
+      {/* 悬浮按钮: 方形圆角紫底浅投影; 手机端抬高避开底部操作栏; 抽屉打开时隐藏 */}
       <button
-        onClick={() => setLedgerOpen(v => !v)}
-        aria-label={ledgerOpen ? "收起经营台账" : "打开经营台账"}
-        className="fixed bottom-5 right-4 z-50 flex items-center gap-1.5 px-4 h-12 rounded-full border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-800 active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all"
+        onClick={() => setLedgerOpen(true)}
+        aria-label="打开经营台账"
+        className={`fixed right-4 bottom-[4.5rem] md:bottom-6 z-50 flex items-center gap-1.5 px-4 h-12 rounded-2xl border-[3px] border-gray-900 bg-[#7B61FF] text-white font-extrabold text-sm shadow-[0_6px_16px_rgba(123,97,255,0.4)] hover:shadow-[0_6px_20px_rgba(123,97,255,0.55)] hover:-translate-y-0.5 transition-all ${ledgerOpen ? "opacity-0 pointer-events-none" : "opacity-100"}`}
       >
-        {ledgerOpen ? <X className="h-4 w-4" /> : <NotebookText className="h-4 w-4" />}
-        {ledgerOpen ? "收起台账" : "经营台账"}
+        <NotebookText className="h-4 w-4" />
+        经营台账
       </button>
 
-      {/* 遮罩: 点击抽屉外收起 */}
+      {/* 遮罩(顶部空余区): 透出仪表盘, 点击收起 */}
       <div
         onClick={() => setLedgerOpen(false)}
         aria-hidden={!ledgerOpen}
-        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ${ledgerOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 z-[55] bg-black/30 transition-opacity duration-300 ${ledgerOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       />
 
-      {/* 抽屉: 从右侧平滑滑出; 常驻 DOM, 再次打开不重新加载数据 */}
+      {/* 底部抽屉: 从底部平滑滑出(入库商品详情同款形式); 常驻 DOM, 再次打开不重新加载数据 */}
       <aside
-        className={`fixed top-0 right-0 h-full w-full sm:max-w-3xl z-40 bg-gray-50 border-l-[3px] border-gray-900 flex flex-col transform transition-transform duration-300 ease-out ${ledgerOpen ? "translate-x-0" : "translate-x-full"}`}
+        className={`fixed bottom-0 left-0 right-0 z-[60] max-h-[82vh] bg-gray-50 border-t-[3px] border-gray-900 rounded-t-2xl flex flex-col transform transition-transform duration-300 ease-out ${ledgerOpen ? "translate-y-0" : "translate-y-full"}`}
         aria-hidden={!ledgerOpen}
       >
-        {/* 头部: 标题 + 渠道下拉 + 关闭 */}
-        <div className="flex items-center gap-2 px-3 sm:px-4 py-3 bg-gray-900 text-white shrink-0">
-          <h2 className="text-base sm:text-lg font-extrabold shrink-0">经营台账</h2>
-          <select
-            value={ledgerChannel}
-            onChange={e => setLedgerChannel(e.target.value as "all" | "douyin" | "duoduo")}
-            className="ml-auto text-xs font-extrabold border-[2px] border-gray-900 rounded-lg px-2 py-1.5 bg-white text-gray-900"
-          >
-            <option value="all">总表</option>
-            <option value="douyin">抖音</option>
-            <option value="duoduo">多多</option>
-          </select>
-          <button
-            onClick={() => setLedgerOpen(false)}
-            aria-label="收起台账"
-            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-white/70 text-white hover:bg-white/10 transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+        {/* 顶部把手 + 头部: 标题 + 渠道下拉 + 收起按钮 */}
+        <div className="shrink-0">
+          <div className="flex justify-center pt-2">
+            <div className="h-1.5 w-12 rounded-full bg-gray-300" />
+          </div>
+          <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5">
+            <h2 className="text-base sm:text-lg font-extrabold text-gray-900 shrink-0">经营台账</h2>
+            <select
+              value={ledgerChannel}
+              onChange={e => setLedgerChannel(e.target.value as "all" | "douyin" | "duoduo")}
+              className="text-xs font-extrabold border-[2px] border-gray-900 rounded-lg px-2 py-1.5 bg-white text-gray-900"
+            >
+              <option value="all">总表</option>
+              <option value="douyin">抖音</option>
+              <option value="duoduo">多多</option>
+            </select>
+            <button
+              onClick={() => setLedgerOpen(false)}
+              className="ml-auto flex items-center gap-1 h-9 px-3 rounded-xl border-[2px] border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-100 transition-colors shrink-0"
+            >
+              <ChevronDown className="h-4 w-4" />收起台账
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
