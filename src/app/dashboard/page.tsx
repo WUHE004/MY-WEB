@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
@@ -859,7 +859,7 @@ export default function DashboardPage() {
       )}
 
       {/* 统计卡片 - 第一行: 业绩/盈利/售卖/快递费(共用日期下拉) */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-4">
         {/* 业绩 - 带日度/月度切换 + 日期下拉 */}
         <StatCard
           icon={<TrendingUp className="h-5 w-5" />}
@@ -1041,7 +1041,7 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* 统计卡片 - 第二行: 总售出/退货率/进货/库存(仅全部视图) + 最佳业绩/最佳商品(仅渠道视图) */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+      <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-3 sm:mb-4">
         {/* 总售出 - 带月份下拉, 移至退货率前面; 渠道视图隐藏 */}
         {channelView === "all" && (
           <StatCard
@@ -1244,12 +1244,13 @@ export default function DashboardPage() {
           }
         >
           {sizeChartData.length === 0 ? (
-            <div className="flex items-center justify-center h-[300px] text-gray-400 text-sm font-bold">
+            <div className="flex items-center justify-center flex-1 min-h-[300px] text-gray-400 text-sm font-bold">
               该日期无售卖数据
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={sizeChartData} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
+            <div className="flex-1 min-h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={sizeChartData} margin={{ left: 0, right: 20, top: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="size" tick={{ fontSize: 11 }} label={{ value: "尺码", position: "insideBottom", offset: -2, style: { fontSize: 10 } }} />
                 <YAxis tick={{ fontSize: 11 }} width={35} />
@@ -1268,7 +1269,8 @@ export default function DashboardPage() {
                   <animate attributeName="opacity" values="0;1" dur="0.5s" fill="freeze" />
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            </div>
           )}
         </ChartCard>
 
@@ -1562,7 +1564,7 @@ export default function DashboardPage() {
       <button
         onClick={() => setLedgerOpen(true)}
         aria-label="打开经营台账"
-        className={`fixed right-4 bottom-[4.5rem] md:bottom-6 z-50 flex items-center gap-1.5 px-4 h-12 rounded-2xl border-[3px] border-gray-900 bg-[#7B61FF] text-white font-extrabold text-sm shadow-[0_6px_16px_rgba(123,97,255,0.4)] hover:shadow-[0_6px_20px_rgba(123,97,255,0.55)] hover:-translate-y-0.5 transition-all ${ledgerOpen ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+        className={`fixed right-4 bottom-[4.5rem] md:bottom-6 z-50 flex items-center gap-1.5 px-4 h-12 rounded-2xl border-[3px] border-gray-900 bg-[#7B61FF] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all ${ledgerOpen ? "opacity-0 pointer-events-none" : "opacity-100"}`}
       >
         <NotebookText className="h-4 w-4" />
         经营台账
@@ -1575,39 +1577,28 @@ export default function DashboardPage() {
         className={`fixed inset-0 z-[55] bg-black/30 transition-opacity duration-300 ${ledgerOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       />
 
-      {/* 底部抽屉: 从底部平滑滑出(入库商品详情同款形式); 常驻 DOM, 再次打开不重新加载数据 */}
+      {/* 底部抽屉: 从底部平滑滑出(入库商品详情同款形式); 高度固定; 常驻 DOM, 再次打开不重新加载数据 */}
       <aside
-        className={`fixed bottom-0 left-0 right-0 z-[60] max-h-[82vh] bg-gray-50 border-t-[3px] border-gray-900 rounded-t-2xl flex flex-col transform transition-transform duration-300 ease-out ${ledgerOpen ? "translate-y-0" : "translate-y-full"}`}
+        className={`fixed bottom-0 left-0 right-0 z-[60] h-[82vh] bg-gray-50 border-t-[3px] border-gray-900 rounded-t-2xl flex flex-col transform transition-transform duration-300 ease-out ${ledgerOpen ? "translate-y-0" : "translate-y-full"}`}
         aria-hidden={!ledgerOpen}
       >
-        {/* 顶部把手 + 头部: 标题 + 渠道下拉 + 收起按钮 */}
+        {/* 顶部把手 + 居中"收起台账"(点击即收起) */}
         <div className="shrink-0">
           <div className="flex justify-center pt-2">
             <div className="h-1.5 w-12 rounded-full bg-gray-300" />
           </div>
-          <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5">
-            <h2 className="text-base sm:text-lg font-extrabold text-gray-900 shrink-0">经营台账</h2>
-            <select
-              value={ledgerChannel}
-              onChange={e => setLedgerChannel(e.target.value as "all" | "douyin" | "duoduo")}
-              className="text-xs font-extrabold border-[2px] border-gray-900 rounded-lg px-2 py-1.5 bg-white text-gray-900"
-            >
-              <option value="all">总表</option>
-              <option value="douyin">抖音</option>
-              <option value="duoduo">多多</option>
-            </select>
-            <button
-              onClick={() => setLedgerOpen(false)}
-              className="ml-auto flex items-center gap-1 h-9 px-3 rounded-xl border-[2px] border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-100 transition-colors shrink-0"
-            >
-              <ChevronDown className="h-4 w-4" />收起台账
-            </button>
-          </div>
+          <button
+            onClick={() => setLedgerOpen(false)}
+            className="w-full py-2 text-center text-base sm:text-lg font-extrabold text-gray-900 hover:text-gray-500 transition-colors"
+          >
+            收起台账
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+        {/* 抽屉主体: 汇总/切换固定, 仅表格区域参与滚动 */}
+        <div className="flex-1 min-h-0 flex flex-col gap-3 px-3 sm:px-4 pb-3 sm:pb-4 overflow-hidden">
           {/* 六项汇总统计(与平台抽点页同口径) */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2 shrink-0">
             {[
               { label: "总营业额", value: ledgerTotals.revenue, color: "text-green-600" },
               { label: "总成本", value: ledgerTotals.cost, color: "text-gray-700" },
@@ -1623,11 +1614,9 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* 日度/月度切换 */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-extrabold text-gray-500">
-              {ledgerChannel === "all" ? "抖音+多多合计" : ledgerChannel === "douyin" ? "抖音台账" : "多多台账"}·{ledgerMode === "day" ? "按日统计" : "按月统计"}
-            </span>
+          {/* 渠道下拉(统一风格, 非原生) + 日度/月度切换 */}
+          <div className="flex items-center justify-between shrink-0">
+            <LedgerSelect value={ledgerChannel} onChange={setLedgerChannel} />
             <div className="flex gap-1">
               <button
                 onClick={() => setLedgerMode("day")}
@@ -1640,9 +1629,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* 明细表格(全端同款, 窄屏横向滚动) */}
-          <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
-            <div className="overflow-auto max-h-[55vh]">
+          {/* 明细表格(全端同款, 窄屏横向滚动); 仅此区域纵向滚动 */}
+          <div className="flex-1 min-h-0 bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+            <div className="h-full overflow-auto">
               <table className="w-full min-w-[680px] text-sm whitespace-nowrap">
                 <thead className="sticky top-0 z-10 bg-gray-900 text-white">
                   <tr>
@@ -1723,12 +1712,56 @@ function StatCard({ icon, label, value, numeric, prefix, suffix, decimals, color
 
 function ChartCard({ title, children, extra }: { title: string; children: React.ReactNode; extra?: React.ReactNode }) {
   return (
-    <motion.div variants={staggerItem} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4">
-      <div className="flex items-center justify-between mb-3">
+    <motion.div variants={staggerItem} className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-3 sm:p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-3 shrink-0">
         <h3 className="text-sm sm:text-base font-extrabold text-gray-900">{title}</h3>
         {extra}
       </div>
-      {children}
+      <div className="flex-1 min-h-0 flex flex-col">{children}</div>
     </motion.div>
+  );
+}
+
+// 台账渠道下拉(与全站 neo 风格统一, 非原生 select; 抽屉内向上弹出)
+function LedgerSelect({ value, onChange }: { value: "all" | "douyin" | "duoduo"; onChange: (v: "all" | "douyin" | "duoduo") => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  const options = [
+    { v: "all", label: "总表" },
+    { v: "douyin", label: "抖音" },
+    { v: "duoduo", label: "多多" },
+  ] as const;
+  const current = options.find(o => o.v === value);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="h-9 inline-flex items-center gap-1.5 px-3 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-900 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] transition-all"
+      >
+        {current?.label}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute bottom-full mb-1.5 left-0 min-w-[96px] bg-white rounded-lg border-[2px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] overflow-hidden z-20">
+          {options.map(o => (
+            <button
+              key={o.v}
+              onClick={() => { onChange(o.v); setOpen(false); }}
+              className={`w-full px-3 py-2 text-left text-xs font-bold transition-colors ${value === o.v ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

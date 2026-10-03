@@ -279,9 +279,9 @@ export default function LinksPage() {
           瑕疵出库 · 库存盘点 · 数据清洗
         </p>
         <div className="grid grid-cols-3 gap-3 lg:gap-6">
-          {/* 瑕疵出库 - 入库登记卡片样式, 中间动态显示累计出库件数 */}
-          <Link href="/operations/defect-out">
-            <Card className="cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
+          {/* 瑕疵出库 - 入库登记卡片样式, 中间动态显示累计出库件数; h-full 与右侧卡片等高 */}
+          <Link href="/operations/defect-out" className="flex h-full">
+            <Card className="w-full h-full cursor-pointer hover:-translate-y-1 transition-all" style={{ boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)" }}>
               <CardContent className="p-3 lg:p-6 flex items-center justify-between">
                 <div>
                   <p className="text-[10px] lg:text-sm font-bold text-gray-500">瑕疵出库</p>
