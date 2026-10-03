@@ -11,10 +11,18 @@ import {
   ComposedChart, Line, PieChart, Pie, Cell, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
 } from "recharts";
-import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent } from "lucide-react";
+import { TrendingUp, Package, ShoppingCart, RotateCcw, DollarSign, Truck, Percent, X, NotebookText } from "lucide-react";
 
 const COLORS = ["#4A90E2", "#50C878", "#FFC93C", "#FF6B6B", "#9B59B6", "#F39C12", "#1ABC9C", "#E74C3C", "#3498DB", "#2ECC71", "#E67E22", "#8E44AD", "#16A085", "#D35400", "#2980B9", "#27AE60"];
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+
+// 台账金额紧凑格式(万/M 缩写, 汇总卡片用)
+function fmtMoney(n: number): string {
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (abs >= 1e4) return (n / 1e4).toFixed(2) + "万";
+  return n.toFixed(2);
+}
 
 interface SalesSummary {
   sale_id: string;
@@ -111,9 +119,13 @@ export default function DashboardPage() {
   // 退货尺码分布(按月汇总)
   const [returnSizeByMonth, setReturnSizeByMonth] = useState<ReturnSizeMonthItem[]>([]);
   const [selectedReturnSizeMonth, setSelectedReturnSizeMonth] = useState<string>("");
-  // 经营台账(平台抽点数据, 跟随渠道切换; 日度/月度)
+  // 经营台账(悬浮抽屉): 平台抽点数据后台静默加载, 独立渠道下拉 + 日度/月度
   const [platformRecords, setPlatformRecords] = useState<PlatformRecord[]>([]);
   const [ledgerMode, setLedgerMode] = useState<"day" | "month">("day");
+  const [ledgerChannel, setLedgerChannel] = useState<"all" | "douyin" | "duoduo">("all");
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(true);
+  const [ledgerError, setLedgerError] = useState(false);
   // 抖音直播情况图(日度/月度)
   const [liveMode, setLiveMode] = useState<"day" | "month">("day");
   // 业绩/盈利/售卖框的模式（日度/月度）
@@ -146,7 +158,7 @@ export default function DashboardPage() {
       }
     };
     try {
-      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes, returnSizeRes, platRes] = await Promise.all([
+      const [salesRes, prodsRes, trendRes, returnsRes, dailyRes, sizeByDateRes, mfrSizeRes, returnSizeRes] = await Promise.all([
         safeFetch("/api/sales-summary"),
         safeFetch("/api/inbound-records"),
         safeFetch("/api/sales-trend"),
@@ -155,8 +167,6 @@ export default function DashboardPage() {
         safeFetch("/api/sales-size-by-date"),
         safeFetch("/api/manufacturer-size-stock"),
         safeFetch("/api/return-size-by-month"),
-        // 平台抽点接口(无参数时服务端自动读 settings 费率), 经营台账用
-        safeFetch("/api/platform-fee"),
       ]);
         if (Array.isArray(salesRes)) setSalesData(salesRes);
         if (Array.isArray(prodsRes)) setProducts(prodsRes);
@@ -213,8 +223,6 @@ export default function DashboardPage() {
             setSelectedReturnSizeMonth(returnSizeRes[returnSizeRes.length - 1].month);
           }
         }
-        // 平台抽点返回 { records: [...] }
-        if (Array.isArray(platRes?.records)) setPlatformRecords(platRes.records);
       } catch (e) {
         console.error("Dashboard data load error:", e);
         failed = true;
@@ -223,9 +231,26 @@ export default function DashboardPage() {
         if (failed) setDataError(true);
       }
   }, []);
+  // 台账数据后台静默加载(不阻塞仪表盘主内容); 加载一次后抽屉开合复用, 不重新请求
+  const fetchLedger = useCallback(async () => {
+    setLedgerLoading(true);
+    setLedgerError(false);
+    try {
+      const r = await fetch("/api/platform-fee");
+      const d = await r.json();
+      if (Array.isArray(d?.records)) setPlatformRecords(d.records);
+      else setLedgerError(true);
+    } catch {
+      setLedgerError(true);
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    fetchLedger(); // 后台默默加载台账
+  }, [loadData, fetchLedger]);
 
   // 统计表(每日业绩/退货汇总)只在数据导入或手动同步时刷新, 平时新登记的售卖/退货不会进仪表盘。
   // 打开仪表盘时静默触发一次全量重算(30 分钟节流), 完成后轻量刷新受影响的数据
@@ -617,10 +642,10 @@ export default function DashboardPage() {
     }).filter(d => d.quantity > 0 || d.sales > 0);
   }, [returnSizeByMonth, salesSizeByDate, selectedReturnSizeMonth, availableReturnSizeMonths]);
 
-  // ===== 经营台账: 平台抽点数据按渠道过滤, "全部"视图按日期合并抖音+多多两行 =====
+  // ===== 经营台账(悬浮抽屉): 按抽屉内渠道下拉过滤, "总表"按日期合并抖音+多多两行 =====
   const ledgerRows = useMemo(() => {
     let rows: PlatformRecord[];
-    if (channelView === "all") {
+    if (ledgerChannel === "all") {
       const map = new Map<string, PlatformRecord>();
       for (const r of platformRecords) {
         const cur = map.get(r.date);
@@ -639,7 +664,7 @@ export default function DashboardPage() {
       }
       rows = Array.from(map.values());
     } else {
-      rows = platformRecords.filter(r => r.channel === channelView);
+      rows = platformRecords.filter(r => r.channel === ledgerChannel);
     }
     if (ledgerMode === "month") {
       const map = new Map<string, PlatformRecord>();
@@ -662,7 +687,22 @@ export default function DashboardPage() {
       rows = Array.from(map.values());
     }
     return rows.sort((a, b) => b.date.localeCompare(a.date));
-  }, [platformRecords, channelView, ledgerMode]);
+  }, [platformRecords, ledgerChannel, ledgerMode]);
+
+  // 台账六项汇总(与平台抽点页统计口径一致, 按抽屉渠道过滤, 全时段累计)
+  const ledgerTotals = useMemo(() => {
+    const t = { revenue: 0, cost: 0, profit: 0, shipping: 0, fee: 0, net: 0 };
+    for (const r of platformRecords) {
+      if (ledgerChannel !== "all" && r.channel !== ledgerChannel) continue;
+      t.revenue += r.total_revenue;
+      t.cost += r.total_cost;
+      t.profit += r.total_profit;
+      t.shipping += r.shipping_fee;
+      t.fee += r.platform_fee;
+      t.net += r.net_profit;
+    }
+    return t;
+  }, [platformRecords, ledgerChannel]);
 
   // ===== 抖音直播情况(仅抖音视图): 单一日期抖音售卖>50件 记为一场直播 =====
   const LIVE_MIN_QTY = 50;
@@ -1134,83 +1174,6 @@ export default function DashboardPage() {
         )}
       </motion.div>
 
-      {/* 经营台账 - 平台抽点数据, 跟随顶部渠道切换(全部=抖音+多多合计), 放在售卖尺码分布上方 */}
-      <ChartCard
-        title={`经营台账（${channelView === "all" ? "抖音+多多合计" : channelView === "douyin" ? "抖音" : "多多"}）`}
-        extra={
-          <div className="flex gap-1">
-            <button
-              onClick={() => setLedgerMode("day")}
-              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
-            >日度</button>
-            <button
-              onClick={() => setLedgerMode("month")}
-              className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
-            >月度</button>
-          </div>
-        }
-      >
-        {ledgerRows.length === 0 ? (
-          <div className="flex items-center justify-center h-[120px] text-gray-400 text-sm font-bold">
-            暂无台账数据
-          </div>
-        ) : (
-          <>
-            {/* 桌面端: 完整表格 */}
-            <div className="hidden sm:block overflow-x-auto max-h-[420px] overflow-y-auto">
-              <table className="w-full text-sm whitespace-nowrap">
-                <thead className="sticky top-0 z-10 bg-gray-900 text-white">
-                  <tr>
-                    <th className="px-2 py-2 text-left font-extrabold">{ledgerMode === "day" ? "日期" : "月份"}</th>
-                    <th className="px-2 py-2 text-center font-extrabold">售出件数</th>
-                    <th className="px-2 py-2 text-right font-extrabold">营业额</th>
-                    <th className="px-2 py-2 text-right font-extrabold">进货成本</th>
-                    <th className="px-2 py-2 text-right font-extrabold">退货损失</th>
-                    <th className="px-2 py-2 text-right font-extrabold">利润</th>
-                    <th className="px-2 py-2 text-right font-extrabold">快递费</th>
-                    <th className="px-2 py-2 text-right font-extrabold">平台抽点</th>
-                    <th className="px-2 py-2 text-right font-extrabold">净利润</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledgerRows.map((r, i) => (
-                    <tr key={r.date} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                      <td className="px-2 py-2 text-xs font-bold text-gray-900">{r.date}</td>
-                      <td className="px-2 py-2 text-center text-xs font-bold">{r.total_qty}件</td>
-                      <td className="px-2 py-2 text-right text-xs font-bold text-green-600">¥{r.total_revenue.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-xs text-gray-500">¥{r.total_cost.toFixed(2)}</td>
-                      <td className={`px-2 py-2 text-right text-xs ${r.return_loss > 0 ? "text-red-400" : "text-gray-300"}`}>¥{r.return_loss.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-xs font-bold text-blue-600">¥{r.total_profit.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-xs text-orange-500">¥{r.shipping_fee.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-xs font-bold text-red-500">¥{r.platform_fee.toFixed(2)}</td>
-                      <td className="px-2 py-2 text-right text-xs font-extrabold text-purple-600">¥{r.net_profit.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {/* 移动端: 卡片列表(关键数字大号显示, 细节收进第二三行) */}
-            <div className="sm:hidden max-h-[420px] overflow-y-auto space-y-2 pr-1">
-              {ledgerRows.map(r => (
-                <div key={r.date} className="rounded-xl border-[2px] border-gray-900 bg-white p-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-extrabold text-gray-900">{r.date}</span>
-                    <span className="text-sm font-extrabold text-purple-600">净利 ¥{r.net_profit.toFixed(2)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-700 mb-0.5">
-                    <span>{r.total_qty}件</span>
-                    <span className="text-green-600">营业额 ¥{r.total_revenue.toFixed(2)}</span>
-                  </div>
-                  <div className="text-[10px] text-gray-400 font-bold">
-                    利润 ¥{r.total_profit.toFixed(2)} · 成本 ¥{r.total_cost.toFixed(2)} · 快递 ¥{r.shipping_fee.toFixed(2)} · 抽点 ¥{r.platform_fee.toFixed(2)} · 退货损失 ¥{r.return_loss.toFixed(2)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </ChartCard>
-
       {/* 图表区 */}
       <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* 抖音直播情况 - 仅抖音视图, 放在售卖尺码分布前面 */}
@@ -1593,6 +1556,143 @@ export default function DashboardPage() {
         </ChartCard>
         )}
       </motion.div>
+
+      {/* ===== 经营台账悬浮按钮 + 右侧抽屉 ===== */}
+      {/* 悬浮按钮(右下角): 点击打开/收起台账抽屉 */}
+      <button
+        onClick={() => setLedgerOpen(v => !v)}
+        aria-label={ledgerOpen ? "收起经营台账" : "打开经营台账"}
+        className="fixed bottom-5 right-4 z-50 flex items-center gap-1.5 px-4 h-12 rounded-full border-[3px] border-gray-900 bg-gray-900 text-white font-extrabold text-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-800 active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all"
+      >
+        {ledgerOpen ? <X className="h-4 w-4" /> : <NotebookText className="h-4 w-4" />}
+        {ledgerOpen ? "收起台账" : "经营台账"}
+      </button>
+
+      {/* 遮罩: 点击抽屉外收起 */}
+      <div
+        onClick={() => setLedgerOpen(false)}
+        aria-hidden={!ledgerOpen}
+        className={`fixed inset-0 bg-black/40 z-40 transition-opacity duration-300 ${ledgerOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+      />
+
+      {/* 抽屉: 从右侧平滑滑出; 常驻 DOM, 再次打开不重新加载数据 */}
+      <aside
+        className={`fixed top-0 right-0 h-full w-full sm:max-w-3xl z-40 bg-gray-50 border-l-[3px] border-gray-900 flex flex-col transform transition-transform duration-300 ease-out ${ledgerOpen ? "translate-x-0" : "translate-x-full"}`}
+        aria-hidden={!ledgerOpen}
+      >
+        {/* 头部: 标题 + 渠道下拉 + 关闭 */}
+        <div className="flex items-center gap-2 px-3 sm:px-4 py-3 bg-gray-900 text-white shrink-0">
+          <h2 className="text-base sm:text-lg font-extrabold shrink-0">经营台账</h2>
+          <select
+            value={ledgerChannel}
+            onChange={e => setLedgerChannel(e.target.value as "all" | "douyin" | "duoduo")}
+            className="ml-auto text-xs font-extrabold border-[2px] border-gray-900 rounded-lg px-2 py-1.5 bg-white text-gray-900"
+          >
+            <option value="all">总表</option>
+            <option value="douyin">抖音</option>
+            <option value="duoduo">多多</option>
+          </select>
+          <button
+            onClick={() => setLedgerOpen(false)}
+            aria-label="收起台账"
+            className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-white/70 text-white hover:bg-white/10 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+          {/* 六项汇总统计(与平台抽点页同口径) */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: "总营业额", value: ledgerTotals.revenue, color: "text-green-600" },
+              { label: "总成本", value: ledgerTotals.cost, color: "text-gray-700" },
+              { label: "总利润", value: ledgerTotals.profit, color: "text-blue-600" },
+              { label: "总快递费", value: ledgerTotals.shipping, color: "text-orange-500" },
+              { label: "总抽点", value: ledgerTotals.fee, color: "text-red-500" },
+              { label: "净利润", value: ledgerTotals.net, color: "text-purple-600" },
+            ].map(item => (
+              <div key={item.label} className="bg-white rounded-lg border-[2px] border-gray-300 p-2 text-center">
+                <p className="text-[10px] text-gray-500 font-bold">{item.label}</p>
+                <p className={`text-xs sm:text-sm font-extrabold ${item.color}`}>¥{fmtMoney(item.value)}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* 日度/月度切换 */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-gray-500">
+              {ledgerChannel === "all" ? "抖音+多多合计" : ledgerChannel === "douyin" ? "抖音台账" : "多多台账"}·{ledgerMode === "day" ? "按日统计" : "按月统计"}
+            </span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setLedgerMode("day")}
+                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "day" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+              >日度</button>
+              <button
+                onClick={() => setLedgerMode("month")}
+                className={`px-3 py-1 rounded-lg border-[2px] border-gray-900 text-xs font-extrabold transition-all ${ledgerMode === "month" ? "bg-gray-900 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]" : "bg-white text-gray-600 hover:bg-gray-100"}`}
+              >月度</button>
+            </div>
+          </div>
+
+          {/* 明细表格(全端同款, 窄屏横向滚动) */}
+          <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+            <div className="overflow-auto max-h-[55vh]">
+              <table className="w-full min-w-[680px] text-sm whitespace-nowrap">
+                <thead className="sticky top-0 z-10 bg-gray-900 text-white">
+                  <tr>
+                    <th className="px-2 py-2 text-left font-extrabold">{ledgerMode === "day" ? "日期" : "月份"}</th>
+                    <th className="px-2 py-2 text-center font-extrabold">售出件数</th>
+                    <th className="px-2 py-2 text-right font-extrabold">营业额</th>
+                    <th className="px-2 py-2 text-right font-extrabold">进货成本</th>
+                    <th className="px-2 py-2 text-right font-extrabold">退货损失</th>
+                    <th className="px-2 py-2 text-right font-extrabold">利润</th>
+                    <th className="px-2 py-2 text-right font-extrabold">快递费</th>
+                    <th className="px-2 py-2 text-right font-extrabold">平台抽点</th>
+                    <th className="px-2 py-2 text-right font-extrabold">净利润</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledgerLoading ? (
+                    <tr>
+                      <td colSpan={9} className="text-center py-8 text-gray-400 font-bold">台账加载中...</td>
+                    </tr>
+                  ) : ledgerError && ledgerRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="text-center py-8">
+                        <p className="text-gray-400 font-bold mb-2">台账加载失败</p>
+                        <button
+                          onClick={fetchLedger}
+                          className="px-4 py-1.5 rounded-lg border-[2px] border-gray-900 bg-gray-900 text-white text-xs font-extrabold"
+                        >重试</button>
+                      </td>
+                    </tr>
+                  ) : ledgerRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="text-center py-8 text-gray-400 font-bold">暂无台账数据</td>
+                    </tr>
+                  ) : (
+                    ledgerRows.map((r, i) => (
+                      <tr key={r.date} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                        <td className="px-2 py-2 text-xs font-bold text-gray-900">{r.date}</td>
+                        <td className="px-2 py-2 text-center text-xs font-bold">{r.total_qty}件</td>
+                        <td className="px-2 py-2 text-right text-xs font-bold text-green-600">¥{r.total_revenue.toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-500">¥{r.total_cost.toFixed(2)}</td>
+                        <td className={`px-2 py-2 text-right text-xs ${r.return_loss > 0 ? "text-red-400" : "text-gray-300"}`}>¥{r.return_loss.toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-xs font-bold text-blue-600">¥{r.total_profit.toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-xs text-orange-500">¥{r.shipping_fee.toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-xs font-bold text-red-500">¥{r.platform_fee.toFixed(2)}</td>
+                        <td className="px-2 py-2 text-right text-xs font-extrabold text-purple-600">¥{r.net_profit.toFixed(2)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </aside>
     </PageWrapper>
   );
 }
