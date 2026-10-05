@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Camera, Search, Package, CheckCircle, PauseCircle, Truck, Trash2, ChevronDown, X, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -53,6 +53,161 @@ const DEFAULT_SHELF_DATA: Record<string, number[]> = {
 };
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
+
+// 总表商品卡片尺码列表(与管理栏总表一致)
+const CARD_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+
+// 总表同款商品卡片的数据结构(来自 /api/product-card, 聚合口径与 /api/summary 一致)
+interface SummaryCardRow {
+  sale_id: string;
+  name?: string;
+  photo?: string;
+  inbound_total: number;
+  sold_total: number;
+  pdd_sold?: number;
+  return_total: number;
+  remaining: number;
+  cost_price: number;
+  sell_price: number;
+  shelf_no?: string;
+  manufacturer?: string;
+  inbound_date?: string;
+  last_order_time?: string;
+  inventory_value: number;
+  [key: string]: unknown;
+}
+
+const fmtMoney = (n: number) => `¥${(Number(n) || 0).toFixed(2)}`;
+const fmtPct = (r: number) => `${((Number(r) || 0) * 100).toFixed(1)}%`;
+const fmtCardDate = (d?: string) => {
+  if (!d) return "-";
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return "-";
+  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
+};
+
+// 总表同款商品卡片(布局与管理栏"总表"移动端商品卡片一致)
+function ProductSummaryCard({ row, onImageClick }: { row: SummaryCardRow; onImageClick: (src: string) => void }) {
+  const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
+  const profitRate = row.sell_price > 0 ? (row.sell_price - row.cost_price) / row.sell_price : 0;
+  const pddQty = Number(row.pdd_sold) || 0;
+  const dyQty = Math.max(0, row.sold_total - pddQty);
+  return (
+    <div className="relative bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
+      <div className="flex gap-2.5">
+        {/* 图片区域 */}
+        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+          {row.photo ? (
+            <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => onImageClick(row.photo!)} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>
+          )}
+        </div>
+        {/* 右侧规范化格子区 */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex items-start justify-between gap-1">
+            <div className="min-w-0">
+              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+              {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+            </div>
+            {row.sold_total > 0 ? (
+              <div className="flex flex-col items-end gap-0.5 shrink-0">
+                <span className="rounded-md border-2 border-gray-900 bg-[#FF6B7A] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">多多{pddQty}</span>
+                <span className="rounded-md border-2 border-gray-900 bg-[#4CD964] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">抖音{dyQty}</span>
+              </div>
+            ) : null}
+          </div>
+          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+            <div className="flex divide-x-2 divide-gray-200">
+              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                <span className="font-extrabold text-[13px] text-green-600 truncate">{row.sold_total}</span>
+              </div>
+              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
+                <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{fmtPct(profitRate)}</span>
+              </div>
+            </div>
+            <div className="flex divide-x-2 divide-gray-200">
+              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.return_total}</span>
+              </div>
+              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
+                <span className="font-extrabold text-[13px] text-yellow-600 truncate">{fmtPct(returnRate)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">进价</span>
+                <span className="font-bold text-gray-700 truncate">{fmtMoney(row.cost_price)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-red-500 shrink-0">售价</span>
+                <span className="font-extrabold text-red-500 truncate">{fmtMoney(row.sell_price)}</span>
+              </div>
+            </div>
+            <div className="flex">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">入库时间</span>
+                <span className="font-medium text-gray-700 truncate">{fmtCardDate(row.inbound_date)}</span>
+              </div>
+            </div>
+            <div className="flex">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">售出时间</span>
+                <span className="font-medium text-gray-700 truncate">{fmtCardDate(row.last_order_time)}</span>
+              </div>
+            </div>
+            <div className="flex bg-gray-100">
+              <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                <span className="text-gray-500 shrink-0">货架号</span>
+                <span className="font-medium text-gray-700 truncate">{row.shelf_no || "-"}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 尺码全宽5列换行显示 */}
+      <div className="mt-1.5 grid grid-cols-5 gap-1">
+        {CARD_SIZES.map((s) => {
+          const val = Number(row[`size_${s}`]) || 0;
+          return (
+            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+              val < 0 ? "bg-red-50 border-red-300 text-red-600" :
+              val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
+              "bg-white border-gray-200 text-gray-300"
+            }`}>{s}:{val}</span>
+          );
+        })}
+      </div>
+
+      {/* 入库/剩余/价值 均匀排开 */}
+      <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
+        <div>
+          <span className="text-gray-400">入库 </span>
+          <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">剩余 </span>
+          <span className="font-extrabold text-gray-900">{row.remaining}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">厂家 </span>
+          <span className="font-extrabold text-gray-700 truncate">{row.manufacturer || "-"}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">价值 </span>
+          <span className="font-extrabold text-red-500">{fmtMoney(row.inventory_value)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // 解析货架号为三级(排/货架号/层)
 // 历史格式背景: 2026年6~8月线上版本入库登记产生"排-货架号--层"双横线格式(如B-1--1, 层是正数),
@@ -113,6 +268,52 @@ export default function PackPage() {
   const [editShelfL3, setEditShelfL3] = useState("");
 
   useEffect(() => { fetchPackRecords(); }, []);
+
+  // ---------- 编号搜商品弹窗(总表同款卡片) ----------
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [productQuery, setProductQuery] = useState("");
+  const [productRows, setProductRows] = useState<SummaryCardRow[]>([]);
+  const [productSearching, setProductSearching] = useState(false);
+  const [productSearched, setProductSearched] = useState(false);
+  const [imgPreview, setImgPreview] = useState<string | null>(null);
+  const productTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doProductSearch = useCallback(async (q: string) => {
+    const code = q.trim();
+    if (!code) { setProductRows([]); setProductSearched(false); return; }
+    setProductSearching(true);
+    try {
+      const res = await fetch(`/api/product-card?sale_id=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "查询失败");
+      setProductRows(data.rows || []);
+    } catch {
+      showToast("查询失败, 请稍后再试", "error");
+      setProductRows([]);
+    } finally {
+      setProductSearched(true);
+      setProductSearching(false);
+    }
+  }, []);
+
+  // 输入防抖 400ms 自动查询; 回车立即查询
+  const handleProductQueryChange = (v: string) => {
+    setProductQuery(v);
+    if (productTimer.current) clearTimeout(productTimer.current);
+    productTimer.current = setTimeout(() => doProductSearch(v), 400);
+  };
+  const handleProductQueryEnter = () => {
+    if (productTimer.current) clearTimeout(productTimer.current);
+    doProductSearch(productQuery);
+  };
+
+  const openProductSearch = () => {
+    setProductQuery("");
+    setProductRows([]);
+    setProductSearched(false);
+    setImgPreview(null);
+    setShowProductSearch(true);
+  };
 
   // 加载货架设置(与入库登记共用 shelf_data, 入库登记新增货架后此处同步)
   const loadShelfData = useCallback(() => {
@@ -767,6 +968,72 @@ export default function PackPage() {
           if (id !== null) handlePackAction(id, "shipped");
         }}
       />
+
+      {/* 编号搜商品悬浮按钮(右下角, 避开手机底部导航) */}
+      <button
+        onClick={openProductSearch}
+        className={`fixed right-4 bottom-[4.5rem] md:bottom-6 z-40 flex h-12 w-12 items-center justify-center rounded-2xl border-[3px] border-gray-900 bg-[#4A90E2] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-all ${showProductSearch ? "opacity-0 pointer-events-none" : "opacity-100"}`}
+        title="按商品编号查询总表卡片"
+      >
+        <Search className="h-5 w-5" />
+      </button>
+
+      {/* 编号搜商品弹窗: 顶部搜索输入框 + 下方结果区(仅结果区滚动) */}
+      {showProductSearch && (
+        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowProductSearch(false)} />
+          <div className="relative bg-gray-50 w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col max-h-[85vh] sm:max-h-[80vh] overflow-hidden">
+            {/* 顶部: 搜索输入框 */}
+            <div className="p-3 bg-white border-b-2 border-gray-200 shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+                <input
+                  autoFocus
+                  value={productQuery}
+                  onChange={(e) => handleProductQueryChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleProductQueryEnter(); }}
+                  placeholder="输入商品编号查询，如 F236"
+                  className="w-full h-11 pl-9 pr-9 rounded-xl border-[2px] border-gray-900 text-sm font-bold text-gray-900 placeholder:text-gray-400 outline-none focus:border-[#4A90E2] transition-colors"
+                />
+                {productQuery && (
+                  <button
+                    onClick={() => { setProductQuery(""); setProductRows([]); setProductSearched(false); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
+                    title="清空"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 下方: 结果区(独立滚动) */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+              {productSearching ? (
+                <div className="py-12 text-center text-gray-400 text-sm font-bold">查询中...</div>
+              ) : !productSearched ? (
+                <div className="py-12 text-center text-gray-400 text-sm font-bold">
+                  <Package className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                  输入商品编号后，这里会显示管理栏总表中对应的同款商品卡片
+                </div>
+              ) : productRows.length === 0 ? (
+                <div className="py-12 text-center text-gray-400 text-sm font-bold">未找到商品编号 &quot;{productQuery}&quot;</div>
+              ) : (
+                productRows.map((row) => (
+                  <ProductSummaryCard key={row.sale_id} row={row} onImageClick={setImgPreview} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 图片全屏预览 */}
+      {imgPreview && (
+        <div className="fixed inset-0 z-[80] bg-black/80 flex items-center justify-center p-6 cursor-pointer" onClick={() => setImgPreview(null)}>
+          <img src={imgPreview} alt="" className="max-w-full max-h-full rounded-xl border-[3px] border-gray-900" />
+        </div>
+      )}
     </PageWrapper>
   );
 }
