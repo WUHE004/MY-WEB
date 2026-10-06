@@ -86,24 +86,47 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
     };
 
     // ===== 引擎2: @zxing/browser 解码(自己持有流,约束可控) =====
-    const startZxing = async (stream: MediaStream, video: HTMLVideoElement) => {
+    // 提速核心: 不解全幅画面, 每帧只把中央扫描框区域(宽85%×高30%)画到离屏 canvas 再解码,
+    // 解码像素量约为整幅的 1/9, iPhone 等纯 JS 解码设备识别速度大幅提升
+    const startZxing = async (video: HTMLVideoElement) => {
       const hints = new Map<DecodeHintType, unknown>();
       hints.set(DecodeHintType.POSSIBLE_FORMATS, ZXING_FORMATS);
       hints.set(DecodeHintType.TRY_HARDER, true);
       const reader = new BrowserMultiFormatReader(hints, {
-        delayBetweenScanAttempts: 80,   // 尽量密集地扫
+        delayBetweenScanAttempts: 80,
         delayBetweenScanSuccess: 3000,
       });
-      const controls = await reader.decodeFromStream(stream, video, (result) => {
-        if (result) fire(result.getText().trim());
-      });
-      if (cancelled) { try { controls.stop(); } catch { /* 忽略 */ } return; }
-      controlsRef.current = controls;
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      // 复用 controlsRef 的 stop 通道, 统一由 cleanup 停止
+      controlsRef.current = { stop: () => { stopped = true; if (timer) clearTimeout(timer); } } as unknown as IScannerControls;
       setMode("zxing");
+      const tick = () => {
+        if (cancelled || stopped || firedRef.current) return;
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (vw && vh && ctx && video.readyState >= 2) {
+          const sw = Math.round(vw * 0.85);
+          const sh = Math.round(vh * 0.3);
+          const sx = Math.round((vw - sw) / 2);
+          const sy = Math.round((vh - sh) / 2);
+          if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
+          ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+          try {
+            const result = reader.decodeFromCanvas(canvas);
+            const text = result?.getText?.().trim();
+            if (text) { fire(text); return; }
+          } catch { /* 本帧未识别到条码, 继续下一帧 */ }
+        }
+        timer = setTimeout(tick, 120);
+      };
+      tick();
     };
 
     // ===== 引擎1: 原生 BarcodeDetector 逐帧检测,异常时自动降级 =====
-    const startNative = async (Detector: BarcodeDetectorCtor, stream: MediaStream, video: HTMLVideoElement) => {
+    const startNative = async (Detector: BarcodeDetectorCtor, video: HTMLVideoElement) => {
       const detector = new Detector({ formats: NATIVE_FORMATS });
       setMode("native");
       let consecutiveErrors = 0;
@@ -120,7 +143,7 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
             // 原生引擎不可用(部分魔改浏览器暴露了构造器但底层缺失): 连续30次异常则降级 zxing
             // 降级失败必须显式报错: 否则画面正常但没有任何解码在跑, 用户扫码永远无反应
             if (++consecutiveErrors >= 30) {
-              await startZxing(stream, video).catch((e) => {
+              await startZxing(video).catch((e) => {
                 console.error("降级 zxing 引擎失败:", e);
                 setError("扫码引擎初始化失败，请关闭弹窗后重新打开重试");
                 setMode("error");
@@ -141,15 +164,19 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
       try {
         const video = videoRef.current;
         if (!video) throw new Error("video 元素未挂载");
-        // 统一打开相机: 高分辨率 + 连续自动对焦(ideal/advanced 非必需,不支持自动降级)
+        // 先探测解码引擎再开相机: 分辨率按引擎分级
+        // - 原生 BarcodeDetector(安卓): 高分辨率 1920×1080 + 连续自动对焦, ML 硬件加速扛得住
+        // - zxing 纯 JS(iPhone 等全走这条): 降到 1280×720, 配合裁剪解码减少算力消耗
+        const Detector = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
         let stream: MediaStream;
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: false,
             video: {
               facingMode: "environment",
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
+              ...(Detector
+                ? { width: { ideal: 1920 }, height: { ideal: 1080 } }
+                : { width: { ideal: 1280 }, height: { ideal: 720 } }),
               advanced: [{ focusMode: "continuous" }],
             } as unknown as MediaTrackConstraints,
           });
@@ -183,9 +210,8 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
         if (zc) setZoomCaps(zc);
 
         // 选择解码引擎
-        const Detector = (window as unknown as { BarcodeDetector?: BarcodeDetectorCtor }).BarcodeDetector;
-        if (Detector) await startNative(Detector, stream, video);
-        else await startZxing(stream, video);
+        if (Detector) await startNative(Detector, video);
+        else await startZxing(video);
       } catch (err) {
         if (cancelled) return;
         const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "未知错误";
@@ -322,7 +348,7 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
         </p>
         {mode === "zxing" && (
           <p className="text-[11px] text-yellow-200/60 text-center">
-            当前为兼容模式，识别较慢。安卓手机建议用 Chrome / Edge 浏览器打开可获得极速扫码
+            兼容模式（已提速）。把条码对准红框正中，太近模糊时稍拉远一点
           </p>
         )}
         {mode === "native" && (
