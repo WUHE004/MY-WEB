@@ -256,9 +256,21 @@ body {
   100% { background-position: -200% 0; }
 }
 
+/* 备注尺码冲突抖动提示 */
+@keyframes shake-x {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+.animate-shake-x {
+  animation: shake-x 0.45s ease-in-out;
+}
+
 /* Toast 动画 */
-@keyframes toast-in {
-  from {
+@keyframes toast-in {  from {
     transform: translateY(100%);
     opacity: 0;
   }

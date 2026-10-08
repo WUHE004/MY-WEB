@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useDeferredValue, useRef, Fragment } from "react";
 import { motion } from "framer-motion";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag, Scissors } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -2782,28 +2782,28 @@ export default function FinancePage() {
                       })}
                     </div>
 
-                    {/* 待裁虚线: 有备注红色/无备注灰色, 点击平滑展开备注区 */}
+                    {/* 待裁虚线: 贯穿卡片(出血到卡边), 黑色长虚线段; 无备注灰底 / 有备注红底, 点击沿虚线裁开 */}
                     <button
                       onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
-                      className="w-full flex items-center gap-1.5 mt-1.5"
                       aria-label="展开备注"
-                    >
-                      <span className={`flex-1 border-t-2 border-dashed ${hasNotes ? "border-red-400" : "border-gray-300"}`} />
-                      <Scissors className={`h-3 w-3 shrink-0 -scale-x-100 ${hasNotes ? "text-red-400" : "text-gray-300"}`} />
-                      <span className={`flex-1 border-t-2 border-dashed ${hasNotes ? "border-red-400" : "border-gray-300"}`} />
-                    </button>
+                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-2"
+                      style={{
+                        backgroundColor: hasNotes ? "#FECACA" : "#E5E7EB",
+                        backgroundImage: "repeating-linear-gradient(90deg, #111827 0px, #111827 14px, transparent 14px, transparent 24px)",
+                      }}
+                    />
 
-                    {/* 备注展开区(grid-rows 过渡平滑展开, 下方内容自动避让) */}
+                    {/* 裁开区域: 沿虚线展开, 灰底/红底展示入库备注 */}
                     <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                       <div className="overflow-hidden">
-                        <div className={`mt-1.5 rounded-lg border-2 border-dashed px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${hasNotes ? "border-red-300 bg-red-50/60 text-gray-700" : "border-gray-300 bg-gray-50 text-gray-400"}`}>
+                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${hasNotes ? "bg-red-100 text-gray-700" : "bg-gray-100 text-gray-400"}`}>
                           {hasNotes ? String(row.notes) : "空"}
                         </div>
                       </div>
                     </div>
 
-                    {/* 入库/剩余/价值 均匀排开(分割线由上方待裁虚线承担) */}
-                    <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5">
+                    {/* 入库/剩余/价值 均匀排开(展开时随裁开效果下移避让) */}
+                    <div className={`flex justify-between items-center text-[10px] pt-1.5 mt-1.5 transition-transform duration-300 ease-out ${notesExpanded ? "translate-y-1" : ""}`}>
                       <div>
                         <span className="text-gray-400">入库 </span>
                         <span className="font-extrabold text-blue-600">{row.inbound_total}</span>

@@ -22,6 +22,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Search,
+  Ruler,
+  Shirt,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -65,13 +68,29 @@ const DEFAULT_SHELF_DATA: Record<string, number[]> = {
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 
-// 备注快捷行的字母递进: L→XL→XXL→3XL→4XL→5XL, 纯数字则 +10, 其余保持不变
+// 进价预选默认值(可在设置中增删, 持久化 settings.cost_presets)
+const DEFAULT_COST_PRESETS = ["9.9", "15.9", "19.9", "25.9", "29.9"];
+
+// 衣服名称预输入三组默认值(持久化 settings.name_presets)
+interface NamePresets { color: string[]; style: string[]; detail: string[] }
+const DEFAULT_NAME_PRESETS: NamePresets = {
+  color: ["蓝色", "粉色", "黑色", "红色", "米白", "白色"],
+  style: ["短袖", "T桖", "毛衣", "大衣", "连体", "防晒"],
+  detail: ["Hollo kitty", "米老鼠", "奥特曼"],
+};
+const NAME_PRESET_GROUPS: { key: keyof NamePresets; label: string }[] = [
+  { key: "color", label: "颜色" },
+  { key: "style", label: "款式" },
+  { key: "detail", label: "细节" },
+];
+
+// 备注快捷行的字母递进(衣服尺码梯子): S→M→L→XL→XXL→3XL→4XL→5XL, 纯数字则 +1, 其余保持不变
+const REMARK_LETTER_LADDER = ["S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"];
 const nextRemarkTag = (v: string): string => {
   if (!v) return "";
-  if (/^\d+$/.test(v)) return String(Number(v) + 10);
-  const ladder = ["L", "XL", "XXL", "3XL", "4XL", "5XL"];
-  const i = ladder.indexOf(v);
-  if (i >= 0 && i < ladder.length - 1) return ladder[i + 1];
+  if (/^\d+$/.test(v)) return String(Number(v) + 1);
+  const i = REMARK_LETTER_LADDER.indexOf(v.toUpperCase());
+  if (i >= 0 && i < REMARK_LETTER_LADDER.length - 1) return REMARK_LETTER_LADDER[i + 1];
   return v;
 };
 
@@ -84,21 +103,31 @@ const nextRemarkSize = (v: string): string => {
 
 interface RemarkRow { a: string; b: string; }
 
-// 备注快捷填入悬浮窗: 每行 = [填空]+固定文字+[填空], 行尾加号递增新增一行, 底部"选好了"生成文字填入备注
+// 备注快捷填入悬浮窗: 每行 = [填空]+固定文字+[填空], 行尾加号递增新增一行, 底部"选好了"把各行回传给父组件填入备注
 // mode: height = 填空建议身高填空(两格纯数字, 加号新行两格各+10)
-//       pants  = 填空对应尺码填空(前格数字+大写字母自动转大写, 后格仅限尺码表, 加号新行走字母/尺码递进)
+//       pants  = 填空对应尺码填空(前格数字+大写字母自动转大写, 加号数字+1/字母走 S→M→L 梯子;
+//                后格仅限尺码表, 自选尺码与已有行冲突时标红抖动, 冲突未解决时禁止确认)
 // 由父组件条件挂载(仅打开时渲染), 状态随挂载天然重置
 function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
   title: string;
   rowLabel: string;
   mode: "height" | "pants";
   onClose: () => void;
-  onConfirm: (text: string) => void;
+  onConfirm: (lines: string[]) => void;
 }) {
   const [rows, setRows] = useState<RemarkRow[]>([{ a: "", b: "" }]);
+  // 裤长模式: 尺码冲突抖动信号(变化触发重新播放动画)
+  const [shakeTick, setShakeTick] = useState(0);
 
   const setRow = (i: number, patch: Partial<RemarkRow>) => {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  };
+
+  // 裤长模式: 某行的尺码是否与其他行重复(非空才判定)
+  const sizeConflicts = (i: number): boolean => {
+    const v = rows[i]?.b;
+    if (!v) return false;
+    return rows.some((r, idx) => idx !== i && r.b === v);
   };
 
   const addRowAfter = (i: number) => {
@@ -118,11 +147,15 @@ function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
   };
 
   const confirm = () => {
+    if (mode === "pants" && rows.some((_, i) => sizeConflicts(i))) {
+      setShakeTick((t) => t + 1); // 冲突未解决: 抖动提示并阻止确认
+      return;
+    }
     const lines = rows
       .filter((r) => r.a.trim() || r.b.trim())
       .map((r) => `${r.a.trim()}${rowLabel}${r.b.trim()}`);
     if (lines.length === 0) { onClose(); return; }
-    onConfirm(lines.join("\n"));
+    onConfirm(lines);
     onClose();
   };
 
@@ -167,9 +200,19 @@ function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
                 />
               ) : (
                 <select
+                  key={`${i}-${shakeTick}`}
                   value={r.b}
-                  onChange={(e) => setRow(i, { b: e.target.value })}
-                  className={`h-10 min-w-0 flex-1 shrink text-sm font-extrabold border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white px-1 ${r.b ? "text-gray-900" : "text-gray-400"}`}
+                  onChange={(e) => {
+                    setRow(i, { b: e.target.value });
+                    // 自选尺码与其他行冲突: 抖动提示(标红由下方冲突判定渲染)
+                    const conflict = rows.some((rr, idx) => idx !== i && rr.b === e.target.value && e.target.value);
+                    if (conflict) setShakeTick((t) => t + 1);
+                  }}
+                  className={`h-10 min-w-0 flex-1 shrink text-sm font-extrabold rounded-lg outline-none bg-white px-1 border-2 transition-colors ${
+                    mode === "pants" && sizeConflicts(i)
+                      ? "border-red-500 text-red-600 bg-red-50 animate-shake-x"
+                      : "border-gray-900 text-gray-900 focus:border-[#4A90E2]"
+                  } ${r.b ? "" : "text-gray-400"}`}
                 >
                   <option value="">选尺码</option>
                   {SIZE_OPTIONS.map((s) => (
@@ -187,6 +230,13 @@ function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
             </div>
           ))}
         </div>
+
+        {/* 裤长模式: 尺码冲突提示 */}
+        {mode === "pants" && rows.some((_, i) => sizeConflicts(i)) && (
+          <p className="mt-2 text-xs font-bold text-red-500 flex items-center gap-1">
+            <AlertTriangle className="h-3.5 w-3.5" /> 尺码与已有行冲突，请修改后再提交
+          </p>
+        )}
 
         <Button variant="primary" className="w-full mt-4" onClick={confirm}>
           选好了
@@ -219,10 +269,38 @@ export default function InboundPage() {
   // 备注快捷填入悬浮窗
   const [showHeightDialog, setShowHeightDialog] = useState(false);
   const [showPantsDialog, setShowPantsDialog] = useState(false);
-  // 追加文字到备注(已有内容时换行追加)
-  const appendNotes = useCallback((text: string) => {
-    setNotes((prev) => (prev.trim() ? prev.trimEnd() + "\n" + text : text));
+  // 本次已填入的身高/裤长备注行(用于"取消填入"一键删除)
+  const [heightInserted, setHeightInserted] = useState<string[] | null>(null);
+  const [pantsInserted, setPantsInserted] = useState<string[] | null>(null);
+  // 追加备注行(已有内容时换行追加)
+  const appendNotes = useCallback((lines: string[]) => {
+    setNotes((prev) => (prev.trim() ? prev.trimEnd() + "\n" + lines.join("\n") : lines.join("\n")));
   }, []);
+  // 从备注中删除指定行(其余行自动上移)
+  const removeNotesLines = useCallback((lines: string[] | null) => {
+    if (!lines || lines.length === 0) return;
+    setNotes((prev) => prev.split("\n").filter((l) => !lines.includes(l.trim())).join("\n"));
+  }, []);
+  const confirmHeight = useCallback((lines: string[]) => { appendNotes(lines); setHeightInserted(lines); }, [appendNotes]);
+  const confirmPants = useCallback((lines: string[]) => { appendNotes(lines); setPantsInserted(lines); }, [appendNotes]);
+  const cancelHeight = () => { removeNotesLines(heightInserted); setHeightInserted(null); };
+  const cancelPants = () => { removeNotesLines(pantsInserted); setPantsInserted(null); };
+
+  // 进价预选(气泡 + 管理, 持久化 settings.cost_presets)
+  const [costPresets, setCostPresets] = useState<string[]>(DEFAULT_COST_PRESETS);
+  const [costBubbleOpen, setCostBubbleOpen] = useState(false);
+  const [showCostDialog, setShowCostDialog] = useState(false);
+  const [costDraft, setCostDraft] = useState<string[]>([]);
+  const [newCostPreset, setNewCostPreset] = useState("");
+  const [costHasChanges, setCostHasChanges] = useState(false);
+
+  // 衣服名称预输入(颜色/款式/细节, 持久化 settings.name_presets)
+  const [namePresets, setNamePresets] = useState<NamePresets>(DEFAULT_NAME_PRESETS);
+  const [nameBubbleOpen, setNameBubbleOpen] = useState(false);
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [nameDraft, setNameDraft] = useState<NamePresets>(DEFAULT_NAME_PRESETS);
+  const [newNamePreset, setNewNamePreset] = useState<Record<keyof NamePresets, string>>({ color: "", style: "", detail: "" });
+  const [nameHasChanges, setNameHasChanges] = useState(false);
   const [season, setSeason] = useState("");
   const [style, setStyle] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -338,6 +416,17 @@ export default function InboundPage() {
           if (data.manufacturers && Array.isArray(data.manufacturers)) {
             setManufacturers(data.manufacturers);
           }
+          if (data.cost_presets && Array.isArray(data.cost_presets)) {
+            setCostPresets(data.cost_presets);
+          }
+          if (data.name_presets && typeof data.name_presets === "object") {
+            const p = data.name_presets as Partial<NamePresets>;
+            setNamePresets({
+              color: Array.isArray(p.color) ? p.color : DEFAULT_NAME_PRESETS.color,
+              style: Array.isArray(p.style) ? p.style : DEFAULT_NAME_PRESETS.style,
+              detail: Array.isArray(p.detail) ? p.detail : DEFAULT_NAME_PRESETS.detail,
+            });
+          }
         }
       } catch (err) {
         console.warn("加载设置失败，使用默认值", err);
@@ -410,6 +499,53 @@ export default function InboundPage() {
     } catch (err) {
       console.warn("保存设置失败", err);
     }
+  };
+
+  // ===== 进价预选管理 =====
+  const openCostDialog = () => {
+    setCostDraft([...costPresets]);
+    setCostHasChanges(false);
+    setShowCostDialog(true);
+  };
+  const addCostPreset = () => {
+    const v = newCostPreset.trim().replace(/[^0-9.]/g, "");
+    if (!v || isNaN(Number(v)) || Number(v) <= 0) { showToast("请输入有效的金额", "error"); return; }
+    if (costDraft.includes(v)) { showToast("该预选项已存在", "error"); return; }
+    setCostDraft((prev) => [...prev, v]);
+    setNewCostPreset("");
+    setCostHasChanges(true);
+  };
+  const saveCostPresets = async () => {
+    setCostPresets(costDraft);
+    await saveSettings("cost_presets", costDraft);
+    setCostHasChanges(false);
+    showToast("进价预选已保存", "success");
+  };
+
+  // ===== 名称预输入管理 =====
+  const openNameDialog = () => {
+    setNameDraft({ ...namePresets, color: [...namePresets.color], style: [...namePresets.style], detail: [...namePresets.detail] });
+    setNewNamePreset({ color: "", style: "", detail: "" });
+    setNameHasChanges(false);
+    setShowNameDialog(true);
+  };
+  const addNamePreset = (key: keyof NamePresets) => {
+    const v = newNamePreset[key].trim();
+    if (!v) return;
+    if (nameDraft[key].includes(v)) { showToast("该预选项已存在", "error"); return; }
+    setNameDraft((prev) => ({ ...prev, [key]: [...prev[key], v] }));
+    setNewNamePreset((prev) => ({ ...prev, [key]: "" }));
+    setNameHasChanges(true);
+  };
+  const removeNamePreset = (key: keyof NamePresets, v: string) => {
+    setNameDraft((prev) => ({ ...prev, [key]: prev[key].filter((x) => x !== v) }));
+    setNameHasChanges(true);
+  };
+  const saveNamePresets = async () => {
+    setNamePresets(nameDraft);
+    await saveSettings("name_presets", nameDraft);
+    setNameHasChanges(false);
+    showToast("名称预输入已保存", "success");
   };
 
   // ===== 下载 CSV 模板 =====
@@ -1302,12 +1438,48 @@ export default function InboundPage() {
             <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
               衣服名称 <span className="text-xs font-normal text-gray-400">(非必填)</span>
             </label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例如: 夏季短袖T恤"
-              className="text-sm"
-            />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onFocus={() => setNameBubbleOpen(true)}
+                  onBlur={() => setTimeout(() => setNameBubbleOpen(false), 150)}
+                  placeholder="例如: 夏季短袖T恤"
+                  className="text-sm"
+                />
+                {/* 名称预输入气泡: 颜色/款式/细节三组, 点击追加进输入框 */}
+                {nameBubbleOpen && (
+                  <div className="absolute left-0 right-0 bottom-full mb-1 z-30 max-h-64 overflow-y-auto rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 space-y-2">
+                    {NAME_PRESET_GROUPS.map((g) => (
+                      <div key={g.key}>
+                        <p className="text-[10px] font-extrabold text-gray-400 mb-1">{g.label}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {namePresets[g.key].map((v) => (
+                            <button
+                              key={v}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => setName((prev) => prev + v)}
+                              className="rounded-lg border-2 border-gray-900 bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-700 transition-all hover:bg-gray-900 hover:text-white"
+                            >
+                              {v}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={openNameDialog}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+                title="管理名称预输入"
+              >
+                <Settings2 className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           {/* Manufacturer */}
@@ -1403,43 +1575,61 @@ export default function InboundPage() {
             <label className="text-sm lg:text-base font-extrabold text-green-600 mb-1 block">
               进价 <span className="text-red-500">*</span>
             </label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              value={costPrice}
-              onChange={(e) => setCostPrice(e.target.value)}
-              placeholder="例如: 29.9"
-              className="text-sm font-bold"
-              style={
-                costPrice !== "" && Number(costPrice) > 100
-                  ? { borderColor: "#ef4444", color: "#dc2626" }
-                  : { borderColor: "#22c55e", color: "#16a34a" }
-              }
-            />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
+                  onFocus={() => setCostBubbleOpen(true)}
+                  onBlur={() => setTimeout(() => setCostBubbleOpen(false), 150)}
+                  placeholder="例如: 29.9"
+                  className="text-sm font-bold"
+                  style={
+                    costPrice !== "" && Number(costPrice) > 100
+                      ? { borderColor: "#ef4444", color: "#dc2626" }
+                      : { borderColor: "#22c55e", color: "#16a34a" }
+                  }
+                />
+                {/* 预选进价气泡: 点击输入框时从上方弹出, 点击直接填入 */}
+                {costBubbleOpen && costPresets.length > 0 && (
+                  <div className="absolute left-0 right-0 bottom-full mb-1 z-30 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {costPresets.map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => { setCostPrice(v); setCostBubbleOpen(false); }}
+                          className={`rounded-lg border-2 border-green-600 px-3 py-1.5 text-sm font-extrabold transition-all ${
+                            costPrice === v
+                              ? "bg-green-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                              : "bg-white text-green-700 hover:bg-green-50"
+                          }`}
+                        >
+                          ¥{v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={openCostDialog}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+                title="管理进价预选"
+              >
+                <Settings2 className="h-5 w-5" />
+              </button>
+            </div>
             {/* 进价超过 100: 输入框标红 + 提示确认售价 */}
             {costPrice !== "" && Number(costPrice) > 100 && (
               <p className="mt-1 text-xs font-bold text-red-500 flex items-center gap-1">
                 ⚠️ 进价超过 100，请确认售价是否正常
               </p>
             )}
-            {/* 预选进价: 点击直接填入 */}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {["9.9", "15.9", "19.9", "25.9", "29.9"].map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setCostPrice(v)}
-                  className={`rounded-lg border-2 border-green-600 px-3 py-1.5 text-sm font-extrabold transition-all ${
-                    costPrice === v
-                      ? "bg-green-600 text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                      : "bg-white text-green-700 hover:bg-green-50"
-                  }`}
-                >
-                  ¥{v}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Shelf No - 三级货架选择 */}
@@ -1605,28 +1795,58 @@ export default function InboundPage() {
           <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
             备注 <span className="text-xs font-normal text-gray-400">(非必填)</span>
           </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="请输入备注信息..."
-            rows={3}
-            className="neo-input w-full text-sm resize-none"
-          />
-          {/* 快捷填入按钮: 身高/裤长弹悬浮窗批量生成, 待定直接追加文字 */}
-          <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs text-gray-400 font-bold shrink-0">快捷填入:</span>
-            <button
-              onClick={() => setShowHeightDialog(true)}
-              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
-            >身高</button>
-            <button
-              onClick={() => setShowPantsDialog(true)}
-              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
-            >裤长</button>
-            <button
-              onClick={() => appendNotes("待定")}
-              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
-            >待定</button>
+          <div className="flex items-stretch gap-2">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="请输入备注信息..."
+              rows={4}
+              className="neo-input flex-1 text-sm resize-none"
+            />
+            {/* 快捷填入图标按钮: 右侧上下并排; 已填入时变"取消填入"(一键删除本次填入的行) */}
+            <div className="flex flex-col justify-center gap-2 shrink-0">
+              {heightInserted ? (
+                <button
+                  onClick={cancelHeight}
+                  className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap"
+                  title="删除本次填入的身高备注"
+                >
+                  取消填入<X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowHeightDialog(true)}
+                  className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                  title="身高批量填入"
+                >
+                  <Ruler className="h-5 w-5 text-gray-700" />
+                </button>
+              )}
+              {pantsInserted ? (
+                <button
+                  onClick={cancelPants}
+                  className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap"
+                  title="删除本次填入的裤长备注"
+                >
+                  取消填入<X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowPantsDialog(true)}
+                  className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                  title="裤长批量填入"
+                >
+                  <Shirt className="h-5 w-5 text-gray-700" />
+                </button>
+              )}
+              <button
+                onClick={() => appendNotes(["待定"])}
+                className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                title="备注追加: 待定"
+              >
+                <Clock className="h-5 w-5 text-gray-700" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1637,7 +1857,7 @@ export default function InboundPage() {
             rowLabel="建议身高"
             mode="height"
             onClose={() => setShowHeightDialog(false)}
-            onConfirm={appendNotes}
+            onConfirm={confirmHeight}
           />
         )}
         {showPantsDialog && (
@@ -1646,7 +1866,7 @@ export default function InboundPage() {
             rowLabel="对应尺码"
             mode="pants"
             onClose={() => setShowPantsDialog(false)}
-            onConfirm={appendNotes}
+            onConfirm={confirmPants}
           />
         )}
 
@@ -1660,6 +1880,149 @@ export default function InboundPage() {
           {submitting ? "提交中..." : "提交入库"}
         </Button>
       </div>
+
+      {/* Cost Preset Dialog: 进价预选管理 */}
+      {showCostDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-[90%] max-w-md max-h-[80vh] bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-6 flex flex-col"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-extrabold">进价预选管理</h2>
+              <button
+                onClick={() => setShowCostDialog(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Add new */}
+            <div className="flex gap-2 mb-4">
+              <Input
+                value={newCostPreset}
+                onChange={(e) => setNewCostPreset(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addCostPreset()}
+                placeholder="输入新预选金额, 如 19.9"
+                className="text-sm flex-1"
+              />
+              <button
+                onClick={addCostPreset}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#4CD964] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+              >
+                <PlusCircle className="h-5 w-5 text-white" />
+              </button>
+            </div>
+
+            {/* Preset list */}
+            <div className="flex-1 overflow-y-auto space-y-1">
+              {costDraft.length === 0 && (
+                <p className="text-xs text-gray-400 font-bold text-center py-4">暂无预选项, 请先添加</p>
+              )}
+              {costDraft.map((v, index) => (
+                <div key={`${v}-${index}`} className="flex items-center justify-between p-2 rounded-lg border-[2px] border-gray-200">
+                  <span className="text-sm font-bold text-green-700">¥{v}</span>
+                  <button
+                    onClick={() => { setCostDraft((prev) => prev.filter((_, i) => i !== index)); setCostHasChanges(true); }}
+                    className="flex h-6 w-6 items-center justify-center rounded-md border-[2px] border-gray-300 text-red-400 hover:bg-red-50 hover:border-red-400"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* 保存修改按钮 */}
+            <div className="mt-4 pt-3 border-t-[2px] border-gray-200">
+              <button
+                onClick={saveCostPresets}
+                disabled={!costHasChanges}
+                className={`w-full py-2.5 text-sm font-extrabold rounded-xl border-[3px] border-gray-900 transition-all ${
+                  costHasChanges
+                    ? "bg-[#4CD964] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px]"
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {costHasChanges ? "保存修改" : "已保存"}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Name Preset Dialog: 名称预输入管理(颜色/款式/细节三组) */}
+      {showNameDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="w-[90%] max-w-md max-h-[85vh] bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-6 flex flex-col"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-extrabold">名称预输入管理</h2>
+              <button
+                onClick={() => setShowNameDialog(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3">
+              {NAME_PRESET_GROUPS.map((g) => (
+                <div key={g.key} className="rounded-xl border-[2px] border-gray-200 p-3">
+                  <p className="text-sm font-extrabold text-gray-900 mb-2">{g.label}</p>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {nameDraft[g.key].map((v) => (
+                      <span key={v} className="flex items-center gap-1 rounded-lg border-[2px] border-gray-200 px-2 py-1 text-xs font-bold text-gray-700">
+                        {v}
+                        <button
+                          onClick={() => removeNamePreset(g.key, v)}
+                          className="flex h-4 w-4 items-center justify-center rounded text-red-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Input
+                      value={newNamePreset[g.key]}
+                      onChange={(e) => setNewNamePreset((prev) => ({ ...prev, [g.key]: e.target.value }))}
+                      onKeyDown={(e) => e.key === "Enter" && addNamePreset(g.key)}
+                      placeholder={`新${g.label}, 如${g.key === "detail" ? "小猪佩奇" : "黄色"}`}
+                      className="text-xs flex-1"
+                    />
+                    <button
+                      onClick={() => addNamePreset(g.key)}
+                      className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#4CD964] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+                    >
+                      <PlusCircle className="h-5 w-5 text-white" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* 保存修改按钮 */}
+            <div className="mt-4 pt-3 border-t-[2px] border-gray-200">
+              <button
+                onClick={saveNamePresets}
+                disabled={!nameHasChanges}
+                className={`w-full py-2.5 text-sm font-extrabold rounded-xl border-[3px] border-gray-900 transition-all ${
+                  nameHasChanges
+                    ? "bg-[#4CD964] text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px]"
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {nameHasChanges ? "保存修改" : "已保存"}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Manufacturer Dialog */}
       {showMfrDialog && (
