@@ -23,6 +23,8 @@ interface SummaryRow {
   last_order_time: string;
   // 每尺码入库量(错库存视图对照用), 如 { "150": 12 }
   inbound_sizes: Record<string, number>;
+  // 入库备注(取最新一条非空, 总表移动端卡片"待裁虚线"展开展示)
+  notes: string;
   // per-size remaining
   [key: string]: unknown;
 }
@@ -76,7 +78,7 @@ export async function GET() {
     const [inboundRes, salesRes, returnRes] = await Promise.all([
       fetchAllRows(
         "inbound_records",
-        `sale_id,${sizeCols},cost_price,name,manufacturer,photo,shelf_no,inbound_date`,
+        `sale_id,${sizeCols},cost_price,name,manufacturer,photo,shelf_no,inbound_date,notes`,
         "inbound_date"
       ),
       fetchAllRows("sales_records", "sale_id,quantity,size,sell_price,tracking_number,registration_date", "registration_date"),
@@ -131,6 +133,8 @@ export async function GET() {
         // 最新入库日期
         const inbDate = String(row.inbound_date || "");
         if (inbDate && inbDate > String(existing.inbound_date || "")) existing.inbound_date = inbDate;
+        // 备注: 行按入库日期倒序遍历, 保留最新一条非空备注
+        if (!existing.notes && row.notes) existing.notes = String(row.notes);
       } else {
         summaryMap.set(saleId, {
           sale_id: saleId,
@@ -149,6 +153,7 @@ export async function GET() {
           shelf_no: row.shelf_no || "",
           inbound_date: String(row.inbound_date || ""),
           last_order_time: "",
+          notes: String(row.notes || ""),
           inbound_sizes: Object.fromEntries(SIZES.map((s) => [String(s), sizeCounts[`size_${s}`] || 0])),
           ...sizeCounts,
         });
@@ -182,6 +187,7 @@ export async function GET() {
           shelf_no: "",
           inbound_date: "",
           last_order_time: "",
+          notes: "",
           inbound_sizes: {},
         });
       }
@@ -230,6 +236,7 @@ export async function GET() {
           shelf_no: "",
           inbound_date: "",
           last_order_time: "",
+          notes: "",
           inbound_sizes: {},
         });
       }

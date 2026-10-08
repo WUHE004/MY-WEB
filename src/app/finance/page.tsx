@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useDeferredValue, useRef, Fragment } from "react";
 import { motion } from "framer-motion";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
+import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag, Scissors } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -277,6 +277,8 @@ function ViewDropdown({
 
 export default function FinancePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("summary");
+  // 总表移动端卡片: 展开备注的编号(待裁虚线展开区)
+  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
   const [data, setData] = useState<SummaryRow[]>(() => getCache<SummaryRow[]>("finance_summary") || []);
   const [salesData, setSalesData] = useState<AggRow[]>([]);
   const [returnData, setReturnData] = useState<AggRow[]>([]);
@@ -2623,6 +2625,9 @@ export default function FinancePage() {
                 const isError = hasErrorStock(row);
                 const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
                 const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
+                // 备注展开区状态
+                const hasNotes = !!(row.notes && String(row.notes).trim());
+                const notesExpanded = expandedNotesId === row.sale_id;
                 // 最新售价与售卖日期（来自售出聚合）、入库日期（来自入库聚合）
                 const salesAgg = salesAggBySaleId.get(row.sale_id.toUpperCase());
                 const inboundAgg = inboundBySaleId.get(row.sale_id.toUpperCase());
@@ -2760,8 +2765,11 @@ export default function FinancePage() {
                       </div>
                     </div>
 
-                    {/* 尺码全宽5列换行显示 */}
-                    <div className="mt-1.5 grid grid-cols-5 gap-1">
+                    {/* 尺码全宽5列换行显示(点击展开/收起备注) */}
+                    <div
+                      className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer"
+                      onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
+                    >
                       {ALL_SIZES.map((s) => {
                         const val = Number(row[`size_${s}`]) || 0;
                         return (
@@ -2774,8 +2782,28 @@ export default function FinancePage() {
                       })}
                     </div>
 
-                    {/* 入库/剩余/价值 均匀排开 */}
-                    <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
+                    {/* 待裁虚线: 有备注红色/无备注灰色, 点击平滑展开备注区 */}
+                    <button
+                      onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
+                      className="w-full flex items-center gap-1.5 mt-1.5"
+                      aria-label="展开备注"
+                    >
+                      <span className={`flex-1 border-t-2 border-dashed ${hasNotes ? "border-red-400" : "border-gray-300"}`} />
+                      <Scissors className={`h-3 w-3 shrink-0 -scale-x-100 ${hasNotes ? "text-red-400" : "text-gray-300"}`} />
+                      <span className={`flex-1 border-t-2 border-dashed ${hasNotes ? "border-red-400" : "border-gray-300"}`} />
+                    </button>
+
+                    {/* 备注展开区(grid-rows 过渡平滑展开, 下方内容自动避让) */}
+                    <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                      <div className="overflow-hidden">
+                        <div className={`mt-1.5 rounded-lg border-2 border-dashed px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${hasNotes ? "border-red-300 bg-red-50/60 text-gray-700" : "border-gray-300 bg-gray-50 text-gray-400"}`}>
+                          {hasNotes ? String(row.notes) : "空"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 入库/剩余/价值 均匀排开(分割线由上方待裁虚线承担) */}
+                    <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5">
                       <div>
                         <span className="text-gray-400">入库 </span>
                         <span className="font-extrabold text-blue-600">{row.inbound_total}</span>

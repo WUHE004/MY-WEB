@@ -65,6 +65,137 @@ const DEFAULT_SHELF_DATA: Record<string, number[]> = {
 
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 
+// 备注快捷行的字母递进: L→XL→XXL→3XL→4XL→5XL, 纯数字则 +10, 其余保持不变
+const nextRemarkTag = (v: string): string => {
+  if (!v) return "";
+  if (/^\d+$/.test(v)) return String(Number(v) + 10);
+  const ladder = ["L", "XL", "XXL", "3XL", "4XL", "5XL"];
+  const i = ladder.indexOf(v);
+  if (i >= 0 && i < ladder.length - 1) return ladder[i + 1];
+  return v;
+};
+
+// 备注快捷行的尺码递进: 取尺码表中的下一个尺码(如 100→105), 到头保持不变
+const nextRemarkSize = (v: string): string => {
+  const i = SIZE_OPTIONS.findIndex((s) => String(s) === v);
+  if (i < 0) return v || "";
+  return String(SIZE_OPTIONS[Math.min(i + 1, SIZE_OPTIONS.length - 1)]);
+};
+
+interface RemarkRow { a: string; b: string; }
+
+// 备注快捷填入悬浮窗: 每行 = [填空]+固定文字+[填空], 行尾加号递增新增一行, 底部"选好了"生成文字填入备注
+// mode: height = 填空建议身高填空(两格纯数字, 加号新行两格各+10)
+//       pants  = 填空对应尺码填空(前格数字+大写字母自动转大写, 后格仅限尺码表, 加号新行走字母/尺码递进)
+// 由父组件条件挂载(仅打开时渲染), 状态随挂载天然重置
+function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
+  title: string;
+  rowLabel: string;
+  mode: "height" | "pants";
+  onClose: () => void;
+  onConfirm: (text: string) => void;
+}) {
+  const [rows, setRows] = useState<RemarkRow[]>([{ a: "", b: "" }]);
+
+  const setRow = (i: number, patch: Partial<RemarkRow>) => {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  };
+
+  const addRowAfter = (i: number) => {
+    setRows((prev) => {
+      const cur = prev[i];
+      let next: RemarkRow;
+      if (mode === "height") {
+        const inc = (v: string) => (/^\d+$/.test(v) ? String(Number(v) + 10) : v);
+        next = { a: cur.a ? inc(cur.a) : "", b: cur.b ? inc(cur.b) : "" };
+      } else {
+        next = { a: nextRemarkTag(cur.a), b: nextRemarkSize(cur.b) };
+      }
+      const copy = [...prev];
+      copy.splice(i + 1, 0, next);
+      return copy;
+    });
+  };
+
+  const confirm = () => {
+    const lines = rows
+      .filter((r) => r.a.trim() || r.b.trim())
+      .map((r) => `${r.a.trim()}${rowLabel}${r.b.trim()}`);
+    if (lines.length === 0) { onClose(); return; }
+    onConfirm(lines.join("\n"));
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <motion.div
+        initial={{ scale: 0.92, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="w-full max-w-sm bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-4"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-extrabold text-gray-900">{title}</h3>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 text-gray-600 hover:bg-gray-100"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                value={r.a}
+                inputMode={mode === "height" ? "numeric" : "text"}
+                onChange={(e) => {
+                  const v = mode === "height" ? e.target.value.replace(/\D/g, "") : e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "");
+                  setRow(i, { a: v });
+                }}
+                placeholder={mode === "height" ? "100" : "L"}
+                className="w-16 h-10 shrink-0 text-center text-sm font-extrabold text-gray-900 border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white"
+              />
+              <span className="text-xs font-bold text-gray-500 shrink-0">{rowLabel}</span>
+              {mode === "height" ? (
+                <input
+                  value={r.b}
+                  inputMode="numeric"
+                  onChange={(e) => setRow(i, { b: e.target.value.replace(/\D/g, "") })}
+                  placeholder="90"
+                  className="w-16 h-10 shrink-0 text-center text-sm font-extrabold text-gray-900 border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white"
+                />
+              ) : (
+                <select
+                  value={r.b}
+                  onChange={(e) => setRow(i, { b: e.target.value })}
+                  className={`h-10 min-w-0 flex-1 shrink text-sm font-extrabold border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white px-1 ${r.b ? "text-gray-900" : "text-gray-400"}`}
+                >
+                  <option value="">选尺码</option>
+                  {SIZE_OPTIONS.map((s) => (
+                    <option key={s} value={String(s)}>{s}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                onClick={() => addRowAfter(i)}
+                className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border-2 border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                title="在下方新增一行(自动递增)"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <Button variant="primary" className="w-full mt-4" onClick={confirm}>
+          选好了
+        </Button>
+      </motion.div>
+    </div>
+  );
+}
+
 export default function InboundPage() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -85,6 +216,13 @@ export default function InboundPage() {
   const [shelfLevel2, setShelfLevel2] = useState("");
   const [shelfLevel3, setShelfLevel3] = useState("");
   const [notes, setNotes] = useState("");
+  // 备注快捷填入悬浮窗
+  const [showHeightDialog, setShowHeightDialog] = useState(false);
+  const [showPantsDialog, setShowPantsDialog] = useState(false);
+  // 追加文字到备注(已有内容时换行追加)
+  const appendNotes = useCallback((text: string) => {
+    setNotes((prev) => (prev.trim() ? prev.trimEnd() + "\n" + text : text));
+  }, []);
   const [season, setSeason] = useState("");
   const [style, setStyle] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1474,7 +1612,43 @@ export default function InboundPage() {
             rows={3}
             className="neo-input w-full text-sm resize-none"
           />
+          {/* 快捷填入按钮: 身高/裤长弹悬浮窗批量生成, 待定直接追加文字 */}
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-gray-400 font-bold shrink-0">快捷填入:</span>
+            <button
+              onClick={() => setShowHeightDialog(true)}
+              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
+            >身高</button>
+            <button
+              onClick={() => setShowPantsDialog(true)}
+              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
+            >裤长</button>
+            <button
+              onClick={() => appendNotes("待定")}
+              className="px-3 py-1 rounded-lg border-2 border-gray-900 bg-white text-gray-700 text-xs font-extrabold hover:bg-gray-50 active:translate-y-[1px] transition-all"
+            >待定</button>
+          </div>
         </div>
+
+        {/* 备注快捷填入悬浮窗(条件挂载, 状态随挂载重置) */}
+        {showHeightDialog && (
+          <RemarkRowsDialog
+            title="身高"
+            rowLabel="建议身高"
+            mode="height"
+            onClose={() => setShowHeightDialog(false)}
+            onConfirm={appendNotes}
+          />
+        )}
+        {showPantsDialog && (
+          <RemarkRowsDialog
+            title="裤长"
+            rowLabel="对应尺码"
+            mode="pants"
+            onClose={() => setShowPantsDialog(false)}
+            onConfirm={appendNotes}
+          />
+        )}
 
         {/* Submit */}
         <Button
