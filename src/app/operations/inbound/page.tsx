@@ -25,6 +25,7 @@ import {
   Ruler,
   Shirt,
   Clock,
+  Package,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -108,19 +109,38 @@ interface RemarkRow { a: string; b: string; }
 //       pants  = 填空对应尺码填空(前格数字+大写字母自动转大写, 加号数字+1/字母走 S→M→L 梯子;
 //                后格仅限尺码表, 自选尺码与已有行冲突时标红抖动, 冲突未解决时禁止确认)
 // 由父组件条件挂载(仅打开时渲染), 状态随挂载天然重置
-function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
+function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConfirm }: {
   title: string;
   rowLabel: string;
   mode: "height" | "pants";
+  /** 裤长模式: 父页面已选数量的尺码(升序), 打开时自动生成对应行数并预选好尺码 */
+  initialSizes?: string[];
   onClose: () => void;
   onConfirm: (lines: string[]) => void;
 }) {
-  const [rows, setRows] = useState<RemarkRow[]>([{ a: "", b: "" }]);
+  const [rows, setRows] = useState<RemarkRow[]>(() =>
+    mode === "pants" && initialSizes && initialSizes.length > 0
+      ? initialSizes.map((s) => ({ a: "", b: s }))
+      : [{ a: "", b: "" }]
+  );
   // 裤长模式: 尺码冲突抖动信号(变化触发重新播放动画)
   const [shakeTick, setShakeTick] = useState(0);
 
   const setRow = (i: number, patch: Partial<RemarkRow>) => {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  };
+
+  // 裤长模式: 修改某行左格(裤长标记)后, 其下各行按梯子自动递增(S→M→L…, 纯数字+1)
+  const setATagCascade = (i: number, v: string) => {
+    setRows((prev) =>
+      prev.map((r, idx) => {
+        if (idx < i) return r;
+        if (idx === i) return { ...r, a: v };
+        let cur = v;
+        for (let k = 0; k < idx - i; k++) cur = nextRemarkTag(cur);
+        return { ...r, a: cur };
+      })
+    );
   };
 
   // 裤长模式: 某行的尺码是否与其他行重复(非空才判定)
@@ -184,9 +204,11 @@ function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
                 inputMode={mode === "height" ? "numeric" : "text"}
                 onChange={(e) => {
                   const v = mode === "height" ? e.target.value.replace(/\D/g, "") : e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "");
-                  setRow(i, { a: v });
+                  // 裤长模式: 填入后下方各行自动递增; 身高模式保持单行修改
+                  if (mode === "pants") setATagCascade(i, v);
+                  else setRow(i, { a: v });
                 }}
-                placeholder={mode === "height" ? "100" : "L"}
+                placeholder={mode === "height" ? "100" : "S"}
                 className="w-16 h-10 shrink-0 text-center text-sm font-extrabold text-gray-900 border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white"
               />
               <span className="text-xs font-bold text-gray-500 shrink-0">{rowLabel}</span>
@@ -246,12 +268,185 @@ function RemarkRowsDialog({ title, rowLabel, mode, onClose, onConfirm }: {
   );
 }
 
+// 入库前确认卡片: 一比一照搬管理栏总表移动端商品卡片(票根齿口+备注裁开),
+// 用于"下一步"悬浮窗中让用户核对本次入库信息
+function InboundConfirmCard({
+  photo, saleId, name, costPrice, shelfNo, sizesMap, totalCount, notes, today,
+}: {
+  photo: string;
+  saleId: string;
+  name: string;
+  costPrice: number;
+  shelfNo: string;
+  sizesMap: Record<number, number>;
+  totalCount: number;
+  notes: string;
+  today: string;
+}) {
+  const [notesExpanded, setNotesExpanded] = useState(false);
+  const hasNotes = !!notes.trim();
+  // 新入库商品: 售出/退货均为0, 剩余=入库合计, 价值=进价×件数
+  const soldTotal = 0;
+  const returnTotal = 0;
+  const remaining = totalCount;
+  const inventoryValue = costPrice * totalCount;
+  const perforationColor = hasNotes ? "#EF4444" : "#111827";
+  const renderPerforation = (label: string) => (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={() => setNotesExpanded((v) => !v)}
+      className="relative block w-full bg-white p-0 border-0 cursor-pointer"
+    >
+      <span className="absolute -left-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
+      <span className="absolute -right-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
+      <span className="flex w-full">
+        {Array.from({ length: 17 }).map((_, i) => (
+          <span
+            key={i}
+            className="h-2.5 flex-1 mx-1 first:ml-0 last:mr-0 rounded-[2px]"
+            style={{ backgroundColor: perforationColor }}
+          />
+        ))}
+      </span>
+    </button>
+  );
+  return (
+    <div className={`relative ${notesExpanded ? "" : "rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"}`}>
+      {/* 上半张(撕口以上): 图片/信息/尺码 */}
+      <div className={`bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl border-gray-900 ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+        <div className="flex gap-2.5">
+          {/* 图片区域 */}
+          <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+            {photo
+              ? // eslint-disable-next-line @next/next/no-img-element
+                <img src={photo} alt="" className="w-full h-full object-cover" />
+              : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+          </div>
+          {/* 右侧规范化格子区 */}
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className="min-w-0">
+              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{saleId}</div>
+              {name && <div className="text-sm text-gray-500 truncate mt-1">{name}</div>}
+            </div>
+            <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+              <div className="flex divide-x-2 divide-gray-200">
+                <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                  <span className="font-extrabold text-[13px] text-green-600 truncate">{soldTotal}</span>
+                </div>
+                <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
+                  <span className="font-extrabold text-[13px] truncate text-green-600">0.0%</span>
+                </div>
+              </div>
+              <div className="flex divide-x-2 divide-gray-200">
+                <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                  <span className="font-extrabold text-[13px] text-yellow-600 truncate">{returnTotal}</span>
+                </div>
+                <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
+                  <span className="font-extrabold text-[13px] truncate text-yellow-600">0.0%</span>
+                </div>
+              </div>
+              <div className="flex bg-gray-100">
+                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0">进价</span>
+                  <span className="font-bold text-gray-700 truncate">¥{costPrice.toFixed(2)}</span>
+                </div>
+              </div>
+              <div className="flex bg-gray-100">
+                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                  <span className="text-red-500 shrink-0">售价</span>
+                  <span className="font-extrabold text-red-500 truncate">¥0.00</span>
+                </div>
+              </div>
+              <div className="flex">
+                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0">入库时间</span>
+                  <span className="font-medium text-gray-700 truncate">{today}</span>
+                </div>
+              </div>
+              <div className="flex">
+                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0">售出时间</span>
+                  <span className="font-medium text-gray-700 truncate">-</span>
+                </div>
+              </div>
+              <div className="flex bg-gray-100">
+                <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                  <span className="text-gray-500 shrink-0">货架号</span>
+                  <span className="font-medium text-gray-700 truncate">{shelfNo || "-"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 尺码全宽5列 */}
+        <div className="mt-1.5 grid grid-cols-5 gap-1">
+          {SIZE_OPTIONS.map((s) => {
+            const val = Number(sizesMap[s]) || 0;
+            return (
+              <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                val < 0 ? "bg-red-50 border-red-300 text-red-600"
+                : val > 0 ? "bg-gray-100 border-gray-300 text-gray-700"
+                : "bg-white border-gray-200 text-gray-300"
+              }`}>{s}:{val}</span>
+            );
+          })}
+        </div>
+      </div>{/* /上半张 */}
+
+      {/* 待裁齿口 */}
+      {renderPerforation("展开备注")}
+
+      {/* 备注带 */}
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="overflow-hidden">
+          <div className="py-2">
+            <div className={`block w-full text-left px-4 py-2.5 text-[11px] leading-relaxed font-bold whitespace-pre-wrap break-words border-0 ${hasNotes ? "bg-[#EF4444] text-gray-900" : "bg-[#ECEEF0] text-gray-400"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+              {hasNotes ? notes.trim() : "暂无备注"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 下半张断齿 */}
+      {notesExpanded && renderPerforation("收起备注")}
+
+      {/* 下半张: 入库/剩余/价值 */}
+      <div className={`bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl border-gray-900 ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+        <div className="flex justify-between items-center text-[10px]">
+          <div>
+            <span className="text-gray-400">入库 </span>
+            <span className="font-extrabold text-blue-600">{totalCount}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">剩余 </span>
+            <span className="font-extrabold text-gray-900">{remaining}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">价值 </span>
+            <span className="font-extrabold text-red-500">¥{inventoryValue.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function InboundPage() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [saleId, setSaleId] = useState("");
   const [saleIdExists, setSaleIdExists] = useState(false);
   const [checkingSaleId, setCheckingSaleId] = useState(false);
+  // 入库表最新日期录入的售卖编号(占位提示"上次录入:XXX")
+  const [lastSaleId, setLastSaleId] = useState("");
+  // "下一步"入库信息确认悬浮窗
+  const [showConfirm, setShowConfirm] = useState(false);
   const [name, setName] = useState("");
   const [manufacturer, setManufacturer] = useState("");
   const [costPrice, setCostPrice] = useState("");
@@ -443,6 +638,11 @@ export default function InboundPage() {
       .then((r) => r.json())
       .then((data) => {
         if (!Array.isArray(data)) return;
+        // 接口按 inbound_date desc 返回, 首条即最新日期的入库记录 → 占位提示"上次录入"
+        if (data.length > 0) {
+          const latestSid = String(data[0].sale_id || "").trim();
+          if (latestSid) setLastSaleId(latestSid.toUpperCase());
+        }
         // 按 sale_id 去重，保留最新一条的基础信息
         const seen = new Map<string, { sale_id: string; name: string; photo: string; manufacturer: string }>();
         for (const r of data) {
@@ -1051,29 +1251,39 @@ export default function InboundPage() {
     finally { setCheckingSaleId(false); }
   };
 
-  const handleSubmit = async () => {
+  // 提交前校验: 通过返回 true, 不通过弹 toast 返回 false
+  const validateInbound = (): boolean => {
     if (!saleId.trim()) {
       showToast("请输入售卖编号", "error");
-      return;
+      return false;
     }
     if (saleIdExists) {
       showToast("该编号已入库，请勿重复登记！", "error");
-      return;
+      return false;
     }
     if (!manufacturer) {
       showToast("请选择厂家名称", "error");
-      return;
+      return false;
     }
     // 输入的厂家不在厂家库中(未检索选中也未添加) → 阻止提交
     if (!manufacturers.includes(manufacturer.trim())) {
       showToast("厂家名称不在厂家库中，请从检索列表选择，或点击右侧设置按钮先添加该厂家", "error");
-      return;
+      return false;
     }
     if (!costPrice || isNaN(Number(costPrice))) {
       showToast("请输入有效的进价", "error");
-      return;
+      return false;
     }
+    return true;
+  };
 
+  // "下一步": 校验通过后弹出商品卡片确认悬浮窗
+  const handleNext = () => {
+    if (!validateInbound()) return;
+    setShowConfirm(true);
+  };
+
+  const handleSubmit = async () => {
     setSubmitting(true);
 
     try {
@@ -1113,6 +1323,8 @@ export default function InboundPage() {
 
       if (inboundRes.ok) {
         showToast("入库登记成功！", "success");
+        setShowConfirm(false);
+        setLastSaleId(saleId.trim().toUpperCase());
         setPhoto(null);
         setSaleId("");
         setName("");
@@ -1142,6 +1354,17 @@ export default function InboundPage() {
   const totalSizeCount = isNoSizeStyle
     ? standardSize
     : Object.values(sizes).reduce((sum, v) => sum + v, 0);
+
+  // 确认卡片展示用: 无尺码品类数量落在180码上
+  const effectiveSizes: Record<number, number> = isNoSizeStyle
+    ? { ...Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])), 180: standardSize }
+    : sizes;
+
+  // 今日日期(本地时区 YYYY-MM-DD), 仅用于确认卡片预览
+  const todayStr = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
 
   // ===== 补录功能 =====
   // 判断补录商品是否为无尺码分类
@@ -1422,7 +1645,7 @@ export default function InboundPage() {
                 setSaleIdExists(false);
               }}
               onBlur={(e) => checkSaleId(e.target.value)}
-              placeholder="例如: WUHE001"
+              placeholder={lastSaleId ? `上次录入：${lastSaleId}` : "例如: WUHE001"}
               className="text-sm"
             />
             {checkingSaleId && <p className="text-xs text-gray-400 mt-1">正在检查编号...</p>}
@@ -1865,21 +2088,67 @@ export default function InboundPage() {
             title="裤长"
             rowLabel="对应尺码"
             mode="pants"
+            // 已选数量的尺码(去重升序): 110-140各5件 → 自动生成4行并预选110/120/130/140
+            initialSizes={SIZE_OPTIONS.filter((s) => (sizes[s] || 0) > 0).map((s) => String(s))}
             onClose={() => setShowPantsDialog(false)}
             onConfirm={confirmPants}
           />
         )}
 
-        {/* Submit */}
+        {/* 下一步: 先弹商品卡片确认, 再在悬浮窗内提交入库 */}
         <Button
           variant="primary"
-          onClick={handleSubmit}
+          onClick={handleNext}
           disabled={submitting}
           className="w-full py-4 text-base lg:text-lg font-extrabold"
         >
-          {submitting ? "提交中..." : "提交入库"}
+          下一步
         </Button>
       </div>
+
+      {/* 入库信息确认悬浮窗: 一比一照搬总表商品卡片 */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !submitting && setShowConfirm(false)}>
+          <motion.div
+            initial={{ scale: 0.92, opacity: 0, y: 12 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            className="w-full max-w-sm max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-center text-base font-extrabold text-white mb-3">请核对入库信息</h2>
+            <InboundConfirmCard
+              photo={photo || ""}
+              saleId={saleId.trim()}
+              name={name.trim()}
+              costPrice={Number(costPrice) || 0}
+              shelfNo={getShelfNo()}
+              sizesMap={effectiveSizes}
+              totalCount={totalSizeCount}
+              notes={notes}
+              today={todayStr}
+            />
+            {/* 卡片下方两个按钮并排: 上一步 / 提交入库 */}
+            <div className="grid grid-cols-2 gap-3 mt-4">
+              <Button
+                variant="secondary"
+                onClick={() => setShowConfirm(false)}
+                disabled={submitting}
+                className="py-3.5 text-base font-extrabold"
+              >
+                上一步
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="py-3.5 text-base font-extrabold"
+              >
+                {submitting ? "提交中..." : "提交入库"}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Cost Preset Dialog: 进价预选管理 */}
       {showCostDialog && (
