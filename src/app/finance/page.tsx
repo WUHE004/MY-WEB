@@ -2782,29 +2782,31 @@ export default function FinancePage() {
                       })}
                     </div>
 
-                    {/* 待裁虚线: 贯穿卡片(出血到卡边), 细密垂直刻度(撕边/尺效果); 无备注灰 / 有备注红, 点击沿虚线裁开 */}
+                    {/* 待裁线: 黑色描边横条, 内有撕边刻度, 把卡片分为上下两部分; 无备注灰 / 有备注红, 点击沿此线裁开 */}
                     <button
                       onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
                       aria-label="展开备注"
-                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-2"
+                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-3 border-2 border-gray-900"
                       style={{
-                        backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#E5484D" : "#9CA3AF"} 0px, ${hasNotes ? "#E5484D" : "#9CA3AF"} 3px, transparent 3px, transparent 7px)`,
+                        backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
+                        backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 0px, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 2px, transparent 2px, transparent 6px)`,
                       }}
                     />
 
-                    {/* 裁开区域: 沿虚线展开, 上下两条虚线夹住形成裁开口 */}
+                    {/* 裁开区域: 展开后上下两条带黑边的待裁线夹住备注, 形成卡片被裁断效果 */}
                     <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                       <div className="overflow-hidden">
-                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-bold ${hasNotes ? "bg-[#E5484D] text-gray-900" : "bg-[#E5E7EB] text-gray-500"}`}>
+                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-bold border-x-2 border-gray-900 ${hasNotes ? "bg-[#E5484D] text-gray-900" : "bg-[#E5E7EB] text-gray-500"}`}>
                           {hasNotes ? String(row.notes) : "暂无备注"}
                         </div>
-                        {/* 裁开口下沿虚线(随展开一起出现) */}
+                        {/* 下沿待裁线(随展开出现), 完整黑边形成裁断下沿 */}
                         <button
                           onClick={() => setExpandedNotesId(null)}
                           aria-label="收起备注"
-                          className="block w-[calc(100%+1.25rem)] -mx-2.5 h-2"
+                          className="block w-[calc(100%+1.25rem)] -mx-2.5 h-3 border-2 border-gray-900"
                           style={{
-                            backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#E5484D" : "#9CA3AF"} 0px, ${hasNotes ? "#E5484D" : "#9CA3AF"} 3px, transparent 3px, transparent 7px)`,
+                            backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
+                            backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 0px, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 2px, transparent 2px, transparent 6px)`,
                           }}
                         />
                       </div>
