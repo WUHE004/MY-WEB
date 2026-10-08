@@ -2650,8 +2650,33 @@ export default function FinancePage() {
                   if (isNaN(dt.getTime())) return "-";
                   return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
                 };
+                // 票根齿口: 一排独立方块(无备注=黑, 有备注=红); 收起时单排, 展开时上下各一排对齐分离
+                const perforationColor = hasNotes ? "#EF4444" : "#111827";
+                const renderPerforation = (label: string) => (
+                  <button
+                    type="button"
+                    aria-label={label}
+                    onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
+                    className="relative block w-full bg-white p-0 border-0 cursor-pointer"
+                  >
+                    {/* 两端伸出卡片外侧的剪口tick */}
+                    <span className="absolute -left-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
+                    <span className="absolute -right-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
+                    <span className="flex w-full">
+                      {Array.from({ length: 17 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="h-2.5 flex-1 mx-1 first:ml-0 last:mr-0 rounded-[2px]"
+                          style={{ backgroundColor: perforationColor }}
+                        />
+                      ))}
+                    </span>
+                  </button>
+                );
                 return (
-                  <div key={row.sale_id} className={`relative bg-white rounded-xl border-[3px] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 ${isError ? "border-red-400" : "border-gray-900"}`}>
+                  <div key={row.sale_id} className={`relative ${notesExpanded ? "" : "rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"}`}>
+                    {/* 上半张(撕口以上): 图片/信息/尺码 */}
+                    <div className={`bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl ${isError ? "border-red-400" : "border-gray-900"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
                     <div className="flex gap-2.5">
                       {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
                       <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
@@ -2782,49 +2807,44 @@ export default function FinancePage() {
                       })}
                     </div>
 
-                    {/* 待裁线: 黑色描边横条, 内有撕边刻度, 把卡片分为上下两部分; 无备注灰 / 有备注红, 点击沿此线裁开 */}
-                    <button
-                      onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
-                      aria-label="展开备注"
-                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-3 border-2 border-gray-900"
-                      style={{
-                        backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
-                        backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 0px, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 2px, transparent 2px, transparent 6px)`,
-                      }}
-                    />
+                    </div>{/* /上半张 */}
 
-                    {/* 裁开区域: 展开后上下两条带黑边的待裁线夹住备注, 形成卡片被裁断效果 */}
+                    {/* 待裁齿口: 收起时为单排票根撕断线(上下半张在此相接); 展开后留作上半张的断齿 */}
+                    {renderPerforation("展开备注")}
+
+                    {/* 备注带: 沿齿口裁开后, 上下两半之间露出(灰=暂无备注 / 红=备注内容) */}
                     <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                       <div className="overflow-hidden">
-                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-bold border-x-2 border-gray-900 ${hasNotes ? "bg-[#E5484D] text-gray-900" : "bg-[#E5E7EB] text-gray-500"}`}>
-                          {hasNotes ? String(row.notes) : "暂无备注"}
+                        <div className="py-2">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedNotesId(null)}
+                            className={`block w-full text-left px-4 py-2.5 text-[11px] leading-relaxed font-bold whitespace-pre-wrap break-words border-0 cursor-pointer ${hasNotes ? "bg-[#EF4444] text-gray-900" : "bg-[#ECEEF0] text-gray-400"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}
+                          >
+                            {hasNotes ? String(row.notes) : "暂无备注"}
+                          </button>
                         </div>
-                        {/* 下沿待裁线(随展开出现), 完整黑边形成裁断下沿 */}
-                        <button
-                          onClick={() => setExpandedNotesId(null)}
-                          aria-label="收起备注"
-                          className="block w-[calc(100%+1.25rem)] -mx-2.5 h-3 border-2 border-gray-900"
-                          style={{
-                            backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
-                            backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 0px, ${hasNotes ? "#B91C1C" : "#9CA3AF"} 2px, transparent 2px, transparent 6px)`,
-                          }}
-                        />
                       </div>
                     </div>
 
-                    {/* 入库/剩余/价值 均匀排开(展开时随裁开效果下移避让) */}
-                    <div className={`flex justify-between items-center text-[10px] pt-1.5 mt-1.5 transition-transform duration-300 ease-out ${notesExpanded ? "translate-y-1" : ""}`}>
-                      <div>
-                        <span className="text-gray-400">入库 </span>
-                        <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">剩余 </span>
-                        <span className="font-extrabold text-gray-900">{row.remaining}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400">价值 </span>
-                        <span className="font-extrabold text-red-500">¥{fmt(row.inventory_value)}</span>
+                    {/* 下半张断齿: 仅裁开后出现, 与上半张断齿同位置对齐分离 */}
+                    {notesExpanded && renderPerforation("收起备注")}
+
+                    {/* 下半张(撕口以下): 入库/剩余/价值 */}
+                    <div className={`bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl ${isError ? "border-red-400" : "border-gray-900"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+                      <div className="flex justify-between items-center text-[10px]">
+                        <div>
+                          <span className="text-gray-400">入库 </span>
+                          <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">剩余 </span>
+                          <span className="font-extrabold text-gray-900">{row.remaining}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">价值 </span>
+                          <span className="font-extrabold text-red-500">¥{fmt(row.inventory_value)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
