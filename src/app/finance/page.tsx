@@ -275,6 +275,24 @@ function ViewDropdown({
   );
 }
 
+// 票根齿口半线: 18×8矩形虚线整线横切的一半(高4px), 2px黑内描边;
+// 左右端为四分之一块(9px, 仅内侧竖边+横边描边), 中间13块在整个空档内均分
+function PerfHalfLine({ part, fill }: { part: "top" | "bottom"; fill: string }) {
+  const hEdge = part === "top" ? "border-t-2" : "border-b-2";
+  const st = { backgroundColor: fill, borderColor: "#111827" };
+  return (
+    <div aria-hidden className="flex items-stretch w-full h-[4px]">
+      <div className={`shrink-0 w-[9px] ${hEdge} border-r-2`} style={st} />
+      <div className="flex-1 flex justify-evenly min-w-0">
+        {Array.from({ length: 13 }, (_, i) => (
+          <div key={i} className={`shrink-0 w-[18px] ${hEdge} border-x-2`} style={st} />
+        ))}
+      </div>
+      <div className={`shrink-0 w-[9px] ${hEdge} border-l-2`} style={st} />
+    </div>
+  );
+}
+
 export default function FinancePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("summary");
   // 总表移动端卡片: 展开备注的编号(待裁虚线展开区)
@@ -2650,33 +2668,14 @@ export default function FinancePage() {
                   if (isNaN(dt.getTime())) return "-";
                   return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
                 };
-                // 票根齿口: 一排独立方块(无备注=黑, 有备注=红); 收起时单排, 展开时上下各一排对齐分离
-                const perforationColor = hasNotes ? "#EF4444" : "#111827";
-                const renderPerforation = (label: string) => (
-                  <button
-                    type="button"
-                    aria-label={label}
-                    onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
-                    className="relative block w-full bg-white p-0 border-0 cursor-pointer"
-                  >
-                    {/* 两端伸出卡片外侧的剪口tick */}
-                    <span className="absolute -left-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
-                    <span className="absolute -right-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
-                    <span className="flex w-full">
-                      {Array.from({ length: 17 }).map((_, i) => (
-                        <span
-                          key={i}
-                          className="h-2.5 flex-1 mx-1 first:ml-0 last:mr-0 rounded-[2px]"
-                          style={{ backgroundColor: perforationColor }}
-                        />
-                      ))}
-                    </span>
-                  </button>
-                );
+                // 票根齿口: 18×8矩形块组成虚线(2px黑内描边, 无备注灰#E5E7EB/有备注红#EF4444),
+                // 整线=左右竖裁半块(9px)+中间均分13块; 整线横向裁成上下各4px半线,
+                // 上半线绑定上半张底部、下半线绑定下半张顶部, 展开时跟随卡片分离, 缺口直接填同色
+                const PERF_FILL = hasNotes ? "#EF4444" : "#E5E7EB";
                 return (
-                  <div key={row.sale_id} className={`relative ${notesExpanded ? "" : "rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"}`}>
+                  <div key={row.sale_id} className="relative">
                     {/* 上半张(撕口以上): 图片/信息/尺码 */}
-                    <div className={`bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl ${isError ? "border-red-400" : "border-gray-900"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+                    <div className={`relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
                     <div className="flex gap-2.5">
                       {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
                       <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
@@ -2807,19 +2806,18 @@ export default function FinancePage() {
                       })}
                     </div>
 
+                      {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                      <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={PERF_FILL} /></div>
                     </div>{/* /上半张 */}
 
-                    {/* 待裁齿口: 收起时为单排票根撕断线(上下半张在此相接); 展开后留作上半张的断齿 */}
-                    {renderPerforation("展开备注")}
-
-                    {/* 备注带: 沿齿口裁开后, 上下两半之间露出(灰=暂无备注 / 红=备注内容) */}
-                    <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                    {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
+                    <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                       <div className="overflow-hidden">
-                        <div className="py-2">
+                        <div className="relative" style={{ backgroundColor: PERF_FILL }}>
                           <button
                             type="button"
                             onClick={() => setExpandedNotesId(null)}
-                            className={`block w-full text-left px-4 py-2.5 text-[11px] leading-relaxed font-bold whitespace-pre-wrap break-words border-0 cursor-pointer ${hasNotes ? "bg-[#EF4444] text-gray-900" : "bg-[#ECEEF0] text-gray-400"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}
+                            className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${hasNotes ? "text-white" : "text-gray-500"}`}
                           >
                             {hasNotes ? String(row.notes) : "暂无备注"}
                           </button>
@@ -2827,11 +2825,19 @@ export default function FinancePage() {
                       </div>
                     </div>
 
-                    {/* 下半张断齿: 仅裁开后出现, 与上半张断齿同位置对齐分离 */}
-                    {notesExpanded && renderPerforation("收起备注")}
-
                     {/* 下半张(撕口以下): 入库/剩余/价值 */}
-                    <div className={`bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl ${isError ? "border-red-400" : "border-gray-900"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+                    <div className={`relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
+                      {/* 收起时点撕口处展开 */}
+                      {!notesExpanded && (
+                        <button
+                          type="button"
+                          aria-label="展开备注"
+                          onClick={() => setExpandedNotesId(row.sale_id)}
+                          className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
+                        />
+                      )}
+                      {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                      <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={PERF_FILL} /></div>
                       <div className="flex justify-between items-center text-[10px]">
                         <div>
                           <span className="text-gray-400">入库 </span>
@@ -3130,95 +3136,131 @@ export default function FinancePage() {
                 const curMfr = (row as Record<string, unknown>).manufacturer as string || (summaryRow as Record<string, unknown>)?.manufacturer as string || "";
                 const curShelf = (row as Record<string, unknown>).shelf_no as string || (summaryRow as Record<string, unknown>)?.shelf_no as string || "";
                 const curName = row.name || (summaryRow as Record<string, unknown>)?.name as string || "";
+                const inbNotes = summaryRow?.notes;
+                const inbHasNotes = !!(inbNotes && String(inbNotes).trim());
+                const inbFill = inbHasNotes ? "#EF4444" : "#E5E7EB";
+                const inbExpanded = expandedNotesId === row.sale_id;
+                // 点击卡片打开编辑弹窗(撕口线与备注区域单独拦截, 不触发编辑)
+                const openInboundEdit = () => {
+                  // 解析货架号 - 兼容 "B02-4" 和 "B-2-4" 两种格式
+                  let l1 = "", l2 = "", l3 = "";
+                  if (curShelf) {
+                    const parts = curShelf.split("-");
+                    if (parts.length >= 2) {
+                      const zoneMatch = parts[0].match(/^([A-Za-z]+)(\d+)/);
+                      if (zoneMatch) {
+                        l1 = zoneMatch[1];
+                        l2 = String(parseInt(zoneMatch[2], 10));
+                        l3 = parts[1];
+                      } else {
+                        l1 = parts[0];
+                        l2 = parts[1];
+                        l3 = parts[2] || "";
+                      }
+                    }
+                  }
+                  setMobileShelfL1(l1);
+                  setMobileShelfL2(l2);
+                  setMobileShelfL3(l3);
+                  setMobileEditModal({
+                    sale_id: row.sale_id,
+                    photo,
+                    name: curName,
+                    manufacturer: curMfr,
+                    shelf_no: curShelf,
+                    season: curSeason,
+                    style_category: curStyle,
+                    cost_price: Number(row.cost_price) || 0,
+                  });
+                };
                 return (
                   <div key={row.sale_id}>
-                    <div
-                      onClick={() => {
-                        // 解析货架号 - 兼容 "B02-4" 和 "B-2-4" 两种格式
-                        let l1 = "", l2 = "", l3 = "";
-                        if (curShelf) {
-                          const parts = curShelf.split("-");
-                          if (parts.length >= 2) {
-                            const zoneMatch = parts[0].match(/^([A-Za-z]+)(\d+)/);
-                            if (zoneMatch) {
-                              l1 = zoneMatch[1];
-                              l2 = String(parseInt(zoneMatch[2], 10));
-                              l3 = parts[1];
-                            } else {
-                              l1 = parts[0];
-                              l2 = parts[1];
-                              l3 = parts[2] || "";
-                            }
-                          }
-                        }
-                        setMobileShelfL1(l1);
-                        setMobileShelfL2(l2);
-                        setMobileShelfL3(l3);
-                        setMobileEditModal({
-                          sale_id: row.sale_id,
-                          photo,
-                          name: curName,
-                          manufacturer: curMfr,
-                          shelf_no: curShelf,
-                          season: curSeason,
-                          style_category: curStyle,
-                          cost_price: Number(row.cost_price) || 0,
-                        });
-                      }}
-                      className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
-                    >
-                      <div className="flex gap-2.5 mb-2">
-                        <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                          {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <span className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</span>
-                            {curSeason && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold shrink-0">{curSeason}</span>}
-                            {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
+                    <div className="relative">
+                      {/* 上半张(撕口以上): 图片/信息/尺码 */}
+                      <div onClick={openInboundEdit} className="relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer">
+                        <div className="flex gap-2.5 mb-2">
+                          <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                            {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                           </div>
-                          {curName && <div className="text-sm text-gray-500 truncate mt-1">{curName}</div>}
-                          {/* 规范格子: 厂家/货架号(第一行双格) + 入库日期 + 入库时间 */}
-                          <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
-                            <div className="flex divide-x-2 divide-gray-200">
-                              <div className="w-[40%] flex items-center px-1 py-1 min-w-0">
-                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{curMfr || "-"}</span>
-                              </div>
-                              <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                                <span className="text-gray-500 shrink-0 text-[13px] font-bold">货架号</span>
-                                <span className="font-extrabold text-[13px] text-gray-900 truncate">{curShelf || "-"}</span>
-                              </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</span>
+                              {curSeason && <span className="text-[9px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-bold shrink-0">{curSeason}</span>}
+                              {curStyle && <span className="text-[9px] px-1 py-0.5 rounded bg-orange-100 text-orange-700 font-bold shrink-0">{curStyle}</span>}
                             </div>
-                            <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
-                              <span className="text-gray-500 shrink-0">入库日期</span>
-                              <span className="font-medium text-gray-700 truncate">{bjDate(row.inbound_date) || "-"}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-1 px-1.5 py-1">
-                              <span className="text-gray-500 shrink-0">入库时间</span>
-                              <span className="font-medium text-gray-700 truncate">{bjTime(row.inbound_date) || "-"}</span>
+                            {curName && <div className="text-sm text-gray-500 truncate mt-1">{curName}</div>}
+                            {/* 规范格子: 厂家/货架号(第一行双格) + 入库日期 + 入库时间 */}
+                            <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                              <div className="flex divide-x-2 divide-gray-200">
+                                <div className="w-[40%] flex items-center px-1 py-1 min-w-0">
+                                  <span className="font-extrabold text-[13px] text-gray-900 truncate">{curMfr || "-"}</span>
+                                </div>
+                                <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                  <span className="text-gray-500 shrink-0 text-[13px] font-bold">货架号</span>
+                                  <span className="font-extrabold text-[13px] text-gray-900 truncate">{curShelf || "-"}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between gap-1 px-1.5 py-1 bg-gray-100">
+                                <span className="text-gray-500 shrink-0">入库日期</span>
+                                <span className="font-medium text-gray-700 truncate">{bjDate(row.inbound_date) || "-"}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-1 px-1.5 py-1">
+                                <span className="text-gray-500 shrink-0">入库时间</span>
+                                <span className="font-medium text-gray-700 truncate">{bjTime(row.inbound_date) || "-"}</span>
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                      {/* 尺码全宽5列换行显示(对齐总表) */}
-                      <div className="mt-1.5 grid grid-cols-5 gap-1">
-                        {ALL_SIZES.map((s) => {
-                          const val = Number(row[`size_${s}`]) || 0;
-                          return (
-                            <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
-                              val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
-                            }`}>{s}:{val || "-"}</span>
-                          );
-                        })}
-                      </div>
-                      {/* 总入库(左) / 进价(居中) / 总进价(最右, 进价×总入库) */}
-                      <div className="flex justify-between items-center text-[10px]">
-                        <div>
-                          <span className="text-gray-400">总入库: </span>
-                          <span className="font-extrabold text-blue-600">{row.total}</span>
+                        {/* 尺码全宽5列换行显示(对齐总表) */}
+                        <div className="mt-1.5 grid grid-cols-5 gap-1">
+                          {ALL_SIZES.map((s) => {
+                            const val = Number(row[`size_${s}`]) || 0;
+                            return (
+                              <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                                val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"
+                              }`}>{s}:{val || "-"}</span>
+                            );
+                          })}
                         </div>
-                        <span className="text-gray-500">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price || 0)}</span></span>
-                        <span className="text-gray-500">总进价: <span className="font-extrabold text-gray-700">¥{fmt((row.cost_price || 0) * row.total)}</span></span>
+                        {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                        <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={inbFill} /></div>
+                      </div>
+
+                      {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
+                      <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${inbExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                        <div className="overflow-hidden">
+                          <div className="relative" style={{ backgroundColor: inbFill }}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setExpandedNotesId(null); }}
+                              className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${inbHasNotes ? "text-white" : "text-gray-500"}`}
+                            >
+                              {inbHasNotes ? String(inbNotes) : "暂无备注"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 下半张(撕口以下): 总入库/进价/总进价 */}
+                      <div onClick={openInboundEdit} className="relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer">
+                        {!inbExpanded && (
+                          <button
+                            type="button"
+                            aria-label="展开备注"
+                            onClick={(e) => { e.stopPropagation(); setExpandedNotesId(row.sale_id); }}
+                            className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
+                          />
+                        )}
+                        {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                        <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={inbFill} /></div>
+                        <div className="flex justify-between items-center text-[10px]">
+                          <div>
+                            <span className="text-gray-400">总入库: </span>
+                            <span className="font-extrabold text-blue-600">{row.total}</span>
+                          </div>
+                          <span className="text-gray-500">进价: <span className="font-bold text-gray-700">¥{fmt(row.cost_price || 0)}</span></span>
+                          <span className="text-gray-500">总进价: <span className="font-extrabold text-gray-700">¥{fmt((row.cost_price || 0) * row.total)}</span></span>
+                        </div>
                       </div>
                     </div>
                   </div>
