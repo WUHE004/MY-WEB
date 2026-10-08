@@ -2782,31 +2782,29 @@ export default function FinancePage() {
                       })}
                     </div>
 
-                    {/* 待裁虚线: 贯穿卡片(出血到卡边), 黑色粗长虚线段; 无备注灰底 / 有备注红底, 点击沿虚线裁开 */}
+                    {/* 待裁虚线: 贯穿卡片(出血到卡边), 细密垂直刻度(撕边/尺效果); 无备注灰 / 有备注红, 点击沿虚线裁开 */}
                     <button
                       onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
                       aria-label="展开备注"
-                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-2.5"
+                      className="block w-[calc(100%+1.25rem)] -mx-2.5 mt-1.5 h-2"
                       style={{
-                        backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
-                        backgroundImage: "repeating-linear-gradient(90deg, #111827 0px, #111827 18px, transparent 18px, transparent 30px)",
+                        backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#E5484D" : "#9CA3AF"} 0px, ${hasNotes ? "#E5484D" : "#9CA3AF"} 3px, transparent 3px, transparent 7px)`,
                       }}
                     />
 
                     {/* 裁开区域: 沿虚线展开, 上下两条虚线夹住形成裁开口 */}
                     <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                       <div className="overflow-hidden">
-                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-bold ${hasNotes ? "bg-[#E5484D] text-white" : "bg-[#E5E7EB] text-gray-500"}`}>
+                        <div className={`w-[calc(100%+1.25rem)] -mx-2.5 px-4 py-2.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-bold ${hasNotes ? "bg-[#E5484D] text-gray-900" : "bg-[#E5E7EB] text-gray-500"}`}>
                           {hasNotes ? String(row.notes) : "暂无备注"}
                         </div>
                         {/* 裁开口下沿虚线(随展开一起出现) */}
                         <button
                           onClick={() => setExpandedNotesId(null)}
                           aria-label="收起备注"
-                          className="block w-[calc(100%+1.25rem)] -mx-2.5 h-2.5"
+                          className="block w-[calc(100%+1.25rem)] -mx-2.5 h-2"
                           style={{
-                            backgroundColor: hasNotes ? "#E5484D" : "#E5E7EB",
-                            backgroundImage: "repeating-linear-gradient(90deg, #111827 0px, #111827 18px, transparent 18px, transparent 30px)",
+                            backgroundImage: `repeating-linear-gradient(90deg, ${hasNotes ? "#E5484D" : "#9CA3AF"} 0px, ${hasNotes ? "#E5484D" : "#9CA3AF"} 3px, transparent 3px, transparent 7px)`,
                           }}
                         />
                       </div>
