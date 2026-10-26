@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 // POST /api/products/transfer-shelf - 批量搬运商品到新货架
 export async function POST(request: Request) {
@@ -19,6 +20,12 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    void logOp(request, {
+      action: "transfer_shelf", label: "移架", table: "inbound_records",
+      target: `货架 ${fromShelf} → ${toShelf}`,
+      detail: `搬运 ${(updated || []).length} 件商品`,
+    });
 
     return NextResponse.json({
       success: true,

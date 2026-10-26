@@ -997,7 +997,7 @@ export default function DashboardPage() {
         {/* 快递费 - 前移至售卖后面, 与业绩/盈利/售卖同步同一套日期/月份下拉 */}
         <StatCard
           icon={<Truck className="h-5 w-5" />}
-          label="快递费"
+          label="快递"
           numeric={totalShippingFee}
           prefix="¥"
           decimals={2}

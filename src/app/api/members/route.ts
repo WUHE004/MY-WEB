@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { hashPassword } from "@/lib/auth";
+import { logOp, buildDiff } from "@/lib/operation-log";
 
 // GET /api/members 或 /api/members?phone=xxx 或 /api/members?id=xxx
 export async function GET(request: NextRequest) {
@@ -98,6 +99,14 @@ export async function PUT(request: NextRequest) {
     if (douyin !== undefined) updates.douyin = douyin;
     if (password !== undefined) updates.password = hashPassword(password);
 
+    // 查旧行生成改前→改后明细(password 不入日志, 只记"已修改")
+    const diffKeys = Object.keys(updates).filter((k) => k !== "password");
+    const { data: oldRow } = await supabase
+      .from("members")
+      .select((diffKeys.join(",") || "id") + ",name")
+      .eq("id", id)
+      .maybeSingle();
+
     const { error } = await supabase
       .from("members")
       .update(updates)
@@ -107,6 +116,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    void logOp(request, {
+      action: "member_edit", label: role ? "修改成员权限" : "修改成员", table: "members", id,
+      target: String((oldRow as { name?: string } | null)?.name || id),
+      detail: [
+        ...buildDiff(oldRow as Record<string, unknown> | null, updates, diffKeys),
+        ...(password !== undefined ? [{ field: "密码", from: "保密", to: "已修改" }] : []),
+      ],
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -122,11 +139,13 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "缺少ID" }, { status: 400 });
   }
 
+  const { data: oldRow } = await supabase.from("members").select("name").eq("id", id).maybeSingle();
   const { error } = await supabase.from("members").delete().eq("id", id);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  void logOp(request, { action: "member_del", label: "删除成员", table: "members", id, target: String((oldRow as { name?: string } | null)?.name || id) });
   return NextResponse.json({ success: true });
 }

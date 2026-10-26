@@ -51,17 +51,20 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get("type"); // "sales" | "returns"
-    const date = searchParams.get("date"); // YYYY-MM-DD
+    const date = searchParams.get("date"); // YYYY-MM-DD(单日, 兼容旧调用)
+    // 区间模式: start/end(YYYY-MM-DD), 未传时回退到单日 date
+    const start = searchParams.get("start") || date || "";
+    const end = searchParams.get("end") || start || "";
 
-    // 带参数：返回该日期对应的 sale_ids 及各尺码聚合数据（用于管理栏日期筛选）
-    if (type && date) {
+    // 带参数：返回该日期(或日期区间)对应的 sale_ids 及各尺码聚合数据（用于管理栏日期筛选）
+    if (type && (date || start)) {
       if (type === "sales") {
-        // 从 sales_records 查该日期(按登记日期,北京时间)的所有记录，聚合各尺码数量
+        // 从 sales_records 查该日期区间(按登记日期,北京时间)的所有记录，聚合各尺码数量
         const { data, error } = await supabase
           .from("sales_records")
           .select("sale_id, size, quantity, sell_price, registration_date, tracking_number")
-          .gte("registration_date", `${date}T00:00:00+08:00`)
-          .lte("registration_date", `${date}T23:59:59+08:00`);
+          .gte("registration_date", `${start}T00:00:00+08:00`)
+          .lte("registration_date", `${end}T23:59:59+08:00`);
         if (error) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
@@ -120,12 +123,13 @@ export async function GET(request: NextRequest) {
           return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        // 按日期过滤 + 按 sale_id 聚合
+        // 按日期区间过滤 + 按 sale_id 聚合
         const records: Record<string, any> = {};
         const saleIds: string[] = [];
         for (const r of (data || []) as any[]) {
           const rt = String(r.return_time || r.created_at || "");
-          if (rt.slice(0, 10) !== date) continue;
+          const rd = rt.slice(0, 10);
+          if (rd < start || rd > end) continue;
           const sid = String(r.sale_id || "").toUpperCase();
           if (!sid) continue;
           if (!records[sid]) {

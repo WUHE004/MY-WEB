@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { compressImageFile } from "@/lib/image-compress";
 import { warmupImageUrl } from "@/lib/image-warmup";
+import { ImageTextEditor } from "@/components/image-text-editor";
 import {
   ArrowLeft,
   Camera,
@@ -26,6 +27,7 @@ import {
   Shirt,
   Clock,
   Package,
+  Pencil,
 } from "lucide-react";
 import Link from "next/link";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
@@ -85,11 +87,11 @@ const NAME_PRESET_GROUPS: { key: keyof NamePresets; label: string }[] = [
   { key: "detail", label: "细节" },
 ];
 
-// 备注快捷行的字母递进(衣服尺码梯子): S→M→L→XL→XXL→3XL→4XL→5XL, 纯数字则 +1, 其余保持不变
+// 备注快捷行的字母递进(衣服尺码梯子): S→M→L→XL→XXL→3XL→4XL→5XL, 纯数字则 +2(裤长/尺码默认单数递增), 其余保持不变
 const REMARK_LETTER_LADDER = ["S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "6XL", "7XL", "8XL"];
 const nextRemarkTag = (v: string): string => {
   if (!v) return "";
-  if (/^\d+$/.test(v)) return String(Number(v) + 1);
+  if (/^\d+$/.test(v)) return String(Number(v) + 2);
   const i = REMARK_LETTER_LADDER.indexOf(v.toUpperCase());
   if (i >= 0 && i < REMARK_LETTER_LADDER.length - 1) return REMARK_LETTER_LADDER[i + 1];
   return v;
@@ -102,12 +104,19 @@ const nextRemarkSize = (v: string): string => {
   return String(SIZE_OPTIONS[Math.min(i + 1, SIZE_OPTIONS.length - 1)]);
 };
 
-interface RemarkRow { a: string; b: string; }
+interface RemarkRow { a: string; b: string; c: string; d: string; }
 
-// 备注快捷填入悬浮窗: 每行 = [填空]+固定文字+[填空], 行尾加号递增新增一行, 底部"选好了"把各行回传给父组件填入备注
+// 多色入库的一行: 颜色 + 该色独立的尺码数量(含尺码款)/标码数量(无尺码款) + 该色独立货架(可分不同货架放)
+interface ColorRow { color: string; sizes: Record<number, number>; standardSize: number; shelf: { l1: string; l2: string; l3: string }; }
+const emptyColorSizes = (): Record<number, number> =>
+  Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])) as Record<number, number>;
+const emptyShelf = () => ({ l1: "", l2: "", l3: "" });
+
+// 备注快捷填入悬浮窗: 每行 = [填空]+固定文字+[填空](+裤长填空), 行尾加号递增新增一行, 底部"选好了"把各行回传给父组件填入备注
 // mode: height = 填空建议身高填空(两格纯数字, 加号新行两格各+10)
-//       pants  = 填空对应尺码填空(前格数字+大写字母自动转大写, 加号数字+1/字母走 S→M→L 梯子;
-//                后格仅限尺码表, 自选尺码与已有行冲突时标红抖动, 冲突未解决时禁止确认)
+//       pants  = 填空对应尺码填空裤长填空建议身高填空(前格数字+大写字母自动转大写, 加号数字+2/字母走 S→M→L 梯子;
+//                中格仅限尺码表, 自选尺码与已有行冲突时标红抖动, 冲突未解决时禁止确认;
+//                尾两格为裤长/建议身高, 纯数字, 加号新行裤长+1/身高+10, 留空则备注不含对应后缀)
 // 由父组件条件挂载(仅打开时渲染), 状态随挂载天然重置
 function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConfirm }: {
   title: string;
@@ -120,8 +129,8 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
 }) {
   const [rows, setRows] = useState<RemarkRow[]>(() =>
     mode === "pants" && initialSizes && initialSizes.length > 0
-      ? initialSizes.map((s) => ({ a: "", b: s }))
-      : [{ a: "", b: "" }]
+      ? initialSizes.map((s) => ({ a: "", b: s, c: "", d: "" }))
+      : [{ a: "", b: "", c: "", d: "" }]
   );
   // 裤长模式: 尺码冲突抖动信号(变化触发重新播放动画)
   const [shakeTick, setShakeTick] = useState(0);
@@ -130,7 +139,7 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   };
 
-  // 裤长模式: 修改某行左格(裤长标记)后, 其下各行按梯子自动递增(S→M→L…, 纯数字+1)
+  // 裤长模式: 修改某行左格(裤长标记)后, 其下各行按梯子自动递增(S→M→L…, 纯数字+2)
   const setATagCascade = (i: number, v: string) => {
     setRows((prev) =>
       prev.map((r, idx) => {
@@ -156,9 +165,10 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
       let next: RemarkRow;
       if (mode === "height") {
         const inc = (v: string) => (/^\d+$/.test(v) ? String(Number(v) + 10) : v);
-        next = { a: cur.a ? inc(cur.a) : "", b: cur.b ? inc(cur.b) : "" };
+        next = { a: cur.a ? inc(cur.a) : "", b: cur.b ? inc(cur.b) : "", c: "", d: "" };
       } else {
-        next = { a: nextRemarkTag(cur.a), b: nextRemarkSize(cur.b) };
+        const inc10 = (v: string) => (/^\d+$/.test(v) ? String(Number(v) + 10) : v);
+        next = { a: nextRemarkTag(cur.a), b: nextRemarkSize(cur.b), c: /^\d+$/.test(cur.c) ? String(Number(cur.c) + 1) : "", d: cur.d ? inc10(cur.d) : "" };
       }
       const copy = [...prev];
       copy.splice(i + 1, 0, next);
@@ -173,7 +183,24 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
     }
     const lines = rows
       .filter((r) => r.a.trim() || r.b.trim())
-      .map((r) => `${r.a.trim()}${rowLabel}${r.b.trim()}`);
+      .map((r) => {
+        const tag = r.a.trim();
+        const size = r.b.trim();
+        const pants = mode === "pants" ? r.c.trim() : "";
+        const height = mode === "pants" ? r.d.trim() : "";
+        // 裤长模式: 左格(字母标记)留空时不输出"对应尺码"标签, 生成"90裤长30"(卡片显示为 90:裤长30)
+        // 建议身高: 填了就追加"建议身高110"后缀(卡片显示为 :建议110)
+        if (mode === "pants" && !tag) {
+          let s = size;
+          if (pants) s += `裤长${pants}`;
+          if (height) s += `建议身高${height}`;
+          return s;
+        }
+        let s = `${tag}${rowLabel}${size}`;
+        if (pants) s += `裤长${pants}`;
+        if (height) s += `建议身高${height}`;
+        return s;
+      });
     if (lines.length === 0) { onClose(); return; }
     onConfirm(lines);
     onClose();
@@ -184,7 +211,7 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
       <motion.div
         initial={{ scale: 0.92, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="w-full max-w-sm bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-4"
+        className="w-full max-w-md bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-4"
       >
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-base font-extrabold text-gray-900">{title}</h3>
@@ -230,7 +257,7 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
                     const conflict = rows.some((rr, idx) => idx !== i && rr.b === e.target.value && e.target.value);
                     if (conflict) setShakeTick((t) => t + 1);
                   }}
-                  className={`h-10 min-w-0 flex-1 shrink text-sm font-extrabold rounded-lg outline-none bg-white px-1 border-2 transition-colors ${
+                  className={`h-10 w-20 shrink-0 text-sm font-extrabold rounded-lg outline-none bg-white px-1 border-2 transition-colors ${
                     mode === "pants" && sizeConflicts(i)
                       ? "border-red-500 text-red-600 bg-red-50 animate-shake-x"
                       : "border-gray-900 text-gray-900 focus:border-[#4A90E2]"
@@ -241,6 +268,25 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
                     <option key={s} value={String(s)}>{s}</option>
                   ))}
                 </select>
+              )}
+              {/* 裤长模式: 尺码下拉框后的裤长填空 + 建议身高填空, 备注行生成"S对应尺码90裤长80建议身高110" */}
+              {mode === "pants" && (
+                <>
+                  <input
+                    value={r.c}
+                    inputMode="numeric"
+                    onChange={(e) => setRow(i, { c: e.target.value.replace(/\D/g, "") })}
+                    placeholder="裤长"
+                    className="w-14 h-10 shrink-0 text-center text-sm font-extrabold text-gray-900 border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white placeholder:text-gray-400 placeholder:font-bold"
+                  />
+                  <input
+                    value={r.d}
+                    inputMode="numeric"
+                    onChange={(e) => setRow(i, { d: e.target.value.replace(/\D/g, "") })}
+                    placeholder="建议110"
+                    className="flex-1 min-w-0 h-10 text-center text-sm font-extrabold text-gray-900 border-2 border-gray-900 rounded-lg outline-none focus:border-[#4A90E2] bg-white placeholder:text-gray-400 placeholder:font-bold"
+                  />
+                </>
               )}
               <button
                 onClick={() => addRowAfter(i)}
@@ -268,6 +314,46 @@ function RemarkRowsDialog({ title, rowLabel, mode, initialSizes, onClose, onConf
   );
 }
 
+// 备注解析: "S对应尺码120裤长61建议身高110" → [{ tag:"S", size:"120", pants:"61", height:"110" }], 显示为 "S/120:裤长61:建议110"
+// 兼容无裤长/无建议身高的旧行、无字母标记格式 "90裤长30建议身高110" → 显示为 "90:裤长30:建议110",
+// 以及旧身高按钮独立行 "100建议身高90" → [{ tag:"", size:"100", pants:"", height:"90" }], 显示为 "100:建议90"
+function parseNoteEntries(notes: string): { tag: string; size: string; pants: string; height: string }[] {
+  const out: { tag: string; size: string; pants: string; height: string }[] = [];
+  const re = /(?:([0-9A-Z]+)对应尺码(\d+)(?:裤长(\d+))?(?:建议身高(\d+))?|(\d+)裤长(\d+)(?:建议身高(\d+))?|(\d+)建议身高(\d+))/g;
+  const src = String(notes || "");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    if (m[1]) out.push({ tag: m[1], size: m[2], pants: m[3] || "", height: m[4] || "" });
+    else if (m[5]) out.push({ tag: "", size: m[5], pants: m[6], height: m[7] || "" });
+    else out.push({ tag: "", size: m[8], pants: "", height: m[9] });
+  }
+  return out;
+}
+const fmtNoteEntry = (e: { tag: string; size: string; pants: string; height?: string }) => {
+  const label = e.tag ? `${e.tag}/${e.size}` : e.size;
+  let s = e.pants ? `${label}:裤长${e.pants}` : label;
+  if (e.height) s += `:建议${e.height}`;
+  return s;
+};
+
+// 票根齿口半线: 18×8矩形虚线整线横切的一半(高4px), 2px黑内描边;
+// 左右端为四分之一块(9px, 仅内侧竖边+横边描边), 中间13块在整个空档内均分
+function PerfHalfLine({ part, fill }: { part: "top" | "bottom"; fill: string }) {
+  const hEdge = part === "top" ? "border-t-2" : "border-b-2";
+  const st = { backgroundColor: fill, borderColor: "#111827" };
+  return (
+    <div aria-hidden className="flex items-stretch w-full h-[4px]">
+      <div className={`shrink-0 w-[9px] ${hEdge} border-r-2`} style={st} />
+      <div className="flex-1 flex justify-evenly min-w-0">
+        {Array.from({ length: 13 }, (_, i) => (
+          <div key={i} className={`shrink-0 w-[18px] ${hEdge} border-x-2`} style={st} />
+        ))}
+      </div>
+      <div className={`shrink-0 w-[9px] ${hEdge} border-l-2`} style={st} />
+    </div>
+  );
+}
+
 // 入库前确认卡片: 一比一照搬管理栏总表移动端商品卡片(票根齿口+备注裁开),
 // 用于"下一步"悬浮窗中让用户核对本次入库信息
 function InboundConfirmCard({
@@ -283,38 +369,21 @@ function InboundConfirmCard({
   notes: string;
   today: string;
 }) {
-  const [notesExpanded, setNotesExpanded] = useState(false);
+  // 备注展开状态(与管理栏总表一致: 有备注默认展开, 点击切换)
   const hasNotes = !!notes.trim();
+  const [notesExpanded, setNotesExpanded] = useState(hasNotes);
+  const noteEntries = hasNotes ? parseNoteEntries(notes.trim()) : [];
   // 新入库商品: 售出/退货均为0, 剩余=入库合计, 价值=进价×件数
   const soldTotal = 0;
   const returnTotal = 0;
   const remaining = totalCount;
   const inventoryValue = costPrice * totalCount;
-  const perforationColor = hasNotes ? "#EF4444" : "#111827";
-  const renderPerforation = (label: string) => (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={() => setNotesExpanded((v) => !v)}
-      className="relative block w-full bg-white p-0 border-0 cursor-pointer"
-    >
-      <span className="absolute -left-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
-      <span className="absolute -right-[3px] top-0 h-2.5 w-[3px]" style={{ backgroundColor: perforationColor }} />
-      <span className="flex w-full">
-        {Array.from({ length: 17 }).map((_, i) => (
-          <span
-            key={i}
-            className="h-2.5 flex-1 mx-1 first:ml-0 last:mr-0 rounded-[2px]"
-            style={{ backgroundColor: perforationColor }}
-          />
-        ))}
-      </span>
-    </button>
-  );
+  const fill = hasNotes ? "#EF4444" : "#E5E7EB";
+  const toggleNotes = () => setNotesExpanded((v) => !v);
   return (
-    <div className={`relative ${notesExpanded ? "" : "rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]"}`}>
+    <div className="relative">
       {/* 上半张(撕口以上): 图片/信息/尺码 */}
-      <div className={`bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl border-gray-900 ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+      <div className="relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
         <div className="flex gap-2.5">
           {/* 图片区域 */}
           <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
@@ -384,8 +453,8 @@ function InboundConfirmCard({
           </div>
         </div>
 
-        {/* 尺码全宽5列 */}
-        <div className="mt-1.5 grid grid-cols-5 gap-1">
+        {/* 尺码全宽5列(点击展开/收起备注, 对齐管理栏总表) */}
+        <div className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer" onClick={toggleNotes}>
           {SIZE_OPTIONS.map((s) => {
             const val = Number(sizesMap[s]) || 0;
             return (
@@ -397,27 +466,55 @@ function InboundConfirmCard({
             );
           })}
         </div>
+
+        {/* 上半虚线(齿口横切上半)绑定上半张下端; 点击待裁线展开/收起备注(线向上加12px触控区) */}
+        <div className="absolute bottom-0 left-[-3px] right-[-6px] z-20 flex h-[16px] cursor-pointer items-end" onClick={toggleNotes}>
+          <PerfHalfLine part="top" fill={fill} />
+        </div>
       </div>{/* /上半张 */}
 
-      {/* 待裁齿口 */}
-      {renderPerforation("展开备注")}
-
-      {/* 备注带 */}
-      <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+      {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
+      <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
         <div className="overflow-hidden">
-          <div className="py-2">
-            <div className={`block w-full text-left px-4 py-2.5 text-[11px] leading-relaxed font-bold whitespace-pre-wrap break-words border-0 ${hasNotes ? "bg-[#EF4444] text-gray-900" : "bg-[#ECEEF0] text-gray-400"} ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
-              {hasNotes ? notes.trim() : "暂无备注"}
-            </div>
+          <div className="relative" style={{ backgroundColor: fill }}>
+            {noteEntries.length > 0 ? (
+              /* 有备注: 条目式圆角矩形(S/90:裤长80), 一排最多3条, 多的换行 */
+              <button
+                type="button"
+                onClick={toggleNotes}
+                className="relative z-10 grid w-full grid-cols-3 gap-1.5 px-3 py-2 border-0 cursor-pointer bg-transparent"
+              >
+                {noteEntries.map((e, i) => (
+                  <span key={i} className="rounded-md border-2 border-white px-0.5 py-0.5 text-[10px] leading-tight font-extrabold text-white text-center truncate" title={fmtNoteEntry(e)}>
+                    {fmtNoteEntry(e)}
+                  </span>
+                ))}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleNotes}
+                className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${hasNotes ? "text-white" : "text-gray-500"}`}
+              >
+                {hasNotes ? notes.trim() : "暂无备注"}
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 下半张断齿 */}
-      {notesExpanded && renderPerforation("收起备注")}
-
-      {/* 下半张: 入库/剩余/价值 */}
-      <div className={`bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl border-gray-900 ${notesExpanded ? "shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]" : ""}`}>
+      {/* 下半张(撕口以下): 入库/剩余/价值 */}
+      <div className="relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+        {!notesExpanded && (
+          <button
+            type="button"
+            aria-label="展开备注"
+            onClick={toggleNotes}
+            className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
+          />
+        )}
+        {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+        <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={fill} /></div>
         <div className="flex justify-between items-center text-[10px]">
           <div>
             <span className="text-gray-400">入库 </span>
@@ -440,6 +537,11 @@ function InboundConfirmCard({
 export default function InboundPage() {
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
+  // 拍照编辑后的待上传文件(压缩完成, 提交入库时才真正上传)
+  const [pendingPhotoFile, setPendingPhotoFile] = useState<File | null>(null);
+  const [photoEditorOpen, setPhotoEditorOpen] = useState(false);
+  const [photoEditorSrc, setPhotoEditorSrc] = useState<string | null>(null);
   const [saleId, setSaleId] = useState("");
   const [saleIdExists, setSaleIdExists] = useState(false);
   const [checkingSaleId, setCheckingSaleId] = useState(false);
@@ -480,6 +582,11 @@ export default function InboundPage() {
   const confirmPants = useCallback((lines: string[]) => { appendNotes(lines); setPantsInserted(lines); }, [appendNotes]);
   const cancelHeight = () => { removeNotesLines(heightInserted); setHeightInserted(null); };
   const cancelPants = () => { removeNotesLines(pantsInserted); setPantsInserted(null); };
+
+  // 多色入库: 同编号多颜色(如 H001 白/灰/棕)一次提交多条记录
+  // 最终编号 = 基础编号 + "+" + 颜色(如 H001+白色); 照片/厂家/进价/备注/货架/分类共用, 尺码数量每色独立
+  const [multiColor, setMultiColor] = useState(false);
+  const [colorRows, setColorRows] = useState<ColorRow[]>([{ color: "", sizes: emptyColorSizes(), standardSize: 0, shelf: emptyShelf() }]);
 
   // 进价预选(气泡 + 管理, 持久化 settings.cost_presets)
   const [costPresets, setCostPresets] = useState<string[]>(DEFAULT_COST_PRESETS);
@@ -818,51 +925,67 @@ export default function InboundPage() {
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (e.target) e.target.value = ""; // 重置 input 以便可以重新选择同一文件
     if (!file) return;
 
-    setPhotoUploading(true);
+    setPhotoProcessing(true);
     try {
-      // 先显示本地预览
+      // 仅本地压缩 + 预览, 不上传; 无论用户是否再编辑, 都等提交入库时随 handleSubmit 统一上传(避免重复上传)
+      const compressed = await compressImageFile(file, { target: 100 * 1024, maxWidth: 800 });
       const reader = new FileReader();
-      const preview = await new Promise<string>((resolve) => {
-        reader.onload = (e) => resolve(e.target?.result as string);
-        reader.readAsDataURL(file);
+      const preview = await new Promise<string>((resolve, reject) => {
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = () => reject(new Error("读取失败"));
+        reader.readAsDataURL(compressed);
       });
       setPhoto(preview);
-
-      // 前端 canvas 压缩图片（自动检测 WebP 编码能力，iOS Safari 回退 JPEG）
-      const compressedFile = await compressImageFile(file, { target: 100 * 1024, maxWidth: 800 });
-
-      // 上传到后端
-      const formData = new FormData();
-      formData.append("file", compressedFile, compressedFile.name);
-      formData.append("folder", "products");
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "上传失败");
-      }
-
-      const { url } = await res.json();
-      console.log("[上传成功] URL:", url);
-      // 预热验证: 确认刚上传的图片真正可访问(避开 CDN 首访窗口期), 再替换预览为远程 URL
-      await warmupImageUrl(url);
-      setPhoto(url); // 替换为远程 URL
+      setPendingPhotoFile(compressed);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "上传失败";
-      console.error("[上传失败]", msg);
-      showToast("图片上传失败: " + msg, "error");
+      const msg = err instanceof Error ? err.message : "处理失败";
+      console.error("[照片处理失败]", msg);
+      showToast("照片处理失败: " + msg, "error");
       setPhoto(null);
+      setPendingPhotoFile(null);
     } finally {
-      setPhotoUploading(false);
-      // 重置 input 以便可以重新选择同一文件
-      if (e.target) e.target.value = "";
+      setPhotoProcessing(false);
     }
+  };
+
+  // 拍照: 读取本地 dataURL 后打开文字标注编辑器(不直接上传)
+  const handleCameraCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPhotoEditorSrc(String(ev.target?.result || ""));
+      setPhotoEditorOpen(true);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // 编辑器保存: 本地预览 + 压缩暂存(提交入库时才上传)
+  const handlePhotoEditorSave = async (file: File, previewUrl: string) => {
+    setPhotoEditorOpen(false);
+    setPhoto(previewUrl);
+    setPhotoProcessing(true);
+    try {
+      const compressed = await compressImageFile(file, { target: 100 * 1024, maxWidth: 800 });
+      setPendingPhotoFile(compressed);
+    } catch {
+      showToast("照片处理失败，请重新编辑", "error");
+      setPhoto(null);
+      setPendingPhotoFile(null);
+    } finally {
+      setPhotoProcessing(false);
+    }
+  };
+
+  // 重新编辑照片文字(本地预览或已上传的远程照片均可)
+  const handleEditPhotoText = () => {
+    if (!photo) return;
+    setPhotoEditorSrc(photo);
+    setPhotoEditorOpen(true);
   };
 
   // 判断当前款式是否为无尺码分类
@@ -905,6 +1028,43 @@ export default function InboundPage() {
       [size]: isNaN(num) ? 0 : Math.max(0, num),
     }));
   };
+
+  // ===== 多色入库: colorRows 增删改 =====
+  const patchColorRow = (idx: number, patch: Partial<ColorRow>) => {
+    setColorRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+  // 添加颜色行: 自动复制第一行的尺码和数量(用户在此基础上增减), 货架每色独立不复制
+  const addColorRow = () =>
+    setColorRows((prev) => {
+      const first = prev[0];
+      return [...prev, { color: "", sizes: { ...first.sizes }, standardSize: first.standardSize, shelf: emptyShelf() }];
+    });
+  const removeColorRow = (idx: number) => {
+    setColorRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
+  };
+  const updateColorSize = (idx: number, size: number, delta: number) => {
+    setColorRows((prev) => prev.map((r, i) => (i === idx ? { ...r, sizes: { ...r.sizes, [size]: Math.max(0, (r.sizes[size] || 0) + delta) } } : r)));
+  };
+  const setColorSizeValue = (idx: number, size: number, value: string) => {
+    const num = parseInt(value, 10);
+    setColorRows((prev) => prev.map((r, i) => (i === idx ? { ...r, sizes: { ...r.sizes, [size]: isNaN(num) ? 0 : Math.max(0, num) } } : r)));
+  };
+  // 多色合计件数
+  const colorTotalCount = colorRows.reduce(
+    (sum, r) => sum + (isNoSizeStyle ? r.standardSize : Object.values(r.sizes).reduce((a, v) => a + v, 0)),
+    0
+  );
+  // 该色货架编号(三级选全才返回, 与单色 getShelfNo 同格式)
+  const rowShelfNo = (r: ColorRow): string =>
+    r.shelf.l1 && r.shelf.l2 && r.shelf.l3 ? `${r.shelf.l1}-${r.shelf.l2}-${r.shelf.l3}` : "";
+  // 该色确认卡片用尺码表(无尺码分类把标码数量落到 180 码)
+  const rowEffectiveSizes = (r: ColorRow): Record<number, number> =>
+    isNoSizeStyle
+      ? { ...Object.fromEntries(SIZE_OPTIONS.map((s) => [s, 0])), 180: r.standardSize }
+      : r.sizes;
+  // 该色件数
+  const rowCount = (r: ColorRow): number =>
+    isNoSizeStyle ? r.standardSize : Object.values(r.sizes).reduce((a, v) => a + v, 0);
 
   const addManufacturer = () => {
     const trimmed = newMfrName.trim();
@@ -1114,6 +1274,61 @@ export default function InboundPage() {
     return "";
   };
 
+  // 货架三级选择器(单色绑全局 state, 多色每色行独立 state); onChange(field,value) 内部处理联动清空
+  const renderShelfPicker = (
+    l1: string,
+    l2: string,
+    l3: string,
+    onChange: (field: "l1" | "l2" | "l3", value: string) => void,
+    withManage: boolean
+  ) => (
+    <div className="flex gap-2">
+      <div className="flex-1 flex gap-1.5">
+        <select
+          value={l1}
+          onChange={(e) => onChange("l1", e.target.value)}
+          className="neo-input flex-1 text-sm"
+        >
+          <option value="">一排</option>
+          {Object.keys(shelfData).map((k) => (
+            <option key={k} value={k}>{k}</option>
+          ))}
+        </select>
+        <select
+          value={l2}
+          onChange={(e) => onChange("l2", e.target.value)}
+          disabled={!l1}
+          className="neo-input flex-1 text-sm disabled:opacity-40"
+        >
+          <option value="">货架号</option>
+          {l1 && (shelfData[l1] || []).map((n) => (
+            <option key={n} value={String(n)}>{n}</option>
+          ))}
+        </select>
+        <select
+          value={l3}
+          onChange={(e) => onChange("l3", e.target.value)}
+          disabled={!l2}
+          className="neo-input flex-1 text-sm disabled:opacity-40"
+        >
+          <option value="">层</option>
+          {DEFAULT_LAYERS.map((n) => (
+            <option key={n} value={String(n)}>{n}</option>
+          ))}
+        </select>
+      </div>
+      {withManage && (
+        <button
+          onClick={() => { setShelfDraft({...shelfData}); setShelfHasChanges(false); setShowShelfDialog(true); }}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
+          title="管理货架"
+        >
+          <Settings2 className="h-5 w-5" />
+        </button>
+      )}
+    </div>
+  );
+
   // ===== 批量导入 =====
   const parseCSV = (text: string): string[][] => {
     return text.trim().split(/\r?\n/).map((line) => {
@@ -1257,7 +1472,8 @@ export default function InboundPage() {
       showToast("请输入售卖编号", "error");
       return false;
     }
-    if (saleIdExists) {
+    // 多色模式: 基础编号查重跳过(最终编号=基础+颜色, 与单色的 H001 不冲突), 改为逐个最终编号查重(handleNext 里做)
+    if (!multiColor && saleIdExists) {
       showToast("该编号已入库，请勿重复登记！", "error");
       return false;
     }
@@ -1274,12 +1490,48 @@ export default function InboundPage() {
       showToast("请输入有效的进价", "error");
       return false;
     }
+    if (multiColor) {
+      if (colorRows.some((r) => !r.color.trim())) {
+        showToast("请填写每个颜色的名称", "error");
+        return false;
+      }
+      const colors = colorRows.map((r) => r.color.trim());
+      if (new Set(colors).size !== colors.length) {
+        showToast("颜色名称重复了，请修改", "error");
+        return false;
+      }
+      if (colorTotalCount <= 0) {
+        showToast("请至少为一个颜色填写数量", "error");
+        return false;
+      }
+    }
     return true;
   };
 
   // "下一步": 校验通过后弹出商品卡片确认悬浮窗
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!validateInbound()) return;
+    // 多色模式: 逐个最终编号精确查重(复用 /api/products?check_sale_id=, 精确 eq 匹配)
+    if (multiColor) {
+      const finalIds = colorRows.map((r) => `${saleId.trim()}/${r.color.trim()}`);
+      try {
+        const results = await Promise.all(
+          finalIds.map(async (id) => {
+            const res = await fetch(`/api/products?check_sale_id=${encodeURIComponent(id)}`);
+            const data = await res.json();
+            return data.exists === true;
+          })
+        );
+        const conflicts = finalIds.filter((_, i) => results[i]);
+        if (conflicts.length > 0) {
+          showToast(`以下编号已入库：${conflicts.join("、")}`, "error");
+          return;
+        }
+      } catch {
+        showToast("编号查重失败，请重试", "error");
+        return;
+      }
+    }
     setShowConfirm(true);
   };
 
@@ -1287,45 +1539,84 @@ export default function InboundPage() {
     setSubmitting(true);
 
     try {
+      // 编辑过的照片: 提交入库时才真正上传
+      let finalPhotoUrl = photo || "";
+      if (pendingPhotoFile) {
+        const formData = new FormData();
+        formData.append("file", pendingPhotoFile, pendingPhotoFile.name);
+        formData.append("folder", "products");
+        const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!uploadRes.ok) {
+          const err = await uploadRes.json().catch(() => ({}));
+          throw new Error(err.error || "上传失败");
+        }
+        const { url } = await uploadRes.json();
+        await warmupImageUrl(url);
+        finalPhotoUrl = url;
+        setPhoto(url);
+      }
+
       // 注意：入库登记只需写入一次 inbound_records。
       // 历史bug：此前先调 /api/products 再调 /api/inbound-records，
       // 两者都向 inbound_records 表插入数据，导致同编号出现两条记录、库存翻倍。
-      const inboundRecord = {
-        sale_id: saleId.trim(),
-        photo: photo || "",
+      // 多色模式: 每色一条记录, 编号=基础编号+颜色, 货架每色独立(可分不同货架放); 单色: 一条记录
+      const buildRecord = (finalSaleId: string, row: { sizes: Record<number, number>; standardSize: number; shelfNo: string }) => ({
+        sale_id: finalSaleId,
+        photo: finalPhotoUrl,
         name: name.trim(),
         manufacturer,
-        size_80: isNoSizeStyle ? 0 : (sizes[80] || 0),
-        size_90: isNoSizeStyle ? 0 : (sizes[90] || 0),
-        size_95: isNoSizeStyle ? 0 : (sizes[95] || 0),
-        size_100: isNoSizeStyle ? 0 : (sizes[100] || 0),
-        size_105: isNoSizeStyle ? 0 : (sizes[105] || 0),
-        size_110: isNoSizeStyle ? 0 : (sizes[110] || 0),
-        size_120: isNoSizeStyle ? 0 : (sizes[120] || 0),
-        size_130: isNoSizeStyle ? 0 : (sizes[130] || 0),
-        size_140: isNoSizeStyle ? 0 : (sizes[140] || 0),
-        size_150: isNoSizeStyle ? 0 : (sizes[150] || 0),
-        size_160: isNoSizeStyle ? 0 : (sizes[160] || 0),
-        size_170: isNoSizeStyle ? 0 : (sizes[170] || 0),
-        size_180: isNoSizeStyle ? standardSize : (sizes[180] || 0),
-        shelf_no: getShelfNo(),
+        size_80: isNoSizeStyle ? 0 : (row.sizes[80] || 0),
+        size_90: isNoSizeStyle ? 0 : (row.sizes[90] || 0),
+        size_95: isNoSizeStyle ? 0 : (row.sizes[95] || 0),
+        size_100: isNoSizeStyle ? 0 : (row.sizes[100] || 0),
+        size_105: isNoSizeStyle ? 0 : (row.sizes[105] || 0),
+        size_110: isNoSizeStyle ? 0 : (row.sizes[110] || 0),
+        size_120: isNoSizeStyle ? 0 : (row.sizes[120] || 0),
+        size_130: isNoSizeStyle ? 0 : (row.sizes[130] || 0),
+        size_140: isNoSizeStyle ? 0 : (row.sizes[140] || 0),
+        size_150: isNoSizeStyle ? 0 : (row.sizes[150] || 0),
+        size_160: isNoSizeStyle ? 0 : (row.sizes[160] || 0),
+        size_170: isNoSizeStyle ? 0 : (row.sizes[170] || 0),
+        size_180: isNoSizeStyle ? row.standardSize : (row.sizes[180] || 0),
+        shelf_no: row.shelfNo,
         cost_price: Number(costPrice),
         season,
         style_category: style,
         notes: notes.trim(),
-      };
-
-      const inboundRes = await fetch("/api/inbound-records", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(inboundRecord),
       });
 
-      if (inboundRes.ok) {
-        showToast("入库登记成功！", "success");
+      const rows: { id: string; row: { sizes: Record<number, number>; standardSize: number; shelfNo: string } }[] = multiColor
+        ? colorRows.map((r) => ({ id: `${saleId.trim()}/${r.color.trim()}`, row: { sizes: r.sizes, standardSize: r.standardSize, shelfNo: rowShelfNo(r) } }))
+        : [{ id: saleId.trim(), row: { sizes, standardSize, shelfNo: getShelfNo() } }];
+
+      let okCount = 0;
+      let failMsg = "";
+      for (const { id, row } of rows) {
+        const res = await fetch("/api/inbound-records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildRecord(id, row)),
+        });
+        if (res.ok) {
+          okCount++;
+          // 后台异步给新商品照片建向量档(以图搜图用), 失败静默不影响入库
+          if (finalPhotoUrl) {
+            fetch(`/api/image-search?mode=embed-sale&sale_id=${encodeURIComponent(id.toUpperCase())}`, { cache: "no-store" })
+              .catch(() => {});
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          failMsg = err.error || "未知错误";
+          break; // 中途失败停止, 已入库的不回滚
+        }
+      }
+
+      if (okCount === rows.length) {
+        showToast(multiColor ? `已入库 ${okCount} 个颜色商品！` : "入库登记成功！", "success");
         setShowConfirm(false);
         setLastSaleId(saleId.trim().toUpperCase());
         setPhoto(null);
+        setPendingPhotoFile(null);
         setSaleId("");
         setName("");
         setManufacturer("");
@@ -1340,12 +1631,16 @@ export default function InboundPage() {
         setNotes("");
         setSeason("");
         setStyle("");
+        // 多色: 行重置为 1 空行; 开关保持开启方便连续录多色款
+        if (multiColor) setColorRows([{ color: "", sizes: emptyColorSizes(), standardSize: 0, shelf: emptyShelf() }]);
       } else {
-        const err = await inboundRes.json();
-        showToast("入库记录写入失败: " + (err.error || "未知错误"), "error");
+        showToast(multiColor
+          ? `已入库 ${okCount}/${rows.length} 个颜色，后续失败: ${failMsg}`
+          : "入库记录写入失败: " + failMsg, "error");
       }
     } catch (err) {
-      showToast("网络错误，请重试", "error");
+      // 照片上传失败等带信息错误保留 pendingPhotoFile 以便重试提交
+      showToast(err instanceof Error && err.message && err.message !== "Failed to fetch" ? err.message : "网络错误，请重试", "error");
     } finally {
       setSubmitting(false);
     }
@@ -1586,8 +1881,20 @@ export default function InboundPage() {
                   <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
                   <span className="text-xs font-bold text-gray-500">正在压缩并上传...</span>
                 </div>
+              ) : photoProcessing ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+                  <span className="text-xs font-bold text-gray-500">正在处理照片...</span>
+                </div>
               ) : photo ? (
-                <img src={photo} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                <>
+                  <img src={photo} alt="Preview" className="w-full h-full object-cover rounded-lg" />
+                  {pendingPhotoFile && (
+                    <span className="absolute bottom-1.5 right-1.5 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      照片将于提交入库时上传
+                    </span>
+                  )}
+                </>
               ) : (
                 <>
                   <Image className="h-8 w-8 text-gray-400" />
@@ -1619,12 +1926,20 @@ export default function InboundPage() {
               >
                 <Image className="h-5 w-5 text-gray-900" />
               </button>
+              <button
+                onClick={handleEditPhotoText}
+                disabled={!photo || photoUploading || photoProcessing}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-[#4CD964] shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                title="编辑文字标注"
+              >
+                <Pencil className="h-5 w-5 text-gray-900" />
+              </button>
               <input
                 ref={cameraInputRef}
                 type="file"
                 accept="image/*"
                 capture="environment"
-                onChange={handlePhotoUpload}
+                onChange={handleCameraCapture}
                 className="hidden"
               />
             </div>
@@ -1637,21 +1952,40 @@ export default function InboundPage() {
             <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
               售卖编号 <span className="text-red-500">*</span>
             </label>
-            <Input
-              value={saleId}
-              onChange={(e) => {
-                const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-                setSaleId(val);
-                setSaleIdExists(false);
-              }}
-              onBlur={(e) => checkSaleId(e.target.value)}
-              placeholder={lastSaleId ? `上次录入：${lastSaleId}` : "例如: WUHE001"}
-              className="text-sm"
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                value={saleId}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+                  setSaleId(val);
+                  setSaleIdExists(false);
+                }}
+                onBlur={(e) => checkSaleId(e.target.value)}
+                placeholder={lastSaleId ? `上次录入：${lastSaleId}` : "例如: WUHE001"}
+                className="text-sm"
+              />
+              {/* 多色开关(方形按钮, 衣服堆叠意象): 位于编号输入框外侧右侧; 同编号多颜色一次提交多条记录(编号=基础编号/颜色) */}
+              <button
+                type="button"
+                onClick={() => setMultiColor((v) => !v)}
+                title={multiColor ? "多色入库已开启：提交后按颜色生成多条记录，可点关闭" : "多色入库：同编号多颜色一次入库多张卡片，编号自动变成 编号/颜色"}
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-[3px] border-gray-900 transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] ${
+                  multiColor ? "bg-[#FF6B7A] text-white" : "bg-gray-100 text-gray-500"
+                }`}
+              >
+                <Shirt className="h-5 w-5" />
+              </button>
+            </div>
             {checkingSaleId && <p className="text-xs text-gray-400 mt-1">正在检查编号...</p>}
-            {saleIdExists && (
+            {/* 多色模式不提示基础编号已入库(最终编号=编号+颜色, 不与单色冲突, 提交前逐个最终编号查重) */}
+            {!multiColor && saleIdExists && (
               <p className="text-xs text-red-500 font-bold mt-1 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" /> 该编号已入库，请勿重复登记！
+              </p>
+            )}
+            {multiColor && (
+              <p className="text-xs text-gray-500 mt-1">
+                多色模式：提交后生成「{saleId.trim() || "编号"}/颜色」格式的多条记录
               </p>
             )}
           </div>
@@ -1855,61 +2189,6 @@ export default function InboundPage() {
             )}
           </div>
 
-          {/* Shelf No - 三级货架选择 */}
-          <div>
-            <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
-              货架号
-            </label>
-            <div className="flex gap-2">
-              <div className="flex-1 flex gap-1.5">
-                <select
-                  value={shelfLevel1}
-                  onChange={(e) => { setShelfLevel1(e.target.value); setShelfLevel2(""); setShelfLevel3(""); }}
-                  className="neo-input flex-1 text-sm"
-                >
-                  <option value="">一排</option>
-                  {Object.keys(shelfData).map((k) => (
-                    <option key={k} value={k}>{k}</option>
-                  ))}
-                </select>
-                <select
-                  value={shelfLevel2}
-                  onChange={(e) => { setShelfLevel2(e.target.value); setShelfLevel3(""); }}
-                  disabled={!shelfLevel1}
-                  className="neo-input flex-1 text-sm disabled:opacity-40"
-                >
-                  <option value="">货架号</option>
-                  {shelfLevel1 && (shelfData[shelfLevel1] || []).map((n) => (
-                    <option key={n} value={String(n)}>{n}</option>
-                  ))}
-                </select>
-                <select
-                  value={shelfLevel3}
-                  onChange={(e) => setShelfLevel3(e.target.value)}
-                  disabled={!shelfLevel2}
-                  className="neo-input flex-1 text-sm disabled:opacity-40"
-                >
-                  <option value="">层</option>
-                  {DEFAULT_LAYERS.map((n) => (
-                    <option key={n} value={String(n)}>{n}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={() => { setShelfDraft({...shelfData}); setShelfHasChanges(false); setShowShelfDialog(true); }}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-gray-100 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all shrink-0"
-                title="管理货架"
-              >
-                <Settings2 className="h-5 w-5" />
-              </button>
-            </div>
-            {shelfLevel1 && shelfLevel2 && shelfLevel3 && (
-              <p className="text-[10px] text-gray-500 mt-1 font-bold">
-                {getShelfNo()}（{shelfLevel1}货架第{shelfLevel3}层）
-              </p>
-            )}
-          </div>
-
           {/* Season */}
           <div>
             <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
@@ -1967,13 +2246,99 @@ export default function InboundPage() {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm lg:text-base font-extrabold text-gray-900">
-              {isNoSizeStyle ? "标码数量" : "尺码数量"}
+              {multiColor ? "各颜色数量" : isNoSizeStyle ? "标码数量" : "尺码数量"}
             </label>
             <span className="text-xs lg:text-sm font-bold text-gray-500">
-              合计: <NumberPop value={totalSizeCount} /> 件
+              合计: <NumberPop value={multiColor ? colorTotalCount : totalSizeCount} /> 件
             </span>
           </div>
-          {isNoSizeStyle ? (
+          {multiColor ? (
+            /* 多色模式: 每色一组(颜色名 + 该色独立尺码/标码数量), 提交时每色生成一条记录 */
+            <div className="space-y-4">
+              {colorRows.map((row, idx) => (
+                <div key={idx} className="rounded-xl border-[3px] border-gray-900 bg-white p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={row.color}
+                      onChange={(e) => patchColorRow(idx, { color: e.target.value })}
+                      placeholder={`颜色 ${idx + 1}，如：白色`}
+                      className="neo-input flex-1 text-sm font-bold"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeColorRow(idx)}
+                      disabled={colorRows.length <= 1}
+                      title={colorRows.length <= 1 ? "至少保留一个颜色" : "删除该颜色"}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-[2px] border-gray-900 bg-gray-100 text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {isNoSizeStyle ? (
+                    <div className="inline-flex items-center gap-3">
+                      <span className="text-sm font-extrabold text-gray-900">标码</span>
+                      <button
+                        type="button"
+                        onClick={() => patchColorRow(idx, { standardSize: Math.max(0, row.standardSize - 1) })}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 bg-[#FF6B7A] text-white active:scale-90 transition-transform"
+                      >
+                        <Minus className="h-4 w-4" />
+                      </button>
+                      <span className="w-10 text-center text-base font-extrabold text-gray-900">{row.standardSize}</span>
+                      <button
+                        type="button"
+                        onClick={() => patchColorRow(idx, { standardSize: row.standardSize + 1 })}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border-[2px] border-gray-900 bg-[#4CD964] text-white active:scale-90 transition-transform"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <SizeGrid
+                      sizeList={SIZE_OPTIONS}
+                      sizes={row.sizes}
+                      onDelta={(size, delta) => updateColorSize(idx, size, delta)}
+                      onSetValue={(size, value) => setColorSizeValue(idx, size, value)}
+                      grayEmpty
+                    />
+                  )}
+                  {/* 该色货架(在尺码下方, 每色可放不同货架) */}
+                  <div className="mt-3">
+                    <label className="text-xs font-extrabold text-gray-500 mb-1 block">
+                      该色货架号<span className="text-gray-400 font-bold">（可分不同货架放）</span>
+                    </label>
+                    {renderShelfPicker(
+                      row.shelf.l1,
+                      row.shelf.l2,
+                      row.shelf.l3,
+                      (field, value) =>
+                        patchColorRow(idx, {
+                          shelf: {
+                            ...row.shelf,
+                            [field]: value,
+                            ...(field === "l1" ? { l2: "", l3: "" } : field === "l2" ? { l3: "" } : {}),
+                          },
+                        }),
+                      false
+                    )}
+                    {row.shelf.l1 && row.shelf.l2 && row.shelf.l3 && (
+                      <p className="text-[10px] text-gray-500 mt-1 font-bold">
+                        {rowShelfNo(row)}（{row.shelf.l1}货架第{row.shelf.l3}层）
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addColorRow}
+                className="w-full py-2.5 rounded-xl border-[3px] border-dashed border-gray-400 text-sm font-extrabold text-gray-500 hover:border-gray-900 hover:text-gray-900 transition-colors"
+              >
+                + 添加颜色
+              </button>
+            </div>
+          ) : isNoSizeStyle ? (
             <div className="rounded-xl border-[3px] border-gray-900 bg-white p-3 inline-flex items-center gap-3">
               <span className="text-sm font-extrabold text-gray-900">标码</span>
               <button
@@ -2009,9 +2374,35 @@ export default function InboundPage() {
               sizes={sizes}
               onDelta={updateSize}
               onSetValue={setSizeValue}
+              grayEmpty
             />
           )}
         </div>
+
+        {/* Shelf No - 三级货架选择(在尺码数量下方); 多色模式下每色组内自带货架, 此处不显示 */}
+        {!multiColor && (
+          <div className="mb-6">
+            <label className="text-sm lg:text-base font-extrabold text-gray-900 mb-1 block">
+              货架号
+            </label>
+            {renderShelfPicker(
+              shelfLevel1,
+              shelfLevel2,
+              shelfLevel3,
+              (field, value) => {
+                if (field === "l1") { setShelfLevel1(value); setShelfLevel2(""); setShelfLevel3(""); }
+                else if (field === "l2") { setShelfLevel2(value); setShelfLevel3(""); }
+                else setShelfLevel3(value);
+              },
+              true
+            )}
+            {shelfLevel1 && shelfLevel2 && shelfLevel3 && (
+              <p className="text-[10px] text-gray-500 mt-1 font-bold">
+                {getShelfNo()}（{shelfLevel1}货架第{shelfLevel3}层）
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Notes */}
         <div className="mb-8">
@@ -2089,7 +2480,15 @@ export default function InboundPage() {
             rowLabel="对应尺码"
             mode="pants"
             // 已选数量的尺码(去重升序): 110-140各5件 → 自动生成4行并预选110/120/130/140
-            initialSizes={SIZE_OPTIONS.filter((s) => (sizes[s] || 0) > 0).map((s) => String(s))}
+            // 多色模式: 各色尺码可能不同但款式备注一致, 取所有颜色行尺码的并集去重升序(如红5个+白3个含交集 → 自动填入5行)
+            initialSizes={(() => {
+              if (multiColor) {
+                const set = new Set<number>();
+                for (const r of colorRows) for (const s of SIZE_OPTIONS) if ((r.sizes[s] || 0) > 0) set.add(s);
+                return Array.from(set).sort((a, b) => a - b).map(String);
+              }
+              return SIZE_OPTIONS.filter((s) => (sizes[s] || 0) > 0).map((s) => String(s));
+            })()}
             onClose={() => setShowPantsDialog(false)}
             onConfirm={confirmPants}
           />
@@ -2115,18 +2514,40 @@ export default function InboundPage() {
             className="w-full max-w-sm max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-center text-base font-extrabold text-white mb-3">请核对入库信息</h2>
-            <InboundConfirmCard
-              photo={photo || ""}
-              saleId={saleId.trim()}
-              name={name.trim()}
-              costPrice={Number(costPrice) || 0}
-              shelfNo={getShelfNo()}
-              sizesMap={effectiveSizes}
-              totalCount={totalSizeCount}
-              notes={notes}
-              today={todayStr}
-            />
+            <h2 className="text-center text-base font-extrabold text-white mb-3">
+              请核对入库信息{multiColor ? `（${colorRows.length} 张卡片）` : ""}
+            </h2>
+            {/* 多色模式: 每色一张卡片上下排列, 弹窗内滚动预览; 单色: 一张卡片 */}
+            {(multiColor
+              ? colorRows.map((r, i) => ({
+                  key: i,
+                  saleId: `${saleId.trim()}/${r.color.trim()}`,
+                  shelfNo: rowShelfNo(r),
+                  sizesMap: rowEffectiveSizes(r),
+                  totalCount: rowCount(r),
+                }))
+              : [{
+                  key: 0,
+                  saleId: saleId.trim(),
+                  shelfNo: getShelfNo(),
+                  sizesMap: effectiveSizes,
+                  totalCount: totalSizeCount,
+                }]
+            ).map((c, i, arr) => (
+              <div key={c.key} className={i < arr.length - 1 ? "mb-3" : ""}>
+                <InboundConfirmCard
+                  photo={photo || ""}
+                  saleId={c.saleId}
+                  name={name.trim()}
+                  costPrice={Number(costPrice) || 0}
+                  shelfNo={c.shelfNo}
+                  sizesMap={c.sizesMap}
+                  totalCount={c.totalCount}
+                  notes={notes}
+                  today={todayStr}
+                />
+              </div>
+            ))}
             {/* 卡片下方两个按钮并排: 上一步 / 提交入库 */}
             <div className="grid grid-cols-2 gap-3 mt-4">
               <Button
@@ -3272,6 +3693,14 @@ export default function InboundPage() {
           else removeStyle(pendingRemove.name, pendingRemove.styleType);
           setPendingRemove(null);
         }}
+      />
+
+      {/* 拍照文字标注编辑器: 全屏弹窗, 保存后仅本地预览+压缩, 提交入库时才上传 */}
+      <ImageTextEditor
+        open={photoEditorOpen}
+        src={photoEditorSrc}
+        onCancel={() => setPhotoEditorOpen(false)}
+        onSave={handlePhotoEditorSave}
       />
     </PageWrapper>
   );

@@ -61,10 +61,11 @@ export default function LinksPage() {
     fetchStats();
     fetchLinkData();
 
-    // 每 5 秒刷新选品数量
+    // 每 30 秒刷新选品数量(页面隐藏时跳过)
     const interval = setInterval(() => {
+      if (document.hidden) return;
       fetchLinkData();
-    }, 5000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 

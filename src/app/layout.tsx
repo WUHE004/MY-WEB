@@ -75,9 +75,23 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if ('serviceWorker' in navigator) {
+              // SW 仅生产环境注册: dev 下 Turbopack 的 chunk 文件名不随内容变化,
+              // sw.js 对 JS 的 Cache First 会让页面永远命中旧缓存 JS(界面回退旧版 + hydration mismatch)
+              var IS_DEV = "${process.env.NODE_ENV}" === "development";
+              if (IS_DEV && 'serviceWorker' in navigator) {
+                // dev 自愈: 注销已注册的旧 SW 并清空缓存, 完成后刷新一次拿最新代码
+                navigator.serviceWorker.getRegistrations().then(function (rs) {
+                  return Promise.all(rs.map(function (r) { return r.unregister(); }));
+                }).then(function (removed) {
+                  if (!removed.some(Boolean)) return;
+                  return caches.keys().then(function (keys) {
+                    return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                  }).then(function () { window.location.reload(); });
+                }).catch(function () {});
+              }
+              if (!IS_DEV && 'serviceWorker' in navigator) {
                 window.addEventListener('load', () => {
-                  navigator.serviceWorker.register('/sw.js?v=2.0.1').then((reg) => {
+                  navigator.serviceWorker.register('/sw.js?v=2.1.0').then((reg) => {
                     // 每次打开页面立即检查一次 SW 更新
                     reg.update().catch(() => {});
                     // 检测新版本 SW，自动激活
@@ -122,14 +136,15 @@ export default function RootLayout({
                   clearCaches.then(unregisterSW).then(reload).catch(reload);
                 }
                 function checkVersion() {
+                  if (document.hidden) return; // 页面隐藏时跳过, 切回前台由 visibilitychange 立即检查
                   fetch('/api/version', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
                     if (d && d.v && d.v !== BV) hardRefresh();
                   }).catch(function () {});
                 }
-                // 打开页面立即检查一次版本: 旧缓存页面 1-2 秒内强刷到新版,
-                // 而不是等满 60 秒 interval 才发现部署了新版本
+                // 打开页面立即检查一次: 旧缓存页面 1-2 秒内强刷到新版
+                // interval 仅作前台挂机兜底(5分钟), 发版感知主要靠切回前台立即检查
                 checkVersion();
-                setInterval(checkVersion, 60000);
+                setInterval(checkVersion, 300000);
                 document.addEventListener('visibilitychange', function () {
                   if (!document.hidden) setTimeout(checkVersion, 500);
                 });

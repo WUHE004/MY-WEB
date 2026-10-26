@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { invalidateSummaryCache } from "@/app/api/summary/cache";
+import { invalidateRestockCache } from "@/app/api/restock-snapshot/route";
+import { logOp, buildDiff, cnField, type LogDetail } from "@/lib/operation-log";
+import { extractUser } from "@/lib/auth";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -53,6 +57,65 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(allData);
 }
 
+const RESTOCK_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
+
+function bjDate(iso: unknown): string {
+  if (!iso) return "";
+  const d = new Date(String(iso));
+  if (isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(d);
+}
+
+// 补录快照(单商品轻量版): 提交补录时算好"补录当天(天粒度)各尺码剩余"存进记录, 补录视图直接读记录, 不再全量现算
+// 口径与历史回填脚本一致: before[s] = Σ入库(≤D)[s] − Σ售出(≤D)[s] + Σ退回(≤D)[s] − 当日补录增量[s]; D = inbound_date 北京日期
+// 本条记录此刻还未插入, 查询结果天然不含本条; 同日已有补录笔会计入入库累计并被"当日补录增量"抵消, 得到当天开头剩余
+async function computeBeforeSizes(sid: string, inboundDateIso: string): Promise<Record<string, number>> {
+  const D = bjDate(inboundDateIso);
+  const out: Record<string, number> = {};
+  for (const s of RESTOCK_SIZES) out[s] = 0;
+  if (!sid.trim() || !D) return out;
+  const cols = RESTOCK_SIZES.map((s) => `size_${s}`).join(",");
+  // 动态列拼接的 select 会让 supabase-js 泛型解析失败(ParserError), 结果统一按 unknown 行数组处理
+  const [inbR, soldR, retR] = await Promise.all([
+    supabase.from("inbound_records").select(`inbound_date,notes,${cols}`).ilike("sale_id", sid.trim()),
+    supabase.from("sales_records").select("order_time,registration_date,size,quantity").ilike("sale_id", sid.trim()),
+    supabase.from("return_records").select("return_time,size,quantity").ilike("sale_id", sid.trim()),
+  ]);
+  const inb = (inbR.data ?? []) as unknown as Record<string, unknown>[];
+  const sold = (soldR.data ?? []) as unknown as Record<string, unknown>[];
+  const ret = (retR.data ?? []) as unknown as Record<string, unknown>[];
+  const cumIn: Record<number, number> = {}, cumSold: Record<number, number> = {}, cumRet: Record<number, number> = {}, dayRestock: Record<number, number> = {};
+  for (const r of inb) {
+    const d = bjDate(r.inbound_date);
+    if (!d || d > D) continue;
+    const isRestock = String(r.notes || "").startsWith("补录入库");
+    for (const s of RESTOCK_SIZES) {
+      const v = Number((r as Record<string, unknown>)[`size_${s}`]) || 0;
+      if (!v) continue;
+      cumIn[s] = (cumIn[s] || 0) + v;
+      if (isRestock && d === D) dayRestock[s] = (dayRestock[s] || 0) + v;
+    }
+  }
+  for (const r of sold) {
+    const qty = Number(r.quantity) || 0;
+    const sz = Number(r.size) || 0;
+    if (!qty || sz < 80 || sz > 180) continue;
+    const d = bjDate(r.order_time || r.registration_date);
+    if (!d || d > D) continue;
+    cumSold[sz] = (cumSold[sz] || 0) + qty;
+  }
+  for (const r of ret) {
+    const qty = Number(r.quantity) || 0;
+    const sz = Number(r.size) || 0;
+    if (!qty || sz < 80 || sz > 180) continue;
+    const d = bjDate(r.return_time);
+    if (!d || d > D) continue;
+    cumRet[sz] = (cumRet[sz] || 0) + qty;
+  }
+  for (const s of RESTOCK_SIZES) out[s] = (cumIn[s] || 0) - (cumSold[s] || 0) + (cumRet[s] || 0) - (dayRestock[s] || 0);
+  return out;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -75,8 +138,8 @@ export async function POST(request: NextRequest) {
     const record = {
       inbound_date: body.inbound_date || new Date().toISOString(),
       sale_id: body.sale_id || "",
-      photo: (body.photo && body.photo !== "0" && String(body.photo).trim() !== "0") 
-        ? String(body.photo).replace(/^`+|`+$/g, "").trim() 
+      photo: (body.photo && body.photo !== "0" && String(body.photo).trim() !== "0")
+        ? String(body.photo).replace(/^`+|`+$/g, "").trim()
         : "",
       name: (body.name && body.name !== "0" && String(body.name).trim() !== "0") ? body.name : "",
       manufacturer: body.manufacturer || "",
@@ -99,7 +162,27 @@ export async function POST(request: NextRequest) {
       season: body.season || "",
       style_category: body.style_category || "",
       notes: body.notes || "",
+      operator: null as string | null,
+      before_sizes: null as Record<string, number> | null,
     };
+
+    // 补录记录: ①登记人=提交时登录人 ②提交时算好"补录当天各尺码剩余"快照存进记录(补录视图直接读, 免全量现算)
+    if (String(body.notes || "").startsWith("补录入库")) {
+      try {
+        const user = extractUser(request);
+        if (user?.sub) {
+          const { data: m } = await supabase.from("members").select("name").eq("id", user.sub).maybeSingle();
+          if (m?.name) record.operator = m.name;
+        }
+      } catch {
+        // 无登录态 → 保持 null
+      }
+      try {
+        record.before_sizes = await computeBeforeSizes(String(body.sale_id || ""), String(record.inbound_date));
+      } catch {
+        // 快照计算失败不阻塞补录提交(视图对该记录会显示 0, 可重跑回填脚本修复)
+      }
+    }
 
     const { data, error } = await supabase
       .from("inbound_records")
@@ -111,6 +194,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    void logOp(request, {
+      action: "inbound_add",
+      label: "入库登记",
+      table: "inbound_records",
+      id: String((data as { id?: unknown }).id ?? ""),
+      target: `${record.sale_id}${record.name ? ` · ${record.name}` : ""}`,
+      detail: [
+        { field: "总库存", from: "新增", to: String(totalStock) },
+        { field: "进价", from: "新增", to: String(record.cost_price) },
+      ],
+    });
+    invalidateSummaryCache();
+    // 补录/入库写入会影响补录视图"那天时点"快照, 立即失效其缓存
+    invalidateRestockCache();
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -158,10 +255,12 @@ export async function PUT(request: NextRequest) {
 
       // 计算每行需要变更的尺码值
       const updates: { id: number; changes: Record<string, number> }[] = rowList.map((r) => ({ id: Number(r.id), changes: {} }));
+      const sizeLog: LogDetail[] = [];
       for (const s of Object.keys(targets).map(Number)) {
         const col = `size_${s}`;
         const current = rowList.reduce((sum, r) => sum + (Number(r[col]) || 0), 0);
         const delta = targets[s] - current;
+        if (delta !== 0) sizeLog.push({ field: cnField(col), from: String(current), to: String(targets[s]) });
 
         if (delta > 0) {
           // 增加: 优先加到已有该尺码的最新一行, 否则加到最新一行
@@ -197,7 +296,10 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      return NextResponse.json({ message: "入库尺码已修正", sale_id, adjusted: Object.keys(targets).length });
+      invalidateSummaryCache();
+      invalidateRestockCache();
+      void logOp(request, { action: "inbound_edit", label: "修正入库库存", table: "inbound_records", target: sale_id, detail: sizeLog });
+    return NextResponse.json({ message: "入库尺码已修正", sale_id, adjusted: Object.keys(targets).length });
     }
 
     // 计算 total_stock
@@ -248,6 +350,12 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "没有需要更新的字段" }, { status: 400 });
     }
 
+    // 查旧行生成改前→改后明细（必须在更新前查！更新后查到的是新值，diff 会恒为空）
+    const diffKeys = Object.keys(updateData);
+    const { data: oldRow } = id
+      ? await supabase.from("inbound_records").select(diffKeys.join(",")).eq("id", id).maybeSingle()
+      : await supabase.from("inbound_records").select(diffKeys.join(",")).eq("sale_id", sale_id).limit(1).maybeSingle();
+
     const updateQuery = supabase.from("inbound_records").update(updateData);
     const { error } = id
       ? await updateQuery.eq("id", id)
@@ -257,6 +365,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    void logOp(request, {
+      action: "inbound_edit",
+      label: "修改入库",
+      table: "inbound_records",
+      id: id ? String(id) : undefined,
+      target: sale_id,
+      detail: buildDiff(oldRow as Record<string, unknown> | null, updateData, diffKeys),
+    });
+    invalidateSummaryCache();
+    invalidateRestockCache();
     return NextResponse.json({ message: "更新成功", sale_id, updated: Object.keys(updateData) });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

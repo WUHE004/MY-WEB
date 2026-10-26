@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp, buildDiff } from "@/lib/operation-log";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -79,6 +80,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    void logOp(request, {
+      action: "product_add", label: "新增商品", table: "inbound_records", id: String((data as { id?: unknown }).id ?? ""),
+      target: `${product.sale_id}${product.name ? ` · ${product.name}` : ""}`,
+      detail: [{ field: "总库存", from: "新增", to: String(product.total_stock) }],
+    });
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -92,6 +98,14 @@ export async function PUT(request: NextRequest) {
     const { id, ...data } = body;
     if (!id) return NextResponse.json({ error: "缺少ID" }, { status: 400 });
 
+    // 查旧行生成改前→改后明细
+    const diffKeys = Object.keys(data as Record<string, unknown>).filter((k) => k !== "created_at" && k !== "updated_at");
+    const { data: oldRow } = await supabase
+      .from("inbound_records")
+      .select(diffKeys.join(",") || "id")
+      .eq("id", id)
+      .maybeSingle();
+
     const { error } = await supabase
       .from("inbound_records")
       .update(data)
@@ -100,6 +114,12 @@ export async function PUT(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    void logOp(request, {
+      action: "product_edit", label: "修改商品", table: "inbound_records", id: String(id),
+      target: String((oldRow as { sale_id?: string } | null)?.sale_id || id),
+      detail: buildDiff(oldRow as Record<string, unknown> | null, data as Record<string, unknown>, diffKeys),
+    });
 
     const { data: updated } = await supabase
       .from("inbound_records")
@@ -125,5 +145,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  void logOp(request, { action: "product_del", label: "删除商品", table: "inbound_records", id });
   return NextResponse.json({ success: true });
 }

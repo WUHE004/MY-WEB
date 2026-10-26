@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { compressImageFileSimple } from "@/lib/image-compress";
 import { warmupImageUrl } from "@/lib/image-warmup";
@@ -11,6 +11,10 @@ import {
   Rows4,
   Tags,
   Type,
+  StickyNote,
+  Ruler,
+  Shirt,
+  Clock,
   Upload,
   CheckCircle2,
   Loader2,
@@ -23,6 +27,7 @@ import {
 import Link from "next/link";
 import { PageWrapper } from "@/components/page-wrapper";
 import { ErrorState } from "@/components/error-state";
+import { RemarkRowsDialog, SIZE_OPTIONS, userNotesOnly } from "@/components/remark-quick-fill";
 
 const DEFAULT_MANUFACTURERS = [
   "大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家",
@@ -41,7 +46,7 @@ const DEFAULT_NO_SIZE_STYLES = ["母婴", "日用", "配饰"];
 const DEFAULT_SHELF_DATA: Record<string, number[]> = { A: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], B: [1, 2], C: [1, 2, 3, 4, 5] };
 const DEFAULT_LAYERS = [1, 2, 3, 4, 5];
 
-type TabType = "photo" | "shelf" | "category" | "name";
+type TabType = "photo" | "shelf" | "category" | "name" | "notes";
 
 interface Product {
   sale_id: string;
@@ -51,6 +56,17 @@ interface Product {
   season: string;
   style_category: string;
   manufacturer: string;
+  notes?: string;
+}
+
+// 同编号所有入库行汇总: 各尺码入库数量合计>0 视为已入库(补录可能分多行, 单看某一行会漏尺码)
+function stockedSizes(rows: Product[]): string[] {
+  const sums: Record<string, number> = {};
+  for (const p of rows) {
+    const rec = p as unknown as Record<string, unknown>;
+    for (const s of SIZE_OPTIONS) sums[s] = (sums[s] || 0) + (Number(rec[`size_${s}`]) || 0);
+  }
+  return SIZE_OPTIONS.filter((s) => (sums[s] || 0) > 0).map(String);
 }
 
 // 检查字段值是否为空（包括 null、undefined、空字符串、"0"）
@@ -113,6 +129,15 @@ export default function AdjustPage() {
   // 名称调整
   const [newName, setNewName] = useState("");
   const [nameSaving, setNameSaving] = useState(false);
+
+  // 备注调整
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [showRemarkHeightDialog, setShowRemarkHeightDialog] = useState(false);
+  const [showRemarkPantsDialog, setShowRemarkPantsDialog] = useState(false);
+  // 本次已填入的身高/裤长备注行(用于"取消填入"一键删除)
+  const [remarkHeightInserted, setRemarkHeightInserted] = useState<string[] | null>(null);
+  const [remarkPantsInserted, setRemarkPantsInserted] = useState<string[] | null>(null);
 
   // 设置数据
   const [manufacturers, setManufacturers] = useState<string[]>(DEFAULT_MANUFACTURERS);
@@ -182,6 +207,8 @@ export default function AdjustPage() {
       return products.filter((p) => isEmptyValue(p.season) || isEmptyValue(p.style_category));
     } else if (activeTab === "name") {
       return products.filter((p) => isEmptyValue(p.name));
+    } else if (activeTab === "notes") {
+      return products.filter((p) => !userNotesOnly(p.notes));
     }
     return [];
   }, [products, activeTab]);
@@ -192,6 +219,7 @@ export default function AdjustPage() {
     if (activeTab === "shelf") return isEmptyValue(p.shelf_no);
     if (activeTab === "category") return isEmptyValue(p.season) || isEmptyValue(p.style_category);
     if (activeTab === "name") return isEmptyValue(p.name);
+    if (activeTab === "notes") return !userNotesOnly(p.notes);
     return false;
   };
 
@@ -200,6 +228,7 @@ export default function AdjustPage() {
     if (activeTab === "shelf") return "该商品已有货架号";
     if (activeTab === "category") return "该商品已有分类";
     if (activeTab === "name") return "该商品已有名称";
+    if (activeTab === "notes") return "该商品已有备注";
     return "";
   };
 
@@ -232,6 +261,8 @@ export default function AdjustPage() {
       setPhotoFile(null); setPhotoPreview(null);
       setShelfLevel1(""); setShelfLevel2(""); setShelfLevel3("");
       setSeason(""); setStyle(""); setNewName("");
+      setNotesDraft(userNotesOnly(p.notes));
+      setRemarkHeightInserted(null); setRemarkPantsInserted(null);
       setSaveMsg("");
     } else {
       setSelectedId("");
@@ -249,6 +280,8 @@ export default function AdjustPage() {
     setPhotoFile(null); setPhotoPreview(null);
     setShelfLevel1(""); setShelfLevel2(""); setShelfLevel3("");
     setSeason(""); setStyle(""); setNewName("");
+    setNotesDraft(userNotesOnly(p.notes));
+    setRemarkHeightInserted(null); setRemarkPantsInserted(null);
   };
 
   // 回车确认搜索
@@ -284,6 +317,8 @@ export default function AdjustPage() {
   };
 
   const selectedProduct = products.find((p) => p.sale_id === selectedId);
+  // 同编号全部入库行(补录可能多行): 裤长备注识别入库尺码时需全行汇总
+  const selectedRows = useMemo(() => products.filter((p) => p.sale_id === selectedId), [products, selectedId]);
 
   const getShelfNo = () => {
     if (shelfLevel1 && shelfLevel2 && shelfLevel3) {
@@ -310,6 +345,9 @@ export default function AdjustPage() {
     setSeason("");
     setStyle("");
     setNewName("");
+    setNotesDraft("");
+    setRemarkHeightInserted(null);
+    setRemarkPantsInserted(null);
   };
 
   // 照片上传（含压缩）
@@ -448,6 +486,54 @@ export default function AdjustPage() {
     }
   };
 
+  // 备注调整: 追加备注行(已有内容时换行追加) / 删除本次填入的行(其余行自动上移)
+  const appendNotesDraft = useCallback((lines: string[]) => {
+    setNotesDraft((prev) => (prev.trim() ? prev.trimEnd() + "\n" + lines.join("\n") : lines.join("\n")));
+  }, []);
+  const removeNotesDraftLines = useCallback((lines: string[] | null) => {
+    if (!lines || lines.length === 0) return;
+    setNotesDraft((prev) => prev.split("\n").filter((l) => !lines.includes(l.trim())).join("\n"));
+  }, []);
+  const cancelRemarkHeight = () => { removeNotesDraftLines(remarkHeightInserted); setRemarkHeightInserted(null); };
+  const cancelRemarkPants = () => { removeNotesDraftLines(remarkPantsInserted); setRemarkPantsInserted(null); };
+
+  // 保存备注(无备注商品补录; 与总表备注同源)
+  // 同编号可能有多条入库行(补录行的 notes 带系统「补录入库」标记): 按行 id 精确更新,
+  // 补录行保留标记行+新备注、原始行只写新备注 —— 若整体覆盖会让财务补录视图无法区分补录行
+  const saveNotes = async () => {
+    if (!selectedId) return;
+    if (!notesDraft.trim()) { setSaveMsg("请输入备注内容"); return; }
+    setNotesSaving(true);
+    setSaveMsg("");
+    const wasReplace = !!userNotesOnly(selectedProduct?.notes);
+    try {
+      const res0 = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(selectedId)}`);
+      if (!res0.ok) throw new Error("读取入库记录失败");
+      const rows: { id?: number; notes?: string | null }[] = await res0.json();
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error("未找到入库记录");
+      for (const row of rows) {
+        const mark = String(row.notes || "").split("\n").find((l) => l.trim().startsWith("补录入库"));
+        const notes = mark ? `${mark}\n${notesDraft}` : notesDraft;
+        const res = await fetch("/api/inbound-records", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(row.id ? { id: row.id, notes } : { sale_id: selectedId, notes }),
+        });
+        if (!res.ok) throw new Error("保存失败");
+      }
+      setSaveMsg(wasReplace ? "备注替换成功" : "备注保存成功");
+      setNotesDraft("");
+      setRemarkHeightInserted(null);
+      setRemarkPantsInserted(null);
+      fetchProducts();
+      refreshSalesSummary(selectedId);
+    } catch (err) {
+      setSaveMsg("保存失败: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setNotesSaving(false);
+    }
+  };
+
   // 同步刷新 sales_summary 汇总缓存: 售出视图的照片/名称/厂家/货架号来自该缓存表,
   // 只更新 inbound_records 不刷新汇总会导致管理栏售出视图显示旧数据(如补录的图片不生效)
   const refreshSalesSummary = async (saleId: string) => {
@@ -481,6 +567,7 @@ export default function AdjustPage() {
     { key: "shelf", label: "货架调整", icon: <Rows4 className="h-4 w-4" /> },
     { key: "category", label: "分类调整", icon: <Tags className="h-4 w-4" /> },
     { key: "name", label: "名称调整", icon: <Type className="h-4 w-4" /> },
+    { key: "notes", label: "备注调整", icon: <StickyNote className="h-4 w-4" /> },
   ];
 
   const tabDescription: Record<TabType, string> = {
@@ -488,6 +575,7 @@ export default function AdjustPage() {
     shelf: "为没有货架号的商品添加货架号",
     category: "为没有季节/款式分类的商品补齐分类",
     name: "为没有名称的商品添加名称",
+    notes: "为没有备注的商品补充备注，支持身高/裤长快捷填入（裤长自动识别已入库尺码）",
   };
 
   return (
@@ -847,6 +935,77 @@ export default function AdjustPage() {
               </button>
             </div>
           )}
+
+          {/* 备注调整 */}
+          {activeTab === "notes" && (
+            <div>
+              <label className="text-sm font-extrabold text-gray-900 mb-2 block">补充备注</label>
+              <div className="flex items-stretch gap-2 mb-3">
+                <textarea
+                  value={notesDraft}
+                  onChange={(e) => setNotesDraft(e.target.value)}
+                  placeholder="请输入备注信息..."
+                  rows={4}
+                  className="flex-1 text-sm border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-900 font-bold resize-none"
+                />
+                {/* 快捷填入图标按钮: 与入库登记同款; 已填入时变"取消填入"(一键删除本次填入的行) */}
+                <div className="flex flex-col justify-center gap-2 shrink-0">
+                  {remarkHeightInserted ? (
+                    <button
+                      onClick={cancelRemarkHeight}
+                      className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap"
+                      title="删除本次填入的身高备注"
+                    >
+                      取消填入<X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowRemarkHeightDialog(true)}
+                      className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                      title="身高批量填入"
+                    >
+                      <Ruler className="h-5 w-5 text-gray-700" />
+                    </button>
+                  )}
+                  {remarkPantsInserted ? (
+                    <button
+                      onClick={cancelRemarkPants}
+                      className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap"
+                      title="删除本次填入的裤长备注"
+                    >
+                      取消填入<X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowRemarkPantsDialog(true)}
+                      className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                      title="裤长批量填入"
+                    >
+                      <Shirt className="h-5 w-5 text-gray-700" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => appendNotesDraft(["待定"])}
+                    className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all"
+                    title="备注追加: 待定"
+                  >
+                    <Clock className="h-5 w-5 text-gray-700" />
+                  </button>
+                </div>
+              </div>
+              {userNotesOnly(selectedProduct?.notes) && (
+                <p className="text-xs text-gray-500 mb-2 font-bold break-all">当前备注: {userNotesOnly(selectedProduct?.notes)}</p>
+              )}
+              <button
+                onClick={saveNotes}
+                disabled={notesSaving || !notesDraft.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {notesSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                保存备注
+              </button>
+            </div>
+          )}
         </motion.div>
       )}
 
@@ -855,6 +1014,27 @@ export default function AdjustPage() {
         <div className={`p-3 rounded-xl border-2 font-bold text-sm ${saveMsg.includes("成功") ? "bg-green-50 border-green-500 text-green-700" : "bg-red-50 border-red-500 text-red-700"}`}>
           {saveMsg}
         </div>
+      )}
+
+      {/* 备注快捷填入悬浮窗(备注调整 tab, 条件挂载; 裤长自动识别已入库尺码) */}
+      {activeTab === "notes" && showRemarkHeightDialog && (
+        <RemarkRowsDialog
+          title="身高"
+          rowLabel="建议身高"
+          mode="height"
+          onClose={() => setShowRemarkHeightDialog(false)}
+          onConfirm={(lines) => { appendNotesDraft(lines); setRemarkHeightInserted(lines); }}
+        />
+      )}
+      {activeTab === "notes" && showRemarkPantsDialog && selectedProduct && (
+        <RemarkRowsDialog
+          title="裤长"
+          rowLabel="对应尺码"
+          mode="pants"
+          initialSizes={stockedSizes(selectedRows)}
+          onClose={() => setShowRemarkPantsDialog(false)}
+          onConfirm={(lines) => { appendNotesDraft(lines); setRemarkPantsInserted(lines); }}
+        />
       )}
 
       {loading && (

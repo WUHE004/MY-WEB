@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { hashPassword, verifyPassword, signJwt } from "@/lib/auth";
+import { logOp } from "@/lib/operation-log";
 
 export async function POST(request: NextRequest) {
   try {
@@ -129,6 +130,9 @@ export async function POST(request: NextRequest) {
         role: member.role,
         phone: member.phone,
       });
+
+      // 登录日志（后台并行记录，不影响登录速度）
+      void logOp(request, { action: "login", label: "登录", operator: String(member.name || member.phone) });
 
       return NextResponse.json({
         token,

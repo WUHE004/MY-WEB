@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { TABLE_COLUMNS, SIZE_COLS } from "@/lib/db-tables";
+import { logOp, buildDiff, cnTable } from "@/lib/operation-log";
 
 // 表名 → 列名列表已移至 src/lib/db-tables.ts(db-admin 各 API 共用)
 
@@ -170,6 +171,12 @@ export async function POST(request: NextRequest) {
 
     const { data: inserted, error } = await supabase.from(table).insert(cleanData).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    void logOp(request, {
+      action: "table_add", label: "数据库新增", table,
+      id: String((inserted as { id?: unknown })?.id ?? ""),
+      target: `${cnTable(table)} · ${String(cleanData.sale_id ?? cleanData.name ?? (inserted && (inserted as { id?: unknown }).id) ?? "")}`,
+      detail: `新增 ${Object.keys(cleanData).length} 个字段`,
+    });
     return NextResponse.json({ success: true, data: inserted });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -190,8 +197,17 @@ export async function PUT(request: NextRequest) {
       if (v !== "" && v !== null && v !== undefined) cleanData[k] = v;
     }
 
+    // 更新前查旧行, 生成改前→改后明细
+    const diffKeys = Object.keys(cleanData).filter((k) => k !== "created_at" && k !== "updated_at");
+    const { data: oldRow } = await supabase.from(table).select(diffKeys.join(",") || "id").eq("id", id).maybeSingle();
+
     const { data: updated, error } = await supabase.from(table).update(cleanData).eq("id", id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    void logOp(request, {
+      action: "table_edit", label: "数据库修改", table, id,
+      target: `${cnTable(table)} · ${String((oldRow as { sale_id?: string; name?: string } | null)?.sale_id ?? (oldRow as { name?: string } | null)?.name ?? id)}`,
+      detail: buildDiff(oldRow as Record<string, unknown> | null, cleanData, diffKeys),
+    });
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -207,8 +223,14 @@ export async function DELETE(request: NextRequest) {
     if (!table || !TABLE_COLUMNS[table]) return NextResponse.json({ error: "无效的表名" }, { status: 400 });
     if (!id) return NextResponse.json({ error: "缺少 id" }, { status: 400 });
 
+    const { data: oldRow } = await supabase.from(table).select("*").eq("id", id).maybeSingle();
     const { error } = await supabase.from(table).delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    void logOp(request, {
+      action: "table_del", label: "数据库删除", table, id,
+      target: `${cnTable(table)} · ${String((oldRow as { sale_id?: string; name?: string } | null)?.sale_id ?? (oldRow as { name?: string } | null)?.name ?? `#${id}`)}`,
+      detail: oldRow ? `删除整行记录` : "行不存在",
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

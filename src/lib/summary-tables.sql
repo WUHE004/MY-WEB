@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS sales_summary (
 );
 
 -- 退货汇总表
+-- 注意: 与线上表结构对齐 —— cost_price/total_return_amount 缺列曾导致
+-- upsertReturnsSummary 整条失败(退货金额统计全为 0), 2026-10-14 已在线上补列修复
 CREATE TABLE IF NOT EXISTS returns_summary (
   sale_id TEXT PRIMARY KEY,
   photo TEXT DEFAULT '',
@@ -31,7 +33,11 @@ CREATE TABLE IF NOT EXISTS returns_summary (
   size_120 INTEGER DEFAULT 0, size_130 INTEGER DEFAULT 0, size_140 INTEGER DEFAULT 0,
   size_150 INTEGER DEFAULT 0, size_160 INTEGER DEFAULT 0, size_170 INTEGER DEFAULT 0, size_180 INTEGER DEFAULT 0,
   total_returned INTEGER DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  total_return_amount NUMERIC DEFAULT 0,
+  return_price_info JSONB DEFAULT '{}'::jsonb,
+  return_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 启用 RLS

@@ -1,11 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo, useDeferredValue, useRef, Fragment } from "react";
+import { useState, useEffect, useMemo, useDeferredValue, useRef, Fragment, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Search, Package, TrendingUp, TrendingDown, DollarSign, Warehouse, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag } from "lucide-react";
+import { Package, X, ArrowDown, ArrowUp, Edit3, Download, Save, Check, RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Plus, Minus, ShoppingCart, AlertTriangle, Filter, ArrowUpDown, Crosshair, BadgeDollarSign, Tag, Camera, Ruler, Shirt, Clock, CheckCircle2, Loader2, Pencil, MoveHorizontal } from "lucide-react";
+import { RemarkRowsDialog, SIZE_OPTIONS, userNotesOnly } from "@/components/remark-quick-fill";
 import { useRouter } from "next/navigation";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { PhotoPreloader } from "@/components/photo-preloader";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ImageSearchDialog } from "@/components/image-search-dialog";
 import { authFetch } from "@/lib/auth-fetch";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180] as const;
@@ -44,6 +47,7 @@ interface SummaryRow {
   manufacturer: string;
   photo: string;
   shelf_no: string;
+  notes?: string;
   // 最新入库日期 / 最近售卖登记日期(桌面表格展示) + 每尺码入库量(错库存对照)
   inbound_date?: string;
   last_order_time?: string;
@@ -81,12 +85,39 @@ interface DetailRecord {
   tracking_number?: string;
   order_time?: string;
   return_time?: string;
+  registration_date?: string;
   created_at?: string;
   name?: string;
   manufacturer?: string;
 }
 
-type ViewMode = "summary" | "sales" | "returns" | "inbound";
+type ViewMode = "summary" | "sales" | "returns" | "inbound" | "restock";
+
+// 补录视图商品行: 按编号聚合入库记录, 区分原始入库行与补录行(notes 以「补录入库」开头)
+interface RestockItem {
+  sale_id: string;
+  name: string;
+  manufacturer: string;
+  photo: string;
+  shelf_no: string;
+  cost_price: number;
+  operator: string | null;                // 补录人(该日最后一条补录记录的登记人; 历史记录无登记人为 null)
+  restock_total: number;                  // 该日补录件数
+  before_total: number;                   // 该日补录前剩余件数(那天时点)
+  restock_sizes: Record<number, number>;  // 该日各尺码补录增量
+  before_sizes: Record<number, number>;   // 截至该日补录前各尺码剩余(那天时点)
+  restock_time: string;                   // 该日补录时间(MM-DD HH:mm)
+  inbound_time: string;                   // 首次原始入库日期(YYYY-MM-DD)
+}
+
+// 补录视图数据: 按补录日期分组的文件夹(最新在前), 每个文件夹内是该天补录过的商品卡片
+interface RestockDay {
+  date: string;
+  items: RestockItem[];
+}
+
+// 视图顺序(移动端滑动切换/入场动画方向依据)
+const VIEW_ORDER: ViewMode[] = ["summary", "sales", "returns", "inbound"];
 
 function getShelfRows(data: SummaryRow[]): string[] {
   const rows = new Set<string>();
@@ -103,42 +134,201 @@ function getShelfRows(data: SummaryRow[]): string[] {
   return Array.from(rows).sort();
 }
 
-// 图片 hover 放大组件
-function HoverImage({ src, alt }: { src: string; alt: string }) {
+// 图片 hover 放大组件(有备注红色线框/无备注灰色线框; 悬停放大照片, 右侧浮框显示备注)
+function HoverImage({ src, alt, notes, hoverSlot }: { src: string; alt: string; notes?: string; hoverSlot?: ReactNode }) {
   const [show, setShow] = useState(false);
+  const hasNotes = !!(notes && String(notes).trim());
+  const frameCls = hasNotes ? "border-red-500" : "border-gray-200";
   if (!src) return (
-    <div className="w-24 h-24 rounded-md border-2 border-gray-200 bg-gray-100 flex items-center justify-center">
+    <div className={`w-24 h-24 rounded-md border-2 ${frameCls} bg-gray-100 flex items-center justify-center`}>
       <Package className="h-8 w-8 text-gray-300" />
     </div>
   );
   return (
     <div className="relative inline-block" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      <img src={src} alt={alt} className="w-24 h-24 rounded-md border-2 border-gray-200 object-cover cursor-pointer" />
-      {show && (
+      <img src={src} alt={alt} className={`w-24 h-24 rounded-md border-2 ${frameCls} object-cover cursor-pointer`} />
+      {show && hoverSlot && (
+        /* 悬停: 放大图居中(参考总表样式) + 右侧整体放大的商品详情卡(总表移动端卡片渲染, 含备注, 可滚动) */
         <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] pointer-events-none">
-          <img src={src} alt={alt} className="max-w-[640px] max-h-[640px] rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-white object-contain" />
+          <div className="relative flex items-center gap-3 max-w-[96vw]">
+            <img src={src} alt={alt} className="max-w-[620px] max-h-[640px] rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-white object-contain" />
+            {/* 卡片自身自带边框/圆角/投影, 容器只定宽不套外框也不出滚动条 */}
+            <div className="w-[420px] max-w-[80vw] pointer-events-auto">
+              {hoverSlot}
+            </div>
+          </div>
+        </div>
+      )}
+      {show && !hoverSlot && (
+        <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[9999] pointer-events-none">
+          <div className="relative inline-block">
+            <img src={src} alt={alt} className="max-w-[640px] max-h-[640px] rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] bg-white object-contain" />
+            {/* 放大照片右侧备注浮框 */}
+            <div className="absolute left-full top-0 ml-3 w-72 max-h-[640px] overflow-y-auto rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-4">
+              <div className="text-sm font-extrabold text-gray-900 mb-2">备注</div>
+              <div className={`text-sm leading-relaxed whitespace-pre-wrap break-words ${hasNotes ? "text-gray-900 font-bold" : "text-gray-400"}`}>{hasNotes ? String(notes) : "暂无备注"}</div>
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// 筛选标签按钮
-function FilterTag({ label, active, onClick, value }: { label: string; active: boolean; onClick: () => void; value?: string }) {
+// 调整/补充备注弹窗(总表移动端卡片入口, 按该编号是否已有备注切换标题; 样式复刻入库调整-备注调整):
+// textarea + 身高/裤长/待定三快捷键(裤长自动识别该编号已入库尺码), 按行写入并保留「补录入库」标记
+function RemarkQuickDialog({ saleId, hasNotes, onClose, onSaved }: { saleId: string; hasNotes: boolean; onClose: () => void; onSaved: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [stocked, setStocked] = useState<string[]>([]);
+  const [heightInserted, setHeightInserted] = useState<string[] | null>(null);
+  const [pantsInserted, setPantsInserted] = useState<string[] | null>(null);
+  const [showHeight, setShowHeight] = useState(false);
+  const [showPants, setShowPants] = useState(false);
+
+  // 打开时拉该编号全部入库行, 汇总数量>0 的尺码(裤长弹窗自动生成行, 同备注调整逻辑)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(saleId)}`);
+        const rows = await res.json();
+        if (!alive || !Array.isArray(rows)) return;
+        const sums: Record<number, number> = {};
+        for (const r of rows as Record<string, unknown>[]) {
+          for (const s of SIZE_OPTIONS) sums[s] = (sums[s] || 0) + (Number(r[`size_${s}`]) || 0);
+        }
+        setStocked(SIZE_OPTIONS.filter((s) => (sums[s] || 0) > 0).map(String));
+        // 预填原备注(剔除「补录入库」标记行, 保存时会自动保留), 同编号多行时合并非空备注
+        const userNotes = (rows as { notes?: string | null }[])
+          .map((r) => userNotesOnly(r.notes))
+          .filter((n) => n.trim());
+        setDraft([...new Set(userNotes)].join("\n"));
+      } catch { /* 拉不到尺码则裤长弹窗不预填 */ }
+    })();
+    return () => { alive = false; };
+  }, [saleId]);
+
+  // 追加备注行(已有内容时换行追加) / 删除本次填入的行(其余行自动上移) —— 与备注调整同款
+  const appendLines = (lines: string[]) => setDraft((p) => (p.trim() ? p.trimEnd() + "\n" + lines.join("\n") : lines.join("\n")));
+  const removeLines = (lines: string[] | null) => {
+    if (!lines || lines.length === 0) return;
+    setDraft((p) => p.split("\n").filter((l) => !lines.includes(l.trim())).join("\n"));
+  };
+
+  // 保存: 同编号可能有多条入库行(补录行的 notes 带系统「补录入库」标记), 按行精确更新并保留标记
+  const save = async () => {
+    if (!draft.trim()) { setMsg("请输入备注内容"); return; }
+    setSaving(true);
+    setMsg("");
+    try {
+      const res0 = await fetch(`/api/inbound-records?sale_id=${encodeURIComponent(saleId)}`);
+      if (!res0.ok) throw new Error("读取入库记录失败");
+      const rows: { id?: number; notes?: string | null }[] = await res0.json();
+      if (!Array.isArray(rows) || rows.length === 0) throw new Error("未找到入库记录");
+      for (const row of rows) {
+        const mark = String(row.notes || "").split("\n").find((l) => l.trim().startsWith("补录入库"));
+        const notes = mark ? `${mark}\n${draft}` : draft;
+        const res = await fetch("/api/inbound-records", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(row.id ? { id: row.id, notes } : { sale_id: saleId, notes }),
+        });
+        if (!res.ok) throw new Error("保存失败");
+      }
+      onSaved();
+    } catch (err) {
+      setMsg("保存失败: " + (err instanceof Error ? err.message : ""));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <button
-      onClick={onClick}
-      className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
-        active
-          ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
-          : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
-      }`}
-    >
-      {label}
-      {active && value && <span className="text-[10px] opacity-70">({value})</span>}
-    </button>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4" style={{ zIndex: 90 }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl border-[3px] border-gray-900 bg-white p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-extrabold">{hasNotes ? "调整备注" : "补充备注"} - {saleId}</h3>
+          <button type="button" onClick={onClose} aria-label="关闭" className="h-8 w-8 flex items-center justify-center rounded-lg border-2 border-gray-900 bg-white font-extrabold active:translate-y-[1px]">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex items-stretch gap-2 mb-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="请输入备注信息..."
+            rows={4}
+            className="flex-1 text-sm border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-gray-900 font-bold resize-none"
+          />
+          {/* 快捷填入图标按钮(与备注调整同款); 已填入时变"取消填入"(一键删除本次填入的行) */}
+          <div className="flex flex-col justify-center gap-2 shrink-0">
+            {heightInserted ? (
+              <button type="button" onClick={() => { removeLines(heightInserted); setHeightInserted(null); }} className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap" title="删除本次填入的身高备注">
+                取消填入<X className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button type="button" onClick={() => setShowHeight(true)} className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all" title="身高批量填入">
+                <Ruler className="h-5 w-5 text-gray-700" />
+              </button>
+            )}
+            {pantsInserted ? (
+              <button type="button" onClick={() => { removeLines(pantsInserted); setPantsInserted(null); }} className="h-10 px-2.5 flex items-center gap-1 rounded-xl border-[3px] border-gray-900 bg-[#FF6B6B] text-white text-xs font-extrabold shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all whitespace-nowrap" title="删除本次填入的裤长备注">
+                取消填入<X className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button type="button" onClick={() => setShowPants(true)} className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all" title="裤长批量填入">
+                <Shirt className="h-5 w-5 text-gray-700" />
+              </button>
+            )}
+            <button type="button" onClick={() => appendLines(["待定"])} className="h-10 w-10 flex items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[3px] active:translate-y-[3px] transition-all" title="备注追加: 待定">
+              <Clock className="h-5 w-5 text-gray-700" />
+            </button>
+          </div>
+        </div>
+        {msg && <p className={`text-xs font-bold mb-2 ${msg.includes("失败") ? "text-red-500" : "text-gray-500"}`}>{msg}</p>}
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || !draft.trim()}
+          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border-[3px] border-gray-900 bg-[#4A90E2] text-white font-extrabold text-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+          保存备注
+        </button>
+      </div>
+      {showHeight && (
+        <RemarkRowsDialog title="身高" rowLabel="建议身高" mode="height" onClose={() => setShowHeight(false)} onConfirm={(lines) => { appendLines(lines); setHeightInserted(lines); }} />
+      )}
+      {showPants && (
+        <RemarkRowsDialog title="裤长" rowLabel="对应尺码" mode="pants" initialSizes={stocked} onClose={() => setShowPants(false)} onConfirm={(lines) => { appendLines(lines); setPantsInserted(lines); }} />
+      )}
+    </div>
   );
 }
+
+// 备注解析: "S对应尺码120裤长61建议身高110" → [{ tag:"S", size:"120", pants:"61", height:"110" }], 显示为 "S/120:裤长61:建议110"
+// 兼容无裤长/无建议身高的旧行、无字母标记格式 "90裤长30建议身高110" → 显示为 "90:裤长30:建议110",
+// 以及旧身高按钮独立行 "100建议身高90" → [{ tag:"", size:"100", pants:"", height:"90" }], 显示为 "100:建议90"
+function parseNoteEntries(notes: string): { tag: string; size: string; pants: string; height: string }[] {
+  const out: { tag: string; size: string; pants: string; height: string }[] = [];
+  const re = /(?:([0-9A-Z]+)对应尺码(\d+)(?:裤长(\d+))?(?:建议身高(\d+))?|(\d+)裤长(\d+)(?:建议身高(\d+))?|(\d+)建议身高(\d+))/g;
+  const src = String(notes || "");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    if (m[1]) out.push({ tag: m[1], size: m[2], pants: m[3] || "", height: m[4] || "" });
+    else if (m[5]) out.push({ tag: "", size: m[5], pants: m[6], height: m[7] || "" });
+    else out.push({ tag: "", size: m[8], pants: "", height: m[9] });
+  }
+  return out;
+}
+const fmtNoteEntry = (e: { tag: string; size: string; pants: string; height?: string }) => {
+  const label = e.tag ? `${e.tag}/${e.size}` : e.size;
+  let s = e.pants ? `${label}:裤长${e.pants}` : label;
+  if (e.height) s += `:建议${e.height}`;
+  return s;
+};
 
 // 入库记录时间字段(UTC ISO)转北京时间 "YYYY-MM-DD" / "HH:mm"(与后端 sales-dates 的 toDateStr 同规则)
 function bjDate(v: unknown): string {
@@ -175,18 +365,21 @@ function FilterOption({ label, active, onClick }: { label: string; active: boole
 // 取代售出/退货/入库视图原先的原生 <select>, 避免调起浏览器系统弹窗造成交互割裂
 type ViewAccent = "green" | "yellow" | "blue";
 
-const ACCENT_CLS: Record<ViewAccent, { btn: string; shadow: string }> = {
+const ACCENT_CLS: Record<ViewAccent, { btn: string; shadow: string; plain: string }> = {
   green: {
     btn: "border-green-500 bg-white text-green-600 hover:bg-green-50",
     shadow: "shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)]",
+    plain: "text-green-600",
   },
   yellow: {
     btn: "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50",
     shadow: "shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)]",
+    plain: "text-yellow-600",
   },
   blue: {
     btn: "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5",
     shadow: "shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]",
+    plain: "text-[#4A90E2]",
   },
 };
 
@@ -198,6 +391,9 @@ function ViewDropdown({
   accent,
   showArrows = false,
   stretch = false,
+  plain = false,
+  plainInactive,
+  align = "left",
 }: {
   label: string;
   options: { value: string; label: string }[];
@@ -208,6 +404,12 @@ function ViewDropdown({
   showArrows?: boolean;
   /** flex-1 拉长均分(移动端拉长, 桌面端还原自适应宽度) */
   stretch?: boolean;
+  /** 无框纯文字样式(移动端便签内使用): 无边框/投影/圆角框, 选中时黑底白字 */
+  plain?: boolean;
+  /** plain 模式未选中态文字色(便签主体有底色时传入, 保证对比度; 默认用 accent 色) */
+  plainInactive?: string;
+  /** 面板对齐方向: left=面板左缘对齐按钮左侧(默认), right=面板右缘对齐按钮右侧(靠右的按钮用, 防止面板溢出屏幕) */
+  align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -238,14 +440,16 @@ function ViewDropdown({
     <div ref={ref} className={`relative ${stretch ? "flex-1 lg:flex-none" : ""}`}>
       <button
         onClick={() => setOpen(!open)}
-        className={`h-11 w-full inline-flex items-center justify-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all whitespace-nowrap ${c.btn} ${c.shadow}`}
+        className={plain
+          ? `h-8 inline-flex items-center justify-center gap-1 text-xs px-2 rounded-lg font-extrabold transition-all whitespace-nowrap ${selected ? "bg-gray-900 text-white" : plainInactive || c.plain}`
+          : `h-11 w-full inline-flex items-center justify-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all whitespace-nowrap ${c.btn} ${c.shadow}`}
       >
         {label}
         {selected && <span className="text-[10px] opacity-80 max-w-[72px] truncate">({selected.label})</span>}
         <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-2 w-[200px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+        <div className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-50 mt-2 w-[200px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-1.5 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`}>
           {/* 选项限高约10行(36px×10), 面板内滚动查看更多; overscroll-contain 防止滑到底后把触摸滚动透传给页面(商品卡片) */}
           <div ref={listRef} className="relative max-h-[360px] overflow-y-auto overscroll-contain rounded-xl">
             {options.map((o) => {
@@ -275,6 +479,177 @@ function ViewDropdown({
   );
 }
 
+// 日期区间高亮底色(各视图主题色的浅色版)
+const RANGE_MID_CLS: Record<ViewAccent, string> = {
+  green: "bg-green-100 text-gray-900",
+  yellow: "bg-yellow-100 text-gray-900",
+  blue: "bg-[#4A90E2]/10 text-gray-900",
+};
+
+// 日期选择器(日历格式): 单击选单日 → 再击另一日选区间(中间日期高亮) → 再击任意日开始新一轮; 单击已选单日取消
+// 无售卖/退货/入库数据的日期灰显禁选; 区间中间日期自动带过(仅高亮不可点); 触发按钮样式与 ViewDropdown 一致
+function DateRangePicker({
+  label,
+  accent,
+  start,
+  end,
+  available,
+  onChange,
+  plain = false,
+  plainInactive,
+  align = "left",
+}: {
+  label: string;
+  accent: ViewAccent;
+  start: string;
+  end: string;
+  /** 有数据的日期列表(YYYY-MM-DD, 无数据的日期灰显禁选) */
+  available: string[];
+  onChange: (start: string, end: string) => void;
+  /** 无框纯文字样式(移动端便签内使用), 与 ViewDropdown 同款 */
+  plain?: boolean;
+  plainInactive?: string;
+  /** 面板对齐方向: left=面板左缘对齐按钮左侧(默认), right=面板右缘对齐按钮右侧(靠右的按钮用, 防止面板溢出屏幕) */
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const availSet = useMemo(() => new Set(available), [available]);
+  const todayStr = bjDate(new Date().toISOString());
+  // 日历当前显示的年月(每次打开定位到已选日期或今天)
+  const [viewYM, setViewYM] = useState(() => {
+    const base = start || todayStr;
+    return { y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)) };
+  });
+  useEffect(() => {
+    if (!open) return;
+    const base = start || todayStr;
+    setViewYM({ y: Number(base.slice(0, 4)), m: Number(base.slice(5, 7)) });
+  }, [open, start, todayStr]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const c = ACCENT_CLS[accent];
+  const hasSel = !!start;
+  // 触发按钮摘要: 单日 2026/10/13, 区间 10/13~10/15
+  const summary = start
+    ? end && end !== start
+      ? `${start.slice(5).replace("-", "/")}~${end.slice(5).replace("-", "/")}`
+      : start.replace(/-/g, "/")
+    : "";
+
+  // 日历网格: 周一为第一列, 前置空位补齐
+  const firstDow = new Date(viewYM.y, viewYM.m - 1, 1).getDay(); // 0=周日
+  const lead = (firstDow + 6) % 7;
+  const daysInMonth = new Date(viewYM.y, viewYM.m, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array.from({ length: lead }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  const ymStr = `${viewYM.y}-${String(viewYM.m).padStart(2, "0")}`;
+  const dayStr = (d: number) => `${ymStr}-${String(d).padStart(2, "0")}`;
+  const shiftMonth = (delta: number) => {
+    setViewYM((v) => {
+      const d = new Date(v.y, v.m - 1 + delta, 1);
+      return { y: d.getFullYear(), m: d.getMonth() + 1 };
+    });
+  };
+  const pick = (ds: string) => {
+    if (!start) { onChange(ds, ""); return; }
+    if (!end) {
+      if (ds === start) { onChange("", ""); return; }
+      onChange(ds < start ? ds : start, ds < start ? start : ds);
+      return;
+    }
+    onChange(ds, "");
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={plain
+          ? `h-8 inline-flex items-center justify-center gap-1 text-xs px-2 rounded-lg font-extrabold transition-all whitespace-nowrap ${hasSel ? "bg-gray-900 text-white" : plainInactive || c.plain}`
+          : `h-11 w-full inline-flex items-center justify-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all whitespace-nowrap ${c.btn} ${c.shadow}`}
+      >
+        {label}
+        {hasSel && <span className="text-[10px] opacity-80 max-w-[110px] truncate">({summary})</span>}
+        <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full z-50 mt-2 w-[280px] max-w-[calc(100vw-2rem)] rounded-2xl border-[3px] border-gray-900 bg-white p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]`}>
+          <div className="flex items-center justify-between mb-2">
+            <button onClick={() => shiftMonth(-1)} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-extrabold">{viewYM.y}年{viewYM.m}月</span>
+            <button onClick={() => shiftMonth(1)} className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
+            {["一", "二", "三", "四", "五", "六", "日"].map((w) => (
+              <div key={w} className="h-6 flex items-center justify-center text-[10px] font-bold text-gray-400">{w}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((d, i) => {
+              if (d === null) return <div key={`e${i}`} />;
+              const ds = dayStr(d);
+              const isStart = ds === start;
+              const isEnd = !!end && end !== start && ds === end;
+              const isMiddle = !!start && !!end && end !== start && ds > start && ds < end;
+              const isMarked = availSet.has(ds);
+              const isToday = ds === todayStr;
+              const isSolid = isStart || isEnd;
+              // 无数据的日期灰显禁选; 区间中间日期自动带过(仅高亮, 不可点)
+              const clickable = isMarked;
+              return (
+                <button
+                  key={ds}
+                  onClick={() => pick(ds)}
+                  disabled={!clickable}
+                  className={`relative h-8 rounded-lg text-xs font-bold transition-colors ${
+                    isSolid
+                      ? "bg-gray-900 text-white"
+                      : isMiddle
+                        ? RANGE_MID_CLS[accent]
+                        : clickable
+                          ? "text-gray-700 hover:bg-gray-100"
+                          : "text-gray-300 cursor-not-allowed"
+                  }`}
+                >
+                  {d}
+                  {isToday && !isSolid && !isMiddle && clickable && (
+                    <span className="absolute inset-0 rounded-lg ring-1 ring-gray-900 pointer-events-none" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => { onChange("", ""); setOpen(false); }}
+            disabled={!hasSel}
+            className={`mt-2 w-full h-8 rounded-lg text-xs font-extrabold transition-colors ${
+              hasSel ? "bg-gray-900 text-white hover:bg-gray-800" : "bg-gray-100 text-gray-400 cursor-not-allowed"
+            }`}
+          >
+            全部日期
+          </button>
+          <p className="mt-1.5 text-center text-[10px] text-gray-400">提示：点一个日期看单日，点两个日期看区间</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // 票根齿口半线: 18×8矩形虚线整线横切的一半(高4px), 2px黑内描边;
 // 左右端为四分之一块(9px, 仅内侧竖边+横边描边), 中间13块在整个空档内均分
 function PerfHalfLine({ part, fill }: { part: "top" | "bottom"; fill: string }) {
@@ -295,8 +670,14 @@ function PerfHalfLine({ part, fill }: { part: "top" | "bottom"; fill: string }) 
 
 export default function FinancePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("summary");
-  // 总表移动端卡片: 展开备注的编号(待裁虚线展开区)
-  const [expandedNotesId, setExpandedNotesId] = useState<string | null>(null);
+  // 拍照识图(搜索框内相机图标): 检索范围随视图 — 售出仅已售 / 退货仅已退 / 总表·入库全部
+  const [imgSearchOpen, setImgSearchOpen] = useState(false);
+  const imgSearchScope = viewMode === "sales" ? "sales" : viewMode === "returns" ? "returns" : "all";
+  // 总表/入库移动端卡片: 备注展开覆盖表(默认: 有备注展开/无备注收起, 点击切换覆盖)
+  const [notesOverride, setNotesOverride] = useState<Record<string, boolean>>({});
+  const notesIsExpanded = (id: string, hasNotes: boolean) => notesOverride[id] ?? hasNotes;
+  const toggleNotes = (id: string, hasNotes: boolean) =>
+    setNotesOverride((p) => ({ ...p, [id]: !(p[id] ?? hasNotes) }));
   const [data, setData] = useState<SummaryRow[]>(() => getCache<SummaryRow[]>("finance_summary") || []);
   const [salesData, setSalesData] = useState<AggRow[]>([]);
   const [returnData, setReturnData] = useState<AggRow[]>([]);
@@ -305,11 +686,15 @@ export default function FinancePage() {
   const [search, setSearch] = useState("");
   // 防抖后的搜索词，避免每次按键触发全量重渲染
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  // 精确搜索: 开启后编号需完全一致(搜 F1 不再命中 F101); 名称搜索始终模糊
+  const [searchExact, setSearchExact] = useState(false);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 100;
 
   // 筛选
   const [stockFilter, setStockFilter] = useState<string>("");
+  // 零库存显示开关: 默认隐藏剩余库存=0 的商品, 点亮"零库存"按钮才显示
+  const [showZeroStock, setShowZeroStock] = useState<boolean>(false);
   const [valueFilter, setValueFilter] = useState<string>("");
   const [errorFilter, setErrorFilter] = useState(false);
   // 错库存行内修正: 尺码输入值(键 `${sale_id}|${尺码}`) + 保存中标记
@@ -321,6 +706,8 @@ export default function FinancePage() {
   const [hotRankFilter, setHotRankFilter] = useState<string>("");
   const [returnFilter, setReturnFilter] = useState<string>("");
   const [manufacturerFilter, setManufacturerFilter] = useState<string>("");
+  // 尺码段筛选(单选/多选): 勾选的尺码中任一剩余库存 > 0 的款才显示
+  const [sizeStockFilter, setSizeStockFilter] = useState<number[]>([]);
   // 总表筛选/排序下拉菜单
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -336,15 +723,13 @@ export default function FinancePage() {
   const [priceInput, setPriceInput] = useState("");
   // 今日(北京时间)选品数, 选品模式按钮按日期刷新计数
   const [liveTodayCount, setLiveTodayCount] = useState(0);
-  // 移动端滚动时收起统计卡片(平滑过渡), 回到顶部再展开
+  // 滚动时收起统计栏(移动端+桌面端, 平滑过渡), 回到顶部再展开
   const [statsCollapsed, setStatsCollapsed] = useState(false);
   useEffect(() => {
-    // 禁用滚动锚定: 统计卡片收起改变布局时, 浏览器锚定补偿会把 scrollY 拉回顶部,
+    // 禁用滚动锚定: 统计栏收起改变布局时, 浏览器锚定补偿会把 scrollY 拉回顶部,
     // 触发"收起→展开→再收起"循环跳动 (iOS Safari 18+/Chrome 的 scroll anchoring 机制)
     document.documentElement.style.overflowAnchor = "none";
     const onScroll = () => {
-      // 桌面端不收起
-      if (window.innerWidth >= 1024) { setStatsCollapsed(false); return; }
       const y = window.scrollY;
       if (y > 60) setStatsCollapsed(true);
       else if (y < 15) setStatsCollapsed(false);
@@ -569,10 +954,10 @@ export default function FinancePage() {
       }
     } catch { /* 静默失败, 不影响主页面 */ }
   };
-  // 立即加载一次 + 30 秒轮询 + 窗口聚焦时刷新, 保证盘点页校准提交后管理栏实时可见
+  // 立即加载一次 + 2 分钟轮询(页面隐藏时跳过) + 窗口聚焦时刷新, 保证盘点页校准提交后管理栏实时可见
   useEffect(() => {
     loadCalibrations();
-    const timer = setInterval(loadCalibrations, 30000);
+    const timer = setInterval(() => { if (!document.hidden) loadCalibrations(); }, 120000);
     const onFocus = () => loadCalibrations();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -598,6 +983,10 @@ export default function FinancePage() {
   // 明细弹窗
   const [detailType, setDetailType] = useState<"sales" | "returns" | null>(null);
   const [detailSaleId, setDetailSaleId] = useState("");
+  // 明细弹窗应用的日期过滤范围提示(空=未过滤, 如 "2026-10-20 ~ 2026-10-24")
+  const [detailDateRange, setDetailDateRange] = useState("");
+  // 总表移动端卡片「补充备注」弹窗目标编号
+  const [remarkTarget, setRemarkTarget] = useState<{ id: string; hasNotes: boolean } | null>(null);
   const [detailRecords, setDetailRecords] = useState<DetailRecord[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -612,7 +1001,9 @@ export default function FinancePage() {
 
   // 日期筛选
   const [salesDateFilter, setSalesDateFilter] = useState("");
+  const [salesDateEnd, setSalesDateEnd] = useState("");
   const [returnsDateFilter, setReturnsDateFilter] = useState("");
+  const [returnsDateEnd, setReturnsDateEnd] = useState("");
   const [salesDates, setSalesDates] = useState<string[]>([]);
   const [returnsDates, setReturnsDates] = useState<string[]>([]);
   const [salesDateIds, setSalesDateIds] = useState<Set<string>>(new Set());
@@ -626,7 +1017,15 @@ export default function FinancePage() {
   const [returnsSort, setReturnsSort] = useState<"default" | "qty" | "price" | "rate">("default");
   // 入库视图: 日期筛选 + 排序(与售出/退货同款, 日期列表由 inboundData 前端提取, 无需后端)
   const [inboundDateFilter, setInboundDateFilter] = useState("");
+  const [inboundDateEnd, setInboundDateEnd] = useState("");
   const [inboundSort, setInboundSort] = useState<"default" | "time" | "qty" | "id" | "price">("default");
+  // 补录视图: 按补录日期分组的文件夹数据(仅桌面端) + 当前聚焦日期 + 排序
+  const [restockDays, setRestockDays] = useState<RestockDay[]>([]);
+  // 单日期模式下正在查看的补录日期(null=未选; 底部按钮"显示当日补录"或点击文件夹条时设置)
+  const [restockFocusDate, setRestockFocusDate] = useState<string | null>(null);
+  // 底部固定按钮状态: true=显示全部日期文件夹条(初始), false=只看聚焦日期的商品卡片(不显示文件夹框)
+  const [restockShowAll, setRestockShowAll] = useState(true);
+  const [restockSort, setRestockSort] = useState<"default" | "restockQty" | "price" | "stock" | "restockTime" | "sales" | "inboundTime">("default");
   // 导出
   const [exportModal, setExportModal] = useState(false);
   const [exportFields, setExportFields] = useState<Set<string>>(new Set(["sale_id", "name", "manufacturer", "shelf_no", "cost_price", "season", "style_category", "notes", "inbound_date", "total_stock", "80", "90", "95", "100", "105", "110", "120", "130", "140", "150", "160", "170", "180"]));
@@ -644,6 +1043,17 @@ export default function FinancePage() {
   // 售价/退货价下拉展开
   const [expandedPriceRow, setExpandedPriceRow] = useState<string | null>(null);
   const [imgPreview, setImgPreview] = useState<string | null>(null);
+  // 商品详情悬浮窗(售出/退货卡片查看总表商品卡): 存 sale_id, 渲染总表移动端卡片(与明细弹窗 detailSaleId 无关)
+  const [summaryCardSaleId, setSummaryCardSaleId] = useState<string | null>(null);
+  // 退货分析卡片(移动端退货卡片右滑弹出): 存整行快照 + 退货原因件数(懒加载并按编号缓存)
+  const [analysisRow, setAnalysisRow] = useState<AggRow | null>(null);
+  const [analysisReasons, setAnalysisReasons] = useState<{ pinhui: number; wuliyoubuyao: number; chima: number; moren: number } | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const analysisCacheRef = useRef<Map<string, { pinhui: number; wuliyoubuyao: number; chima: number; moren: number }>>(new Map());
+  // 右滑后抑制本次触摸产生的点击(避免松手误触卡片编辑弹窗)
+  const analysisSwipeRef = useRef(false);
+  // 右滑起点(记录触摸位置与卡片编号)
+  const analysisTouchRef = useRef<{ x: number; y: number; id: string } | null>(null);
 
   // 入库编辑下拉选项（从设置加载）
   const [editManufacturers, setEditManufacturers] = useState<string[]>(["大炳家", "小礼物", "海燕家", "曾姐姐", "程祥家", "老刘家"]);
@@ -652,7 +1062,7 @@ export default function FinancePage() {
   const [editSizeStyles, setEditSizeStyles] = useState<string[]>(["T恤", "裤子", "裙子", "外套", "卫衣", "套装", "连体衣", "羽绒服", "衬衫", "内衣", "其他"]);
   const [editNoSizeStyles, setEditNoSizeStyles] = useState<string[]>(["母婴", "日用", "配饰"]);
 
-  useEffect(() => { fetchSummary(); fetchSalesAgg(); fetchInboundAgg(); }, []);
+  useEffect(() => { fetchSummary(); fetchSalesAgg(); fetchInboundAgg(); fetchReturnAgg(); fetchRestockData(); }, []);
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
@@ -675,7 +1085,7 @@ export default function FinancePage() {
   }, [search]);
 
   // 切换视图/筛选时重置分页
-  useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, returnsDateFilter, inboundDateFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
+  useEffect(() => { setPage(1); }, [viewMode, stockFilter, valueFilter, errorFilter, uninboundFilter, salesDateFilter, salesDateEnd, returnsDateFilter, returnsDateEnd, inboundDateFilter, inboundDateEnd, restockSort, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sizeStockFilter, showZeroStock]);
 
   // 日期筛选时获取对应 sale_ids 及该日期的聚合数据
   useEffect(() => {
@@ -684,7 +1094,7 @@ export default function FinancePage() {
       setSalesDateRecords({});
       return;
     }
-    fetch(`/api/sales-dates?type=sales&date=${salesDateFilter}`)
+    fetch(`/api/sales-dates?type=sales&start=${salesDateFilter}&end=${salesDateEnd || salesDateFilter}`)
       .then(r => r.json())
       .then(data => {
         setSalesDateIds(new Set(data.sale_ids || []));
@@ -694,7 +1104,7 @@ export default function FinancePage() {
         setSalesDateIds(new Set());
         setSalesDateRecords({});
       });
-  }, [salesDateFilter]);
+  }, [salesDateFilter, salesDateEnd]);
 
   useEffect(() => {
     if (!returnsDateFilter) {
@@ -702,7 +1112,7 @@ export default function FinancePage() {
       setReturnsDateRecords({});
       return;
     }
-    fetch(`/api/sales-dates?type=returns&date=${returnsDateFilter}`)
+    fetch(`/api/sales-dates?type=returns&start=${returnsDateFilter}&end=${returnsDateEnd || returnsDateFilter}`)
       .then(r => r.json())
       .then(data => {
         setReturnsDateIds(new Set(data.sale_ids || []));
@@ -712,7 +1122,7 @@ export default function FinancePage() {
         setReturnsDateIds(new Set());
         setReturnsDateRecords({});
       });
-  }, [returnsDateFilter]);
+  }, [returnsDateFilter, returnsDateEnd]);
 
   // 生成所有货架号选项
   const editShelfOptions = useMemo(() => {
@@ -813,7 +1223,7 @@ export default function FinancePage() {
         return agg as AggRow;
       });
       setSalesData(result);
-    } catch { setSalesData([]); }
+    } catch { /* 拉取失败保留旧数据, 避免切视图时网络抖动清空列表 */ }
   };
 
   const fetchReturnAgg = async () => {
@@ -855,7 +1265,7 @@ export default function FinancePage() {
         return agg as AggRow;
       });
       setReturnData(result);
-    } catch { setReturnData([]); }
+    } catch { /* 拉取失败保留旧数据, 避免切视图时网络抖动清空列表 */ }
   };
 
   const fetchInboundAgg = async () => {
@@ -888,7 +1298,16 @@ export default function FinancePage() {
         }
       }
       setInboundData(Array.from(map.values()));
-    } catch { setInboundData([]); }
+    } catch { /* 拉取失败保留旧数据, 避免切视图时网络抖动清空列表 */ }
+  };
+
+  // 补录视图数据: 与入库聚合同源(/api/inbound-records), 按 notes 是否以「补录入库」开头区分补录行与原始入库行
+  const fetchRestockData = async () => {
+    try {
+      const res = await fetch("/api/restock-snapshot", { cache: "no-store" });
+      const data = await res.json();
+      setRestockDays(Array.isArray(data?.days) ? data.days : []);
+    } catch { /* 拉取失败保留旧数据 */ }
   };
 
   const fetchSalesDates = async () => {
@@ -907,17 +1326,33 @@ export default function FinancePage() {
     } catch { setReturnsDates([]); }
   };
 
+  // 移动端视图切换方向(卡片入场动画: 1=新卡片从右滑入, -1=从左滑入)
+  const [viewDir, setViewDir] = useState(1);
+  // 移动端手势: 卡片区左右滑切换视图 / 便签头 tap 检测(惯性滚动中点一下即切换)
+  const swipeRef = useRef<{ x: number; y: number } | null>(null);
+  const tabTouchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
   const switchView = (mode: ViewMode) => {
+    setViewDir(VIEW_ORDER.indexOf(mode) >= VIEW_ORDER.indexOf(viewMode) ? 1 : -1);
     setViewMode(mode);
-    setSearch("");
+    // 搜索词跨视图保留(精确/模糊开关本身是组件级状态, 切视图不变), 只清当前视图专属筛选
     setStockFilter("");
     setValueFilter("");
     setErrorFilter(false);
     if (mode === "sales") { fetchSalesAgg(); fetchSalesDates(); fetchInboundAgg(); }
     if (mode === "returns") { fetchReturnAgg(); fetchReturnsDates(); }
     if (mode === "inbound") fetchInboundAgg();
+    if (mode === "restock") { fetchRestockData(); fetchSalesAgg(); }
     // 点击视图按钮自动回到顶部(移动端配合统计卡片重新展开)
     window.scrollTo({ top: 0 });
+  };
+
+  // timestamptz → 北京时间日期串(YYYY-MM-DD), 与 /api/sales-dates 聚合口径一致
+  const bjDateStr = (v?: string | null) => {
+    if (!v) return "";
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return "";
+    return new Date(d.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   };
 
   const fetchDetail = async (type: "sales" | "returns", saleId: string) => {
@@ -929,12 +1364,62 @@ export default function FinancePage() {
       const endpoint = type === "sales" ? "/api/sales-records" : "/api/return-records";
       const res = await fetch(`${endpoint}?sale_id=${encodeURIComponent(saleId)}`);
       const d = await res.json();
-      setDetailRecords(Array.isArray(d) ? d : []);
+      let list: DetailRecord[] = Array.isArray(d) ? d : [];
+      // 售出/退货视图选了日期时, 明细同步按该日期段过滤(口径与视图聚合一致:
+      // 售出=登记日期(缺则下单时间), 退货=退货时间, 北京时间; 只在对应视图下生效, 总表等视图不过滤)
+      const start = type === "sales" && viewMode === "sales" ? salesDateFilter.trim() : type === "returns" && viewMode === "returns" ? returnsDateFilter.trim() : "";
+      if (start) {
+        const end = ((type === "sales" ? salesDateEnd : returnsDateEnd) || start).trim();
+        setDetailDateRange(end && end !== start ? `${start} ~ ${end}` : start);
+        list = list.filter((r) => {
+          const s = bjDateStr(type === "sales" ? (r.registration_date || r.order_time) : r.return_time);
+          if (!s) return false;
+          if (s < start) return false;
+          if (end && s > end) return false;
+          return true;
+        });
+      } else {
+        setDetailDateRange("");
+      }
+      setDetailRecords(list);
     } catch { setDetailRecords([]); }
     finally { setDetailLoading(false); }
   };
 
-  const closeDetail = () => { setDetailType(null); setDetailSaleId(""); setDetailRecords([]); };
+  const closeDetail = () => { setDetailType(null); setDetailSaleId(""); setDetailRecords([]); setDetailDateRange(""); };
+
+  // ===== 退货分析卡片(移动端退货卡片右滑弹出) =====
+  // 拉取该编号退货记录并按退货原因归类件数(旧记录无原因 → 默认)
+  const openReturnAnalysis = async (row: AggRow) => {
+    setAnalysisRow(row);
+    setAnalysisReasons(null);
+    const sid = row.sale_id;
+    const cached = analysisCacheRef.current.get(sid);
+    if (cached) { setAnalysisReasons(cached); return; }
+    setAnalysisLoading(true);
+    try {
+      const res = await fetch(`/api/return-records?sale_id=${encodeURIComponent(sid)}`);
+      const list = await res.json();
+      const counts = { pinhui: 0, wuliyoubuyao: 0, chima: 0, moren: 0 };
+      if (Array.isArray(list)) {
+        for (const r of list) {
+          const q = Number(r.quantity) || 0;
+          const reason = String(r.return_reason || "").trim();
+          if (reason.startsWith("品退")) counts.pinhui += q;
+          else if (reason.startsWith("七天无理由")) counts.wuliyoubuyao += q;
+          else if (reason.startsWith("尺码")) counts.chima += q;
+          else counts.moren += q;
+        }
+      }
+      analysisCacheRef.current.set(sid, counts);
+      setAnalysisReasons(counts);
+    } catch {
+      setAnalysisReasons({ pinhui: 0, wuliyoubuyao: 0, chima: 0, moren: 0 });
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+  const closeReturnAnalysis = () => { setAnalysisRow(null); setAnalysisReasons(null); };
 
   // 保存售出/退货编辑（按 sale_id + size 修改数量）
   // silent=true 时不触发数据刷新(供批量保存使用, 循环保存 N 个尺码只刷新一次)
@@ -1100,12 +1585,47 @@ export default function FinancePage() {
     }
   };
 
+  // ===== 多色分组: 基础编号 → 颜色列表(sale_id 含 "/" 即多色入库记录, 如 002/红色) =====
+  const colorGroupsByBase = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const r of data) {
+      const idx = r.sale_id.indexOf("/");
+      if (idx <= 0) continue;
+      const base = r.sale_id.slice(0, idx);
+      const color = r.sale_id.slice(idx + 1).trim();
+      if (!color) continue;
+      const arr = map.get(base);
+      if (arr) arr.push(color);
+      else map.set(base, [color]);
+    }
+    return map;
+  }, [data]);
+
+  // 多色标签框: 编号右侧圆角矩形, 框内列出同基础编号全部颜色, 当前行颜色红底高亮
+  const renderColorTagBox = (saleId: string) => {
+    const idx = saleId.indexOf("/");
+    if (idx <= 0) return null;
+    const base = saleId.slice(0, idx);
+    const current = saleId.slice(idx + 1).trim();
+    const colors = colorGroupsByBase.get(base);
+    if (!colors || colors.length < 2) return null;
+    return (
+      <span className="inline-flex items-center gap-1 rounded-lg border-2 border-gray-900 bg-white px-1.5 py-0.5 align-middle">
+        {colors.map((c) => (
+          <span key={c} className={`rounded-md px-1 py-0.5 text-[10px] leading-none font-extrabold whitespace-nowrap ${c === current ? "bg-[#FF6B7A] text-white" : "bg-gray-100 text-gray-500"}`}>
+            {c}
+          </span>
+        ))}
+      </span>
+    );
+  };
+
   // ===== 筛选逻辑（使用防抖后的 debouncedSearch）=====
   const filteredSummary = useMemo(() => {
     let result = data;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.trim().toLowerCase();
-      result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)) || (r.manufacturer && r.manufacturer.toLowerCase().includes(q)));
+      result = result.filter((r) => (searchExact ? (r.sale_id.toLowerCase() === q || r.sale_id.toLowerCase().split("/")[0] === q) : r.sale_id.toLowerCase().includes(q)) || (r.name && r.name.toLowerCase().includes(q)) || (r.manufacturer && r.manufacturer.toLowerCase().includes(q)));
     }
     if (stockFilter) {
       result = result.filter((r) => {
@@ -1165,6 +1685,14 @@ export default function FinancePage() {
     if (manufacturerFilter) {
       result = result.filter((r) => (r.manufacturer || "未知") === manufacturerFilter);
     }
+    // 尺码段(单选/多选): 所勾选尺码中任一剩余库存 > 0
+    if (sizeStockFilter.length > 0) {
+      result = result.filter((r) => sizeStockFilter.some((s) => Number(r[`size_${s}`]) > 0));
+    }
+    // 零库存隐藏: 默认隐藏剩余库存=0 的商品(负数为错库存异常, 保留红框警示), 点亮"零库存"按钮才显示
+    if (!showZeroStock) {
+      result = result.filter((r) => (Number(r.remaining) || 0) !== 0);
+    }
     // 排序（sortDesc=true 从大到小 / false 从小到大; 同一排序再点一次切换方向）
     const dirMul = sortDesc ? -1 : 1;
     if (sortBy === "sales") {
@@ -1208,7 +1736,7 @@ export default function FinancePage() {
       });
     }
     return result;
-  }, [data, debouncedSearch, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sortBy, sortDesc, inboundData]);
+  }, [data, debouncedSearch, searchExact, stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sizeStockFilter, showZeroStock, sortBy, sortDesc, inboundData]);
 
   // 厂家列表（用于筛选选项）
   const manufacturerList = useMemo(() => {
@@ -1229,6 +1757,7 @@ export default function FinancePage() {
     setHotRankFilter("");
     setReturnFilter("");
     setManufacturerFilter("");
+    setSizeStockFilter([]);
     setSortBy("");
   };
 
@@ -1242,14 +1771,16 @@ export default function FinancePage() {
     if (hotRankFilter) n++;
     if (returnFilter) n++;
     if (manufacturerFilter) n++;
+    if (sizeStockFilter.length > 0) n++;
+    if (showZeroStock) n++;
     return n;
-  }, [stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter]);
+  }, [stockFilter, valueFilter, errorFilter, alertFilter, hotRankFilter, returnFilter, manufacturerFilter, sizeStockFilter, showZeroStock]);
 
   const filteredSales = useMemo(() => {
     let result = salesData;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.trim().toLowerCase();
-      result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
+      result = result.filter((r) => (searchExact ? (r.sale_id.toLowerCase() === q || r.sale_id.toLowerCase().split("/")[0] === q) : r.sale_id.toLowerCase().includes(q)) || (r.name && r.name.toLowerCase().includes(q)));
     }
     if (salesDateFilter && salesDateIds.size > 0) {
       // 用当日聚合数据覆盖总数量/各尺码/售价信息，使筛选日期显示当日数量而非累计总数
@@ -1299,13 +1830,13 @@ export default function FinancePage() {
       });
     }
     return result;
-  }, [salesData, debouncedSearch, salesDateFilter, salesDateIds, salesDateRecords, uninboundFilter, inboundData, salesSort, data]);
+  }, [salesData, debouncedSearch, searchExact, salesDateFilter, salesDateIds, salesDateRecords, uninboundFilter, inboundData, salesSort, data]);
 
   const filteredReturns = useMemo(() => {
     let result = returnData;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.trim().toLowerCase();
-      result = result.filter((r) => r.sale_id.toLowerCase().includes(q));
+      result = result.filter((r) => (searchExact ? (r.sale_id.toLowerCase() === q || r.sale_id.toLowerCase().split("/")[0] === q) : r.sale_id.toLowerCase().includes(q)) || (r.name && r.name.toLowerCase().includes(q)));
     }
     if (returnsDateFilter && returnsDateIds.size > 0) {
       // 用当日聚合数据覆盖总退货量/各尺码/退货价信息
@@ -1347,7 +1878,7 @@ export default function FinancePage() {
       }
     }
     return result;
-  }, [returnData, debouncedSearch, returnsDateFilter, returnsDateIds, returnsDateRecords, returnsSort, data]);
+  }, [returnData, debouncedSearch, searchExact, returnsDateFilter, returnsDateIds, returnsDateRecords, returnsSort, data]);
 
   // 入库日期列表(由 inboundData 前端提取, 北京时间口径, 最新在前)
   const inboundDates = useMemo(() => {
@@ -1363,10 +1894,18 @@ export default function FinancePage() {
     let result = inboundData;
     if (debouncedSearch.trim()) {
       const q = debouncedSearch.trim().toLowerCase();
-      result = result.filter((r) => r.sale_id.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)));
+      result = result.filter((r) => (searchExact ? (r.sale_id.toLowerCase() === q || r.sale_id.toLowerCase().split("/")[0] === q) : r.sale_id.toLowerCase().includes(q)) || (r.name && r.name.toLowerCase().includes(q)));
     }
     if (inboundDateFilter) {
-      result = result.filter((r) => bjDate(r.inbound_date) === inboundDateFilter);
+      if (inboundDateEnd) {
+        // 区间模式: 入库日期落在 [start, end] 内(YYYY-MM-DD 字符串可直接比较)
+        result = result.filter((r) => {
+          const d = bjDate(r.inbound_date);
+          return !!d && d >= inboundDateFilter && d <= inboundDateEnd;
+        });
+      } else {
+        result = result.filter((r) => bjDate(r.inbound_date) === inboundDateFilter);
+      }
     }
     // 排序(移动端下拉框): 入库时间新→旧 / 入库数量多→少 / 编号 A→Z / 进价高→低
     if (inboundSort !== "default") {
@@ -1378,7 +1917,7 @@ export default function FinancePage() {
       });
     }
     return result;
-  }, [inboundData, debouncedSearch, inboundDateFilter, inboundSort]);
+  }, [inboundData, debouncedSearch, searchExact, inboundDateFilter, inboundDateEnd, inboundSort]);
 
   // ===== Map 索引：消除 data.find() 的 O(n²) 查找 =====
   const summaryBySaleId = useMemo(() => {
@@ -1386,6 +1925,9 @@ export default function FinancePage() {
     for (const r of data) m.set(r.sale_id, r);
     return m;
   }, [data]);
+
+  // 详情悬浮窗对应的总表商品行
+  const detailRow = summaryCardSaleId ? summaryBySaleId.get(summaryCardSaleId) : undefined;
 
   // 售出/入库聚合数据按编号索引（编号统一大写，供总表卡片取最新售价/售卖日期/入库日期）
   const salesAggBySaleId = useMemo(() => {
@@ -1410,6 +1952,62 @@ export default function FinancePage() {
     }
     return { totalInbound, totalValue };
   }, [filteredInbound]);
+
+  // ===== 补录视图 =====
+  // 文件夹数据: 搜索过滤(过滤组内商品, 空文件夹不显示) + 组内商品按 restockSort 排序; 文件夹按日期倒序
+  const restockGroups = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    const match = (r: RestockItem) =>
+      !q || (searchExact ? (r.sale_id.toLowerCase() === q || r.sale_id.toLowerCase().split("/")[0] === q) : r.sale_id.toLowerCase().includes(q)) || (r.name && r.name.toLowerCase().includes(q));
+    const salesQty = (sid: string) => salesAggBySaleId.get(sid)?.total || 0;
+    const sortItems = (items: RestockItem[]) => {
+      if (restockSort === "default") return [...items].sort((a, b) => a.sale_id.localeCompare(b.sale_id));
+      return [...items].sort((a, b) => {
+        if (restockSort === "restockQty") return b.restock_total - a.restock_total;
+        if (restockSort === "price") return (b.cost_price || 0) - (a.cost_price || 0);
+        if (restockSort === "stock") return (b.before_total + b.restock_total) - (a.before_total + a.restock_total);
+        if (restockSort === "restockTime") return (b.restock_time || "").localeCompare(a.restock_time || "");
+        if (restockSort === "sales") return salesQty(b.sale_id) - salesQty(a.sale_id);
+        return (b.inbound_time || "").localeCompare(a.inbound_time || "");
+      });
+    };
+    return restockDays
+      .map((g) => ({ date: g.date, items: sortItems(g.items.filter(match)) }))
+      .filter((g) => g.items.length > 0);
+  }, [restockDays, debouncedSearch, searchExact, restockSort, salesAggBySaleId]);
+
+  // 北京时间今天(文件夹"今天"徽章)
+  const restockToday = useMemo(() => bjDate(new Date().toISOString()), []);
+  // 单日期模式下聚焦的文件夹数据(数据刷新后日期可能消失, 消失时回退全部模式)
+  const focusGroup = restockGroups.find((g) => g.date === restockFocusDate);
+
+  // 底部固定按钮: 全部日期文件夹条 ↔ 单日期卡片; 切到单日期时聚焦最新补录日期
+  const toggleRestockShowAll = () => {
+    const next = !restockShowAll;
+    setRestockShowAll(next);
+    setRestockFocusDate(next ? null : restockGroups[0]?.date ?? null);
+  };
+
+  // 点击日期文件夹条: 进入该日期的卡片列表(不显示文件夹框)
+  const selectRestockDay = (d: string) => {
+    setRestockFocusDate(d);
+    setRestockShowAll(false);
+  };
+
+  // 统计: 搜索过滤后可见的商品(按编号去重款式) / 补录件数 / 补录金额(成本价)
+  const restockTotals = useMemo(() => {
+    const ids = new Set<string>();
+    let totalRestock = 0;
+    let totalValue = 0;
+    for (const g of restockGroups) {
+      for (const r of g.items) {
+        ids.add(r.sale_id);
+        totalRestock += r.restock_total;
+        totalValue += r.restock_total * (r.cost_price || 0);
+      }
+    }
+    return { styles: ids.size, totalRestock, totalValue };
+  }, [restockGroups]);
 
   // ===== 分页数据（每页 100 条，避免一次性渲染上万 DOM 节点）=====
   // 用 useDeferredValue 延迟 page 和 viewMode，让 tab 切换/翻页按钮立即响应，
@@ -1509,17 +2107,683 @@ export default function FinancePage() {
     router.push(`/operations/inbound?${params.toString()}`);
   };
 
-  const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : "入库登记清单";
-  const highlightClass = viewMode === "summary" ? "highlight-blue" : viewMode === "sales" ? "highlight-green" : viewMode === "returns" ? "highlight-yellow" : "highlight-blue";
+  const viewTitle = viewMode === "summary" ? "商品管理总表" : viewMode === "sales" ? "售卖明细表" : viewMode === "returns" ? "退货明细表" : viewMode === "restock" ? "补充入库表" : "入库登记清单";
+
+  // 移动端便签主体统计项(总表/售出/退货/入库 三项, 竖线分隔; 数字取整不带小数位)
+  const folderStats = viewMode === "summary"
+    ? [
+        { label: "总入库", value: String(totals.inbound_total), unit: "件" },
+        { label: "剩余库存", value: String(totals.remaining), unit: "件" },
+        { label: "库存价值", value: `¥${Math.round(totals.inventory_value)}`, unit: "成本价" },
+      ]
+    : viewMode === "sales"
+      ? [
+          { label: "售出款式", value: String(salesTotals.orderCount), unit: "款" },
+          { label: "售出数量", value: String(salesTotals.totalSold), unit: "件" },
+          { label: "总盈利", value: `¥${Math.round(salesTotals.totalProfit)}`, unit: "利润" },
+        ]
+      : viewMode === "returns"
+        ? [
+            { label: "退货款式", value: String(returnTotals.orderCount), unit: "款" },
+            { label: "退回数量", value: String(returnTotals.totalReturned), unit: "件" },
+            { label: "退货率", value: String(salesTotals.totalSold > 0 ? ((returnTotals.totalReturned / salesTotals.totalSold) * 100).toFixed(0) : 0), unit: "%" },
+          ]
+        : viewMode === "restock"
+          ? [
+              { label: "补录款式", value: String(restockTotals.styles), unit: "种" },
+              { label: "补录件数", value: String(restockTotals.totalRestock), unit: "件" },
+              { label: "补录金额", value: `¥${Math.round(restockTotals.totalValue)}`, unit: "成本价" },
+            ]
+        : [
+            { label: "入库款式", value: String(filteredInbound.length), unit: "种" },
+            { label: "总入库", value: String(inboundTotals.totalInbound), unit: "件" },
+            { label: "入库金额", value: `¥${Math.round(inboundTotals.totalValue)}`, unit: "成本价" },
+          ];
+
+  // 移动端便签折叠后显示的两端汇总文字(左=款数, 右=件数, 各视图不同)
+  const collapsedLabel = viewMode === "summary"
+    ? `库存 ${filteredSummary.filter((r) => (r.remaining || 0) > 0).length} 款商品`
+    : viewMode === "sales"
+      ? `售出 ${filteredSales.length} 款商品`
+      : viewMode === "returns"
+        ? `退货 ${filteredReturns.length} 款商品`
+        : viewMode === "restock"
+          ? `补录 ${restockTotals.styles} 款商品`
+          : `入库 ${filteredInbound.length} 款商品`;
+  const collapsedCount = viewMode === "summary"
+    ? `库存 ${totals.remaining} 件商品`
+    : viewMode === "sales"
+      ? `售出 ${salesTotals.totalSold} 件商品`
+      : viewMode === "returns"
+        ? `退货 ${returnTotals.totalReturned} 件商品`
+        : viewMode === "restock"
+          ? `补录 ${restockTotals.totalRestock} 件商品`
+          : `入库 ${inboundTotals.totalInbound} 件商品`;
+
+  // 移动端便签主体配色(随当前视图): 主体填充视图色, 文字用白/黑保证对比度(退货黄底用黑字)
+  const folderBody = viewMode === "returns"
+    ? { bg: "bg-yellow-500", text: "text-gray-900", sub: "text-gray-900/60", divide: "divide-gray-900/20", plain: "text-gray-900" }
+    : viewMode === "sales"
+      ? { bg: "bg-green-500", text: "text-white", sub: "text-white/70", divide: "divide-white/30", plain: "text-white" }
+      : { bg: "bg-[#4A90E2]", text: "text-white", sub: "text-white/70", divide: "divide-white/30", plain: "text-white" };
+
+  // 文件夹便签筛选/排序按钮行(移动端与桌面端共用同一份 JSX, 无框文字按钮样式): 下拉状态与两端共享
+  const filterPanelBody = (
+    <>
+      {/* 剩余库存 */}
+      <div className="mb-3">
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">剩余库存</p>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterOption label="尾货" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
+          <FilterOption label="<5手" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
+          <FilterOption label="5-10手" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
+          <FilterOption label=">10手" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
+          <FilterOption label="零库存" active={showZeroStock} onClick={() => setShowZeroStock(!showZeroStock)} />
+        </div>
+      </div>
+      {/* 库存价值 */}
+      <div className="mb-3">
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存价值</p>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterOption label="0-100" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
+          <FilterOption label="101-300" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
+          <FilterOption label="301-500" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
+          <FilterOption label=">500" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
+        </div>
+      </div>
+      {/* 库存预警 */}
+      <div className="mb-3">
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存预警</p>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterOption label="缺货≤0" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
+          <FilterOption label="1-4" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
+          <FilterOption label="5-20" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
+          <FilterOption label=">50" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
+        </div>
+      </div>
+      {/* 热销排行 */}
+      <div className="mb-3">
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">热销排行</p>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterOption label="Top10" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
+          <FilterOption label="Top30" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
+          <FilterOption label="Top50" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
+          <FilterOption label="零销量" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
+        </div>
+      </div>
+      {/* 退货分析 */}
+      <div className="mb-3">
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">退货分析</p>
+        <div className="flex flex-wrap gap-1.5">
+          <FilterOption label="无退货" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
+          <FilterOption label="1-2件" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
+          <FilterOption label="3-5件" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
+          <FilterOption label=">5件" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
+        </div>
+      </div>
+      {/* 厂家（数量多，用下拉选择） */}
+      <div>
+        <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">厂家</p>
+        <select
+          value={manufacturerFilter}
+          onChange={(e) => setManufacturerFilter(e.target.value)}
+          className="w-full h-9 px-2 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-bold text-gray-700 focus:outline-none"
+        >
+          <option value="">全部厂家</option>
+          {manufacturerList.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
+      </div>
+      {/* 尺码段（单选/多选: 勾选尺码中任一剩余库存>0 的款; 有勾选时显示一键清除） */}
+      <div className="mt-3">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[11px] font-extrabold text-gray-500">尺码段</p>
+          {sizeStockFilter.length > 0 && (
+            <button
+              onClick={() => setSizeStockFilter([])}
+              className="text-[11px] font-extrabold text-red-500 hover:text-red-600 transition-colors"
+            >一键清除</button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {ALL_SIZES.map((s) => {
+            const on = sizeStockFilter.includes(s);
+            return (
+              <FilterOption
+                key={s}
+                label={String(s)}
+                active={on}
+                onClick={() => setSizeStockFilter((prev) => (on ? prev.filter((x) => x !== s) : [...prev, s]))}
+              />
+            );
+          })}
+        </div>
+      </div>
+      {/* 清空筛选（有筛选时显示在面板最下方） */}
+      {activeFilterCount > 0 && (
+        <button
+          onClick={() => { clearAllFilters(); setShowFilterMenu(false); }}
+          className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-900 hover:bg-gray-100 transition-all"
+        >
+          <X className="h-3.5 w-3.5" />
+          清空筛选({activeFilterCount})
+        </button>
+      )}
+    </>
+  );
+
+  // 总表排序面板选项(同上, 桌面/移动共用)
+  const sortPanelBody = (
+    <>
+      {([
+        { v: "", label: "默认排序" },
+        { v: "sales", label: "按销量" },
+        { v: "profitRate", label: "按利润率" },
+        { v: "returnRate", label: "按退货率" },
+        { v: "stock", label: "按库存量" },
+        { v: "inbound", label: "按入库量" },
+        { v: "inboundTime", label: "按入库时间" },
+      ] as const).map((o) => (
+        <button
+          key={o.v}
+          onClick={() => {
+            if (!o.v) {
+              setSortBy("");
+              setShowSortMenu(false);
+              return;
+            }
+            if (sortBy === o.v) {
+              // 同一排序再点一次: 从大到小 ↔ 从小到大
+              setSortDesc((d) => !d);
+            } else {
+              // 首次点击: 默认从大到小
+              setSortBy(o.v);
+              setSortDesc(true);
+            }
+            setShowSortMenu(false);
+          }}
+          className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-all ${
+            sortBy === o.v ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
+          }`}
+        >
+          <span>{o.label}</span>
+          {o.v && (
+            <span className="flex items-center gap-0.5">
+              <ArrowUp className={`h-3 w-3 ${sortBy === o.v && !sortDesc ? "opacity-100" : "opacity-30"}`} />
+              <ArrowDown className={`h-3 w-3 ${sortBy === o.v && sortDesc ? "opacity-100" : "opacity-30"}`} />
+            </span>
+          )}
+        </button>
+      ))}
+    </>
+  );
+
+  // 总表移动端商品卡片(票根式, 含备注展开区) — 总表列表与售出/退货"详情"悬浮窗共用同一渲染
+  const folderFilterRow = (
+    <>
+      {viewMode === "summary" && (
+        <>
+          {/* 筛选下拉 */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
+              className={`h-8 lg:h-9 inline-flex items-center gap-1 px-2 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                activeFilterCount > 0 ? "bg-gray-900 text-white" : folderBody.plain
+              }`}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              筛选
+              {activeFilterCount > 0 && (
+                <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#FF6B7A] text-white text-[9px] font-extrabold inline-flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+              <ChevronDown className={`h-3 w-3 transition-transform ${showFilterMenu ? "rotate-180" : ""}`} />
+            </button>
+            {showFilterMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
+                <div className="absolute left-0 top-full mt-2 z-50 w-[340px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
+                  {filterPanelBody}
+                </div>
+              </>
+            )}
+          </div>
+          {/* 排序下拉 */}
+          <div className="relative">
+            <button
+              onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
+              className={`h-8 lg:h-9 inline-flex items-center gap-1 px-2 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                sortBy ? "bg-gray-900 text-white" : folderBody.plain
+              }`}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              排序
+              {sortBy && (
+                <span className="text-[10px] opacity-70">
+                  ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : sortBy === "returnRate" ? "退货率" : sortBy === "stock" ? "库存量" : sortBy === "inbound" ? "入库量" : "入库时间"} {sortDesc ? "↓" : "↑"})
+                </span>
+              )}
+              <ChevronDown className={`h-3 w-3 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
+            </button>
+            {showSortMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
+                <div className="absolute left-0 top-full mt-2 z-50 w-40 p-1.5 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                  {sortPanelBody}
+                </div>
+              </>
+            )}
+          </div>
+          {/* 错库存 */}
+          {!selectionMode && (
+            <button
+              onClick={() => setErrorFilter(!errorFilter)}
+              className={`h-8 lg:h-9 inline-flex items-center px-2 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                errorFilter ? "bg-gray-900 text-white" : folderBody.plain
+              }`}
+            >
+              错库存
+            </button>
+          )}
+          {/* 直播选品模式(计数=今天选品数, 按日期刷新) */}
+          <button
+            onClick={() => setSelectionMode(!selectionMode)}
+            className={`h-8 lg:h-9 inline-flex items-center gap-1 px-2 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+              selectionMode ? "bg-gray-900 text-white" : folderBody.plain
+            }`}
+          >
+            选品
+            {selectionMode && <span className="text-[10px] opacity-70">({liveTodayCount}款)</span>}
+          </button>
+        </>
+      )}
+      {viewMode === "sales" && (
+        <>
+          <button
+            onClick={() => setUninboundFilter(!uninboundFilter)}
+            className={`h-8 lg:h-9 inline-flex items-center gap-1 px-2 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+              uninboundFilter ? "bg-red-500 text-white" : folderBody.plain
+            }`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />未入库
+          </button>
+          <DateRangePicker
+            plain
+            plainInactive={folderBody.plain}
+            label="日期"
+            accent="green"
+            start={salesDateFilter}
+            end={salesDateEnd}
+            available={salesDates}
+            onChange={(s, e) => { setSalesDateFilter(s); setSalesDateEnd(e); }}
+          />
+          <ViewDropdown
+            plain
+            plainInactive={folderBody.plain}
+            label="排序"
+            accent="green"
+            showArrows
+            value={salesSort}
+            onSelect={(v) => setSalesSort(v as "default" | "sold" | "profit" | "price" | "earn")}
+            options={[
+              { value: "default", label: "默认排序" },
+              { value: "sold", label: "按销量" },
+              { value: "profit", label: "按利润率" },
+              { value: "price", label: "按价格" },
+              { value: "earn", label: "按盈利" },
+            ]}
+          />
+        </>
+      )}
+      {viewMode === "returns" && (
+        <>
+          <DateRangePicker
+            plain
+            plainInactive={folderBody.plain}
+            label="日期"
+            accent="yellow"
+            start={returnsDateFilter}
+            end={returnsDateEnd}
+            available={returnsDates}
+            onChange={(s, e) => { setReturnsDateFilter(s); setReturnsDateEnd(e); }}
+          />
+          <ViewDropdown
+            plain
+            plainInactive={folderBody.plain}
+            label="排序"
+            accent="yellow"
+            showArrows
+            value={returnsSort}
+            onSelect={(v) => setReturnsSort(v as "default" | "qty" | "price" | "rate")}
+            options={[
+              { value: "default", label: "默认排序" },
+              { value: "price", label: "按退货价" },
+              { value: "qty", label: "按退货量" },
+              { value: "rate", label: "按退货率" },
+            ]}
+          />
+        </>
+      )}
+      {viewMode === "inbound" && (
+        <>
+          <DateRangePicker
+            plain
+            plainInactive={folderBody.plain}
+            label="日期"
+            accent="blue"
+            start={inboundDateFilter}
+            end={inboundDateEnd}
+            available={inboundDates}
+            onChange={(s, e) => { setInboundDateFilter(s); setInboundDateEnd(e); }}
+          />
+          <ViewDropdown
+            plain
+            plainInactive={folderBody.plain}
+            label="排序"
+            accent="blue"
+            showArrows
+            value={inboundSort}
+            onSelect={(v) => setInboundSort(v as "default" | "time" | "qty" | "id" | "price")}
+            options={[
+              { value: "default", label: "默认排序" },
+              { value: "time", label: "按入库时间" },
+              { value: "qty", label: "按入库数量" },
+              { value: "id", label: "按编号" },
+              { value: "price", label: "按进价" },
+            ]}
+          />
+        </>
+      )}
+      {viewMode === "restock" && (
+        <>
+          <ViewDropdown
+            plain
+            plainInactive={folderBody.plain}
+            label="排序"
+            accent="blue"
+            showArrows
+            align="right"
+            value={restockSort}
+            onSelect={(v) => setRestockSort(v as "default" | "restockQty" | "price" | "stock" | "restockTime" | "sales" | "inboundTime")}
+            options={[
+              { value: "default", label: "默认排序" },
+              { value: "restockQty", label: "按补录量" },
+              { value: "price", label: "按进价" },
+              { value: "stock", label: "按库存量" },
+              { value: "restockTime", label: "按补录时间" },
+              { value: "sales", label: "按销量" },
+              { value: "inboundTime", label: "按入库时间" },
+            ]}
+          />
+        </>
+      )}
+    </>
+  );
+
+  const renderSummaryCardMobile = (row: SummaryRow) => {
+                const isError = hasErrorStock(row);
+                const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
+                const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
+                // 备注展开区状态(有备注默认展开)
+                const hasNotes = !!(row.notes && String(row.notes).trim());
+                const notesExpanded = notesIsExpanded(row.sale_id, hasNotes);
+                // 最新售价与售卖日期（来自售出聚合）、入库日期（来自入库聚合）
+                const salesAgg = salesAggBySaleId.get(row.sale_id.toUpperCase());
+                const inboundAgg = inboundBySaleId.get(row.sale_id.toUpperCase());
+                let latestSellPrice = row.sell_price || 0;
+                let lastOrderTime = salesAgg?.last_order_time || "";
+                const priceInfo = (salesAgg as Record<string, unknown> | undefined)?.sell_price_info as Record<string, string> | undefined;
+                if (priceInfo) {
+                  let maxTime = "";
+                  for (const [p, t] of Object.entries(priceInfo)) {
+                    if (t && String(t) > maxTime) { maxTime = String(t); const n = Number(p); if (n > 0) latestSellPrice = n; }
+                  }
+                }
+                const inboundDate = inboundAgg?.inbound_date || "";
+                // 渠道角标: 红=拼多多(多多面单号), 绿=抖音/其他(=售出总数-拼多多)
+                const pddQty = Number(row.pdd_sold) || 0;
+                const dyQty = Math.max(0, row.sold_total - pddQty);
+                const fmtDate = (d: string) => {
+                  if (!d) return "-";
+                  const dt = new Date(d);
+                  if (isNaN(dt.getTime())) return "-";
+                  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
+                };
+                // 票根齿口: 18×8矩形块组成虚线(2px黑内描边, 无备注灰#E5E7EB/有备注红#EF4444),
+                // 整线=左右竖裁半块(9px)+中间均分13块; 整线横向裁成上下各4px半线,
+                // 上半线绑定上半张底部、下半线绑定下半张顶部, 展开时跟随卡片分离, 缺口直接填同色
+                const PERF_FILL = hasNotes ? "#EF4444" : "#E5E7EB";
+                return (
+                  <div key={row.sale_id} className="relative">
+                    {/* 上半张(撕口以上): 图片/信息/尺码 */}
+                    <div className={`relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
+                    <div className="flex gap-2.5">
+                      {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
+                      <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                        {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                      </div>
+                      {/* 右侧规范化格子区 */}
+                      <div className="flex-1 min-w-0 flex flex-col">
+                        {/* 编号/名称 + 渠道角标(卡片右上角) */}
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</span>
+                              {renderColorTagBox(row.sale_id)}
+                            </div>
+                            {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+                          </div>
+                          {selectionMode ? (
+                            <div className="relative flex flex-col items-end gap-1 shrink-0">
+                              <button
+                                onClick={() => toggleLiveSelection(row.sale_id)}
+                                disabled={selectingIds.has(row.sale_id)}
+                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap disabled:opacity-60 ${
+                                  liveSelectedIds.has(row.sale_id)
+                                    ? "border-gray-400 bg-gray-300 text-gray-500"
+                                    : "border-gray-900 bg-[#4A90E2] text-white hover:bg-[#3A80D2] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                                }`}
+                              >
+                                {selectingIds.has(row.sale_id) ? "选品中..." : liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
+                              </button>
+                              <button
+                                onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price, costPrice: Number(row.cost_price) || 0 })}
+                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
+                                  livePrices[row.sale_id] != null
+                                    ? "border-gray-900 bg-yellow-300 text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
+                                    : "border-gray-900 bg-white text-gray-700 hover:bg-gray-50"
+                                }`}
+                              >
+                                {livePrices[row.sale_id] != null ? `改价 ¥${livePrices[row.sale_id]}` : "改价"}
+                              </button>
+                            </div>
+                          ) : row.sold_total > 0 ? (
+                            <div className="flex flex-col items-end gap-0.5 shrink-0">
+                              <span className="rounded-md border-2 border-gray-900 bg-[#FF6B7A] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">多多{pddQty}</span>
+                              <span className="rounded-md border-2 border-gray-900 bg-[#4CD964] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">抖音{dyQty}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                        {/* 规范格子: 每行两格, 隔行浅灰底 */}
+                        <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                          {/* 售出 / 利润率 (竖杠左移: 售出格窄, 利润率格宽) */}
+                          <div className="flex divide-x-2 divide-gray-200">
+                            <div
+                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
+                              onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}
+                            >
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
+                              <span className="font-extrabold text-[13px] text-green-600 truncate">{row.sold_total}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
+                              <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
+                            </div>
+                          </div>
+                          {/* 退货 / 退货率 (竖杠左移: 退货格窄, 退货率格宽) */}
+                          <div className="flex divide-x-2 divide-gray-200">
+                            <div
+                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
+                              onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}
+                            >
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
+                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.return_total}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
+                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{pct(returnRate)}</span>
+                            </div>
+                          </div>
+                          {/* 进价(浅灰底,全宽) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">进价</span>
+                              <span className="font-bold text-gray-700 truncate">¥{fmt(row.cost_price)}</span>
+                            </div>
+                          </div>
+                          {/* 售价(浅灰底,全宽) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-red-500 shrink-0">售价</span>
+                              <span className="font-extrabold text-red-500 truncate">¥{fmt(latestSellPrice)}</span>
+                            </div>
+                          </div>
+                          {/* 入库时间(全宽) */}
+                          <div className="flex">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">入库时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtDate(inboundDate)}</span>
+                            </div>
+                          </div>
+                          {/* 售出时间(全宽) */}
+                          <div className="flex">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">售出时间</span>
+                              <span className="font-medium text-gray-700 truncate">{fmtDate(lastOrderTime)}</span>
+                            </div>
+                          </div>
+                          {/* 货架号(浅灰底) */}
+                          <div className="flex bg-gray-100">
+                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                              <span className="text-gray-500 shrink-0">货架号</span>
+                              <span className="font-medium text-gray-700 truncate">{row.shelf_no || "-"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 尺码全宽5列换行显示(点击展开/收起备注) */}
+                    <div
+                      className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer"
+                      onClick={() => toggleNotes(row.sale_id, hasNotes)}
+                    >
+                      {ALL_SIZES.map((s) => {
+                        const val = Number(row[`size_${s}`]) || 0;
+                        return (
+                          <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
+                            val < 0 ? "bg-red-50 border-red-300 text-red-600" :
+                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
+                            "bg-white border-gray-200 text-gray-300"
+                          }`}>{s}:{val}</span>
+                        );
+                      })}
+                    </div>
+
+                      {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                      <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={PERF_FILL} /></div>
+                    </div>{/* /上半张 */}
+
+                    {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
+                    <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+                      <div className="overflow-hidden">
+                        <div className="relative" style={{ backgroundColor: PERF_FILL }}>
+                          {hasNotes && parseNoteEntries(String(row.notes)).length > 0 ? (
+                            /* 有备注: 条目式圆角矩形(S/90:裤长80), 一排最多3条, 多的换行 */
+                            <button
+                              type="button"
+                              onClick={() => toggleNotes(row.sale_id, hasNotes)}
+                              className="relative z-10 grid w-full grid-cols-3 gap-1.5 px-3 py-2 border-0 cursor-pointer bg-transparent"
+                            >
+                              {parseNoteEntries(String(row.notes)).map((e, i) => (
+                                <span key={i} className="rounded-md border-2 border-white px-0.5 py-0.5 text-[10px] leading-tight font-extrabold text-white text-center truncate" title={fmtNoteEntry(e)}>
+                                  {fmtNoteEntry(e)}
+                                </span>
+                              ))}
+                            </button>
+                          ) : (
+                            /* 无条目备注: 有纯文本备注显示原文, 无备注显示"暂无备注" + 调整备注按钮(弹出备注调整框, 样式同备注调整) */
+                            <div className="relative z-10 flex items-center justify-between gap-2 w-full px-4 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleNotes(row.sale_id, hasNotes)}
+                                className={`flex-1 min-w-0 text-left text-xs leading-relaxed border-0 cursor-pointer bg-transparent p-0 whitespace-pre-wrap break-words ${hasNotes ? "text-white font-bold" : "text-gray-500"}`}
+                              >
+                                {hasNotes ? String(row.notes) : "暂无备注"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setRemarkTarget({ id: row.sale_id, hasNotes }); }}
+                                className="shrink-0 flex items-center gap-1 rounded-md border-2 border-gray-900 bg-white px-2 py-0.5 text-[10px] font-extrabold text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all"
+                                title={hasNotes ? "调整该商品备注" : "为该商品补充备注"}
+                              >
+                                <Pencil className="h-3 w-3" />
+                                {hasNotes ? "调整备注" : "补充备注"}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 下半张(撕口以下): 入库/剩余/价值 */}
+                    <div className={`relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
+                      {/* 收起时点撕口处展开 */}
+                      {!notesExpanded && (
+                        <button
+                          type="button"
+                          aria-label="展开备注"
+                          onClick={() => toggleNotes(row.sale_id, hasNotes)}
+                          className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
+                        />
+                      )}
+                      {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+                      <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={PERF_FILL} /></div>
+                      <div className="flex justify-between items-center text-[10px]">
+                        <div>
+                          <span className="text-gray-400">入库 </span>
+                          <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">剩余 </span>
+                          <span className="font-extrabold text-gray-900">{row.remaining}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400">价值 </span>
+                          <span className="font-extrabold text-red-500">¥{fmt(row.inventory_value)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+  };
 
   return (
     <PageWrapper wide>
-      {/* 移动端 sticky 顶栏: 视图按钮 + 统计卡片(滚动收起) + 搜索筛选; 桌面端还原普通流式布局 */}
-      <div className="sticky top-0 z-30 lg:static lg:z-auto -mx-4 sm:-mx-6 lg:mx-0 -mt-4 sm:-mt-6 lg:mt-0 px-4 sm:px-6 lg:px-0 pt-1 pb-3 lg:pb-0 bg-white lg:bg-transparent">
-      {/* Header + 视图切换按钮 (移动端隐藏标题, 四按钮拉宽占满) */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
-        <h1 className="hidden lg:flex items-center gap-3 text-3xl font-extrabold text-gray-900 flex-1 min-w-0">
-          <span className={highlightClass}>{viewTitle}</span>
+      {/* 商品图后台预载: 数据就绪后低并发把所有图攒进本地 SW 缓存(弱网客户图片秒开) */}
+      <PhotoPreloader photos={data.map((row) => row.photo)} />
+      {/* 移动端 sticky 顶栏: 视图按钮 + 统计卡片(滚动收起) + 搜索筛选; 桌面端还原普通流式布局
+          白色遮罩底边收紧至便签底部(容器无上下 padding, 便签 mb-3 折叠到容器外呈透明, 卡片从便签正下方滑过) */}
+      <div className="sticky top-0 z-30 lg:z-40 -mx-4 sm:-mx-6 lg:mx-0 -mt-4 sm:-mt-6 lg:mt-0 px-4 sm:px-6 lg:px-0 lg:pt-1 bg-white">
+      {/* Header 标题(桌面端) + 便签头: 移动端标题隐藏仅便签头占满一行, 桌面端标题带梯形底座居左, 便签头靠右同行 */}
+      <div className="flex flex-wrap items-end gap-2 sm:gap-3 relative">
+        {/* 标题梯形: 页签插在便签主体后面(容器 54px, 底部下探被主体顶边框截断), 左直边垂直+左上圆角, 右斜边斜率与便签头一致, 填充与便签主体同色, 标题字固定白色无底色(左移2px下移2px) */}
+        <div className="hidden lg:block relative h-[54px]">
+          <div className={`absolute inset-0 rounded-tl-2xl rounded-tr-2xl border-t-[3px] border-l-[3px] border-r-[3px] border-b-0 border-gray-900 ${folderBody.bg} transition-colors duration-300`} style={{ zIndex: 43, transform: "perspective(90px) rotateX(6deg)", transformOrigin: "bottom left" }} />
+          <h1 className={`relative z-[46] flex items-center gap-3 h-12 pl-[20px] pr-5 text-2xl font-extrabold translate-y-[2px] text-white`}>
+          {viewTitle}
           {/* 库存校准待办: 单条直接显示文字, 多条下拉列表; 点击填入搜索筛选(不切视图), × 删除; 选中后高亮并显示完整信息 */}
           {calibList.length === 1 && (
             <span className={`flex items-center gap-1 rounded-xl border-[3px] border-gray-900 px-2.5 py-1 text-sm font-extrabold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-colors ${selectedCalibId === calibList[0].id ? "bg-[#9B59B6] text-white" : "bg-[#FFC93C] text-gray-900"}`}>
@@ -1566,583 +2830,167 @@ export default function FinancePage() {
             );
           })()}
         </h1>
-        <div className="flex gap-1.5 sm:gap-2 w-full lg:w-auto lg:shrink-0">
-          <button onClick={() => switchView("summary")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
-              viewMode === "summary" ? "bg-[#4A90E2] text-white" : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}>
-            <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>总表</span>
-          </button>
-          <button onClick={() => switchView("sales")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
-              viewMode === "sales" ? "bg-green-500 text-white" : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}>
-            <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>售出</span>
-          </button>
-          <button onClick={() => switchView("returns")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
-              viewMode === "returns" ? "bg-yellow-500 text-white" : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}>
-            <TrendingDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>退货</span>
-          </button>
-          <button onClick={() => switchView("inbound")}
-            className={`flex flex-1 lg:flex-none items-center justify-center gap-1 px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl border-[2px] sm:border-[3px] border-gray-900 font-extrabold text-xs sm:text-sm transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${
-              viewMode === "inbound" ? "bg-[#4A90E2] text-white" : "bg-white text-gray-700 hover:bg-gray-100"
-            }`}>
-            <ArrowDown className="h-3.5 w-3.5 sm:h-4 sm:w-4" /><span>入库</span>
-          </button>
         </div>
+        {/* 便签头: 四个倒梯形 tab(上短下长、上边圆角), 左右轻微重合, 当前项置顶; 桌面端靠右并避让主体右上圆角 */}
+        <div className="flex items-end flex-1 lg:flex-none lg:ml-auto lg:pb-[6px] px-3 lg:px-0 lg:pr-4">
+          {([
+            { v: "summary", label: "总表", on: "bg-[#4A90E2] text-white", off: "bg-white text-gray-700" },
+            { v: "sales", label: "售出", on: "bg-green-500 text-white", off: "bg-white text-gray-700" },
+            { v: "returns", label: "退货", on: "bg-yellow-500 text-white", off: "bg-white text-gray-700" },
+            { v: "inbound", label: "入库", on: "bg-[#4A90E2] text-white", off: "bg-white text-gray-700" },
+            { v: "restock", label: "补录", on: "bg-[#4A90E2] text-white", off: "bg-white text-gray-700", desktopOnly: true },
+          ] as { v: ViewMode; label: string; on: string; off: string; desktopOnly?: boolean }[]).map((t, i) => {
+            const on = viewMode === t.v;
+            return (
+              <button
+                key={t.v}
+                onClick={() => switchView(t.v)}
+                // 移动端: 惯性滚动中第一次点击会被浏览器用于停止滚动, touchend 里直接处理 tap 保证一次点击即切换
+                onTouchStart={(e) => { const tt = e.touches[0]; tabTouchRef.current = { x: tt.clientX, y: tt.clientY, t: Date.now() }; }}
+                onTouchEnd={(e) => {
+                  const s = tabTouchRef.current;
+                  tabTouchRef.current = null;
+                  if (!s) return;
+                  const tt = e.changedTouches[0];
+                  if (Math.hypot(tt.clientX - s.x, tt.clientY - s.y) < 10 && Date.now() - s.t < 500) {
+                    e.preventDefault();
+                    switchView(t.v);
+                  }
+                }}
+                style={{ zIndex: on ? 50 : 40 - i, transform: "perspective(24px) rotateX(6deg)", transformOrigin: "bottom" }}
+                className={`relative flex-1 lg:min-w-[110px] ${on ? "h-11 lg:h-12 border-b-0" : "h-10 lg:h-11"} ${t.desktopOnly ? "hidden lg:flex" : "flex"} items-center justify-center rounded-t-2xl border-[3px] border-gray-900 font-extrabold text-base lg:text-lg transition-all duration-300 ease-out ${on ? t.on : t.off} ${i > 0 ? "-ml-2" : ""}`}
+              >
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
       </div>
 
-      {/* 统计卡片: 移动端上滑平滑收起, 回顶平滑展开(grid-rows 过渡); 桌面端不裁剪(保留卡片投影); 切换视图时淡入 */}
-      <motion.div
-        key={viewMode}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
-        className={`grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr] opacity-0 lg:grid-rows-[1fr] lg:opacity-100" : "grid-rows-[1fr] opacity-100"} ${statsCollapsed ? "mb-0" : "mb-3 sm:mb-4"}`}
-      >
-        <div className="overflow-hidden lg:overflow-visible">
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4">
-        {viewMode === "summary" && (
-          <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
-                  <Warehouse className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总入库</span>
+      {/* 文件夹便签: 倒梯形便签头(点击置顶) + 连体大矩形主体(统计/搜索); 移动端与桌面端共用, 桌面端尺寸放大 */}
+      <div className="mb-3 lg:mb-4">
+
+        {/* 主体: 与便签头连成一体的大矩形(填充当前视图色), 三项统计(竖线分隔、两侧留白) + 搜索框 + 筛选排序 */}
+        <div className={`relative lg:z-[45] -mt-[3px] lg:-mt-[9px] rounded-2xl border-[3px] border-gray-900 ${folderBody.bg} px-3 py-2 lg:px-5 lg:py-3 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-colors duration-300`}>
+          {/* 统计区: 上滑折叠收起(高度归零, 搜索框位置不变), 折叠后原空隙处显示一行当前视图汇总文字(绝对定位不占高) */}
+          <div className={`relative grid transition-all duration-300 ease-in-out ${statsCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}>
+            <div className="overflow-hidden">
+              <div className={`flex items-stretch divide-x ${folderBody.divide} transition-colors duration-300`}>
+                {folderStats.map((s, i) => (
+                  <div key={i} className="flex-1 min-w-0 px-2 text-center transition-colors duration-300">
+                    <p className={`text-[10px] lg:text-xs font-bold truncate ${folderBody.sub} transition-colors duration-300`}>{s.label}</p>
+                    <p className={`text-base lg:text-2xl font-extrabold leading-tight truncate ${folderBody.text} transition-colors duration-300`}>
+                      {s.value}<span className={`ml-0.5 text-[9px] lg:text-xs font-bold ${folderBody.sub} transition-colors duration-300`}>{s.unit}</span>
+                    </p>
+                  </div>
+                ))}
               </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{totals.inbound_total}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
-                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-blue-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">剩余库存</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-blue-600 leading-tight">{totals.remaining}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
+            <div className={`absolute inset-x-0 top-0 flex items-center justify-between gap-2 px-1 transition-opacity duration-300 ${statsCollapsed ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+              <p className={`text-[10px] font-bold leading-none truncate ${folderBody.text} transition-colors duration-300`}>{collapsedLabel}</p>
+              <p className={`text-[10px] font-bold leading-none truncate ${folderBody.text} transition-colors duration-300`}>{collapsedCount}</p>
             </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
-                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">库存价值</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-500 leading-tight">¥{fmt(totals.inventory_value)}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">成本价</div>
-            </div>
-          </>
-        )}
-        {viewMode === "sales" && (
-          <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
-                  <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">售出款式</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{salesTotals.orderCount}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
-                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">售出数量</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-600 leading-tight">{salesTotals.totalSold}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0">
-                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-red-500" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总盈利</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-red-500 leading-tight">¥{fmt(salesTotals.totalProfit)}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">利润</div>
-            </div>
-          </>
-        )}
-        {viewMode === "returns" && (
-          <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
-                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退货款式</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{returnTotals.orderCount}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">款</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
-                  <TrendingDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退回数量</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">{returnTotals.totalReturned}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-green-500/10 flex items-center justify-center shrink-0">
-                  <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-green-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">退货率</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-green-600 leading-tight">
-                {salesTotals.totalSold > 0 ? ((returnTotals.totalReturned / salesTotals.totalSold) * 100).toFixed(1) : 0}%
-              </div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">占比</div>
-            </div>
-          </>
-        )}
-        {viewMode === "inbound" && (
-          <>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-gray-500/10 flex items-center justify-center shrink-0">
-                  <Package className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-gray-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">入库款式</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-gray-900 leading-tight">{filteredInbound.length}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">种</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-[#4A90E2]/10 flex items-center justify-center shrink-0">
-                  <ArrowDown className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-[#4A90E2]" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">总入库</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-[#4A90E2] leading-tight">{inboundTotals.totalInbound}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">件</div>
-            </div>
-            <div className="bg-white rounded-xl sm:rounded-2xl border-[2px] sm:border-[3px] border-gray-900 lg:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 sm:p-3 lg:p-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-1.5">
-                <div className="w-6 h-6 sm:w-8 sm:h-8 lg:w-10 lg:h-10 rounded-lg bg-yellow-500/10 flex items-center justify-center shrink-0">
-                  <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 text-yellow-600" />
-                </div>
-                <span className="text-[10px] sm:text-xs font-bold text-gray-500">入库金额</span>
-              </div>
-              <div className="text-lg sm:text-xl lg:text-2xl font-extrabold text-yellow-600 leading-tight">¥{fmt(inboundTotals.totalValue)}</div>
-              <div className="text-[9px] sm:text-[10px] text-gray-400 mt-0.5">成本价</div>
-            </div>
-          </>
-        )}
           </div>
-        </div>
-      </motion.div>
-
-      {/* 搜索 + 筛选按钮 + 编辑/导出 (移动端在 sticky 顶栏内, 底部间距由容器 pb 承担) */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:mb-4">
-        {/* 搜索框（投影随视图色系: 总表灰/售出绿/退货黄/入库蓝, 与筛选按钮同款） */}
-        <div className="relative flex-1 min-w-[140px] lg:min-w-[180px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 sm:h-5 sm:w-5 text-gray-400 z-10" />
-          <input
-            type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索商品编号/名称..."
-            className={`w-full h-11 text-sm sm:text-base pl-11 pr-4 rounded-xl border-[3px] border-gray-900 bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none transition-all ${
-              viewMode === "sales"
-                ? "shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(34,197,94,1)]"
-                : viewMode === "returns"
-                  ? "shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(234,179,8,1)]"
-                  : viewMode === "inbound"
-                    ? "shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)] focus:shadow-[5px_5px_0px_0px_rgba(74,144,226,1)]"
-                    : "shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)] focus:shadow-[5px_5px_0px_0px_rgba(0,0,0,0.3)]"
-            }`}
-          />
-        </div>
-
-        {/* 售出(移动端): 仅未入库(汇总数据按钮已按要求在移动端移除, 仅桌面端保留) */}
-        {viewMode === "sales" && (
-          <div className="flex gap-2 lg:hidden">
-            <button onClick={() => setUninboundFilter(!uninboundFilter)}
-              className={`h-11 inline-flex items-center gap-1 text-xs px-3 rounded-xl border-[3px] font-extrabold transition-all ${
-                uninboundFilter
-                  ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]"
-                  : "border-red-500 bg-white text-red-500 hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(239,68,68,0.4)]"
-              }`}>
-              <AlertTriangle className="h-4 w-4" />未入库
+          {/* 搜索框(便签内, 移动端与桌面端共用 search 状态; 内部保持白底) */}
+          <div className="mt-3.5 lg:mt-4 flex flex-wrap items-center gap-2 lg:gap-3">
+            <div className="relative flex-1 min-w-[160px] lg:min-w-[200px]">
+            {/* 最左侧精确/模糊切换按钮(取代原放大镜图标位置): 精确时编号需完全一致, 名称搜索始终模糊 */}
+            <button
+              type="button"
+              onClick={() => setSearchExact((v) => !v)}
+              title={searchExact ? "当前：精确模式（编号需完全一致，搜 F1 只出 F1）\n点击切换为模糊搜索" : "当前：模糊搜索\n点击切换为精确模式（编号需完全一致）"}
+              className={`absolute left-1.5 top-1/2 -translate-y-1/2 z-10 flex h-7 lg:h-9 items-center justify-center px-1.5 lg:px-2 rounded-lg border-2 text-[10px] lg:text-xs font-extrabold transition-colors ${
+                searchExact
+                  ? "border-gray-900 bg-[#FF6B7A] text-white"
+                  : "border-transparent bg-transparent text-gray-400 hover:text-gray-900 hover:bg-gray-100"
+              }`}
+            >
+              {searchExact ? "精确" : "模糊"}
+            </button>
+            <input
+              type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索商品编号/名称..."
+              className="w-full h-10 lg:h-12 text-sm lg:text-base pl-11 lg:pl-14 pr-11 lg:pr-12 rounded-xl border-[3px] border-gray-900 bg-white font-bold text-gray-800 placeholder-gray-400 focus:outline-none transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => setImgSearchOpen(true)}
+              title="拍照识图搜索"
+              aria-label="拍照识图搜索"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 z-10 flex h-7 w-7 lg:h-9 lg:w-9 items-center justify-center rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+            >
+              <Camera className="h-4 w-4 lg:h-5 lg:w-5" />
             </button>
           </div>
-        )}
-
-        {/* 总表：筛选/排序下拉 + 错误库存 */}
-        {viewMode === "summary" && (
-          <div className="flex flex-wrap gap-2 items-center">
-            {/* 筛选下拉：集成剩余库存/库存价值/库存预警/热销排行/退货分析/厂家 */}
-            <div className="relative">
-              <button
-                onClick={() => { setShowFilterMenu(!showFilterMenu); setShowSortMenu(false); }}
-                className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
-                  activeFilterCount > 0
-                    ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
-                }`}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                筛选
-                {activeFilterCount > 0 && (
-                  <span className="min-w-[16px] h-4 px-1 rounded-full bg-[#FF6B7A] text-white text-[9px] font-extrabold inline-flex items-center justify-center">
-                    {activeFilterCount}
-                  </span>
-                )}
-                <ChevronDown className={`h-3 w-3 transition-transform ${showFilterMenu ? "rotate-180" : ""}`} />
-              </button>
-              {showFilterMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowFilterMenu(false)} />
-                  <div className="absolute left-0 lg:left-auto lg:right-0 top-full mt-2 z-50 w-[340px] max-w-[85vw] p-3 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] max-h-[70vh] overflow-y-auto">
-                    {/* 剩余库存 */}
-                    <div className="mb-3">
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">剩余库存</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="尾货" active={stockFilter === "tail"} onClick={() => { setStockFilter(stockFilter === "tail" ? "" : "tail"); }} />
-                        <FilterOption label="<5手" active={stockFilter === "low"} onClick={() => { setStockFilter(stockFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="5-10手" active={stockFilter === "mid"} onClick={() => { setStockFilter(stockFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label=">10手" active={stockFilter === "high"} onClick={() => { setStockFilter(stockFilter === "high" ? "" : "high"); }} />
-                      </div>
-                    </div>
-                    {/* 库存价值 */}
-                    <div className="mb-3">
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存价值</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="0-100" active={valueFilter === "0-100"} onClick={() => { setValueFilter(valueFilter === "0-100" ? "" : "0-100"); }} />
-                        <FilterOption label="101-300" active={valueFilter === "101-300"} onClick={() => { setValueFilter(valueFilter === "101-300" ? "" : "101-300"); }} />
-                        <FilterOption label="301-500" active={valueFilter === "301-500"} onClick={() => { setValueFilter(valueFilter === "301-500" ? "" : "301-500"); }} />
-                        <FilterOption label=">500" active={valueFilter === "500+"} onClick={() => { setValueFilter(valueFilter === "500+" ? "" : "500+"); }} />
-                      </div>
-                    </div>
-                    {/* 库存预警 */}
-                    <div className="mb-3">
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">库存预警</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="缺货≤0" active={alertFilter === "out"} onClick={() => { setAlertFilter(alertFilter === "out" ? "" : "out"); }} />
-                        <FilterOption label="1-4" active={alertFilter === "low"} onClick={() => { setAlertFilter(alertFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="5-20" active={alertFilter === "mid"} onClick={() => { setAlertFilter(alertFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label=">50" active={alertFilter === "over"} onClick={() => { setAlertFilter(alertFilter === "over" ? "" : "over"); }} />
-                      </div>
-                    </div>
-                    {/* 热销排行 */}
-                    <div className="mb-3">
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">热销排行</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="Top10" active={hotRankFilter === "top10"} onClick={() => { setHotRankFilter(hotRankFilter === "top10" ? "" : "top10"); }} />
-                        <FilterOption label="Top30" active={hotRankFilter === "top30"} onClick={() => { setHotRankFilter(hotRankFilter === "top30" ? "" : "top30"); }} />
-                        <FilterOption label="Top50" active={hotRankFilter === "top50"} onClick={() => { setHotRankFilter(hotRankFilter === "top50" ? "" : "top50"); }} />
-                        <FilterOption label="零销量" active={hotRankFilter === "zero"} onClick={() => { setHotRankFilter(hotRankFilter === "zero" ? "" : "zero"); }} />
-                      </div>
-                    </div>
-                    {/* 退货分析 */}
-                    <div className="mb-3">
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">退货分析</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <FilterOption label="无退货" active={returnFilter === "zero"} onClick={() => { setReturnFilter(returnFilter === "zero" ? "" : "zero"); }} />
-                        <FilterOption label="1-2件" active={returnFilter === "low"} onClick={() => { setReturnFilter(returnFilter === "low" ? "" : "low"); }} />
-                        <FilterOption label="3-5件" active={returnFilter === "mid"} onClick={() => { setReturnFilter(returnFilter === "mid" ? "" : "mid"); }} />
-                        <FilterOption label=">5件" active={returnFilter === "high"} onClick={() => { setReturnFilter(returnFilter === "high" ? "" : "high"); }} />
-                      </div>
-                    </div>
-                    {/* 厂家（数量多，用下拉选择） */}
-                    <div>
-                      <p className="text-[11px] font-extrabold text-gray-500 mb-1.5">厂家</p>
-                      <select
-                        value={manufacturerFilter}
-                        onChange={(e) => setManufacturerFilter(e.target.value)}
-                        className="w-full h-9 px-2 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-bold text-gray-700 focus:outline-none"
-                      >
-                        <option value="">全部厂家</option>
-                        {manufacturerList.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    </div>
-                    {/* 清空筛选（有筛选时显示在面板最下方） */}
-                    {activeFilterCount > 0 && (
-                      <button
-                        onClick={() => { clearAllFilters(); setShowFilterMenu(false); }}
-                        className="mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border-[2px] border-gray-900 bg-white text-xs font-extrabold text-gray-900 hover:bg-gray-100 transition-all"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        清空筛选({activeFilterCount})
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* 排序下拉 */}
-            <div className="relative">
-              <button
-                onClick={() => { setShowSortMenu(!showSortMenu); setShowFilterMenu(false); }}
-                className={`h-11 inline-flex items-center gap-1.5 px-3 rounded-xl border-[2px] border-gray-900 text-xs font-extrabold transition-all whitespace-nowrap ${
-                  sortBy
-                    ? "bg-gray-900 text-white shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]"
-                    : "bg-white text-gray-600 hover:bg-gray-50 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.12)]"
-                }`}
-              >
-                <ArrowUpDown className="h-3.5 w-3.5" />
-                排序
-                {sortBy && (
-                  <span className="text-[10px] opacity-70">
-                    ({sortBy === "sales" ? "销量" : sortBy === "profitRate" ? "利润率" : sortBy === "returnRate" ? "退货率" : sortBy === "stock" ? "库存量" : sortBy === "inbound" ? "入库量" : "入库时间"} {sortDesc ? "↓" : "↑"})
-                  </span>
-                )}
-                <ChevronDown className={`h-3 w-3 transition-transform ${showSortMenu ? "rotate-180" : ""}`} />
-              </button>
-              {showSortMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(false)} />
-                  <div className="absolute left-0 top-full mt-2 z-50 w-40 p-1.5 rounded-xl border-[3px] border-gray-900 bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                    {([
-                      { v: "", label: "默认排序" },
-                      { v: "sales", label: "按销量" },
-                      { v: "profitRate", label: "按利润率" },
-                      { v: "returnRate", label: "按退货率" },
-                      { v: "stock", label: "按库存量" },
-                      { v: "inbound", label: "按入库量" },
-                      { v: "inboundTime", label: "按入库时间" },
-                    ] as const).map((o) => (
-                      <button
-                        key={o.v}
-                        onClick={() => {
-                          if (!o.v) {
-                            setSortBy("");
-                            setShowSortMenu(false);
-                            return;
-                          }
-                          if (sortBy === o.v) {
-                            // 同一排序再点一次: 从大到小 ↔ 从小到大
-                            setSortDesc((d) => !d);
-                          } else {
-                            // 首次点击: 默认从大到小
-                            setSortBy(o.v);
-                            setSortDesc(true);
-                          }
-                          setShowSortMenu(false);
-                        }}
-                        className={`w-full flex items-center justify-between gap-1 px-3 h-9 rounded-lg text-xs font-bold transition-all ${
-                          sortBy === o.v ? "bg-gray-900 text-white" : "text-gray-700 hover:bg-gray-100"
-                        }`}
-                      >
-                        <span>{o.label}</span>
-                        {o.v && (
-                          <span className="flex items-center gap-0.5">
-                            <ArrowUp className={`h-3 w-3 ${sortBy === o.v && !sortDesc ? "opacity-100" : "opacity-30"}`} />
-                            <ArrowDown className={`h-3 w-3 ${sortBy === o.v && sortDesc ? "opacity-100" : "opacity-30"}`} />
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {/* 错库存（保留独立按钮）- 选品模式下隐藏, 避免窄屏上筛选/排序/错库存/选品挤成两排 */}
-            {!selectionMode && (
-              <FilterTag
-                label="错库存"
-                active={errorFilter}
-                onClick={() => setErrorFilter(!errorFilter)}
-              />
-            )}
-            {/* 直播选品模式: 卡片角标变为选品按钮(计数=今天选品数, 按日期刷新) - 仅移动端显示 */}
-            <div className="lg:hidden">
-              <FilterTag
-                label="选品"
-                active={selectionMode}
-                value={`${liveTodayCount}款`}
-                onClick={() => setSelectionMode(!selectionMode)}
-              />
-            </div>
+          {/* 筛选/排序行: 桌面端在搜索框右边 */}
+          <div className="hidden lg:flex flex-wrap items-center gap-2 lg:gap-3">
+            {folderFilterRow}
           </div>
-        )}
-
-        {/* 售出：日期 + 编辑 + 同步数据 - 绿色系 */}
+{/* 售出：日期 + 编辑 + 同步数据 - 绿色系(仅桌面端; 移动端筛选在文件夹便签内) */}
         {viewMode === "sales" && (
-          <div className="flex gap-2 items-center w-full lg:w-auto">
-            {/* 日期下拉(自定义, 与总表同款): 移动端拉长均分 */}
-            <ViewDropdown
-              label="日期"
-              accent="green"
-              stretch
-              value={salesDateFilter}
-              onSelect={(v) => setSalesDateFilter(v)}
-              options={[{ value: "", label: "全部日期" }, ...salesDates.map((d) => ({ value: d, label: d }))]}
-            />
+          <>
             <button onClick={() => { setSalesEditMode(!salesEditMode); setEditSaveMsg(""); }}
-              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
-                salesEditMode
-                  ? "bg-green-500 text-white border-green-500 shadow-[3px_3px_0px_0px_rgba(34,197,94,1)]"
-                  : "border-green-500 bg-white text-green-600 hover:bg-green-50 shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)]"
+              className={`hidden lg:inline-flex items-center gap-1 px-2 h-9 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                salesEditMode ? "bg-gray-900 text-white" : "text-white hover:bg-black/10"
               }`}>
               {salesEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
-            {/* 移动端: 排序下拉框(替代编辑按钮), 拉长均分 */}
-            <div className="flex-1 lg:hidden">
-              <ViewDropdown
-                label="排序"
-                accent="green"
-                showArrows
-                value={salesSort}
-                onSelect={(v) => setSalesSort(v as "default" | "sold" | "profit" | "price" | "earn")}
-                options={[
-                  { value: "default", label: "默认排序" },
-                  { value: "sold", label: "按销量" },
-                  { value: "profit", label: "按利润率" },
-                  { value: "price", label: "按价格" },
-                  { value: "earn", label: "按盈利" },
-                ]}
-              />
-            </div>
-            {/* 汇总数据/未入库: 桌面端保留原位置(移动端已移至搜索框右侧) */}
+            {/* 汇总数据/未入库: 桌面端保留 */}
             <button onClick={() => setConfirmSync(true)} disabled={syncing}
-              className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-green-500 bg-white text-green-600 font-extrabold hover:bg-green-50 transition-all shadow-[3px_3px_0px_0px_rgba(34,197,94,0.4)] disabled:opacity-50">
+              className="hidden lg:inline-flex items-center gap-1 px-2 h-9 rounded-lg text-xs font-extrabold text-white hover:bg-black/10 transition-all whitespace-nowrap disabled:opacity-50">
               <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />汇总数据
             </button>
-            <button onClick={() => setUninboundFilter(!uninboundFilter)}
-              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
-                uninboundFilter
-                  ? "bg-red-500 text-white border-red-500 shadow-[3px_3px_0px_0px_rgba(239,68,68,1)]"
-                  : "border-red-500 bg-white text-red-500 hover:bg-red-50 shadow-[3px_3px_0px_0px_rgba(239,68,68,0.4)]"
-              }`}>
-              <AlertTriangle className="h-4 w-4" />未入库
-            </button>
-          </div>
+          </>
         )}
 
-        {/* 退货：日期 + 编辑 - 黄色系 */}
+        {/* 退货：日期 + 编辑 - 黄色系(仅桌面端; 移动端筛选在文件夹便签内) */}
         {viewMode === "returns" && (
-          <div className="flex gap-2 items-center w-full lg:w-auto">
-            <ViewDropdown
-              label="日期"
-              accent="yellow"
-              stretch
-              value={returnsDateFilter}
-              onSelect={(v) => setReturnsDateFilter(v)}
-              options={[{ value: "", label: "全部日期" }, ...returnsDates.map((d) => ({ value: d, label: d }))]}
-            />
+          <>
             <button onClick={() => { setReturnsEditMode(!returnsEditMode); setEditSaveMsg(""); }}
-              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
-                returnsEditMode
-                  ? "bg-yellow-500 text-white border-yellow-500 shadow-[3px_3px_0px_0px_rgba(234,179,8,1)]"
-                  : "border-yellow-500 bg-white text-yellow-600 hover:bg-yellow-50 shadow-[3px_3px_0px_0px_rgba(234,179,8,0.4)]"
+              className={`hidden lg:inline-flex items-center gap-1 px-2 h-9 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                returnsEditMode ? "bg-gray-900 text-white" : "text-white hover:bg-black/10"
               }`}>
               {returnsEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />编辑</>}
             </button>
-            {/* 移动端: 排序下拉框(替代编辑按钮) */}
-            <div className="flex-1 lg:hidden">
-              <ViewDropdown
-                label="排序"
-                accent="yellow"
-                showArrows
-                value={returnsSort}
-                onSelect={(v) => setReturnsSort(v as "default" | "qty" | "price" | "rate")}
-                options={[
-                  { value: "default", label: "默认排序" },
-                  { value: "price", label: "按退货价" },
-                  { value: "qty", label: "按退货量" },
-                  { value: "rate", label: "按退货率" },
-                ]}
-              />
-            </div>
-          </div>
+          </>
         )}
 
-        {/* 入库：修改 + 导出 - 蓝色系(仅桌面端; 移动端为日期筛选+排序下拉) */}
+        {/* 入库：修改 + 导出 - 蓝色系(仅桌面端; 移动端筛选在文件夹便签内) */}
         {viewMode === "inbound" && (
-          <div className="flex gap-2 items-center w-full lg:w-auto">
-            {/* 移动端: 日期筛选 + 排序(拉长均分) */}
-            <div className="flex gap-2 flex-1 lg:hidden">
-              <ViewDropdown
-                label="日期"
-                accent="blue"
-                stretch
-                value={inboundDateFilter}
-                onSelect={(v) => setInboundDateFilter(v)}
-                options={[{ value: "", label: "全部日期" }, ...inboundDates.map((d) => ({ value: d, label: d }))]}
-              />
-              <ViewDropdown
-                label="排序"
-                accent="blue"
-                showArrows
-                stretch
-                value={inboundSort}
-                onSelect={(v) => setInboundSort(v as "default" | "time" | "qty" | "id" | "price")}
-                options={[
-                  { value: "default", label: "默认排序" },
-                  { value: "time", label: "按入库时间" },
-                  { value: "qty", label: "按入库数量" },
-                  { value: "id", label: "按编号" },
-                  { value: "price", label: "按进价" },
-                ]}
-              />
-            </div>
-            {/* 桌面端: 日期筛选 + 排序(修改按钮前) */}
-            <div className="hidden lg:flex gap-2 items-center">
-              <ViewDropdown
-                label="日期"
-                accent="blue"
-                value={inboundDateFilter}
-                onSelect={(v) => setInboundDateFilter(v)}
-                options={[{ value: "", label: "全部日期" }, ...inboundDates.map((d) => ({ value: d, label: d }))]}
-              />
-              <ViewDropdown
-                label="排序"
-                accent="blue"
-                showArrows
-                value={inboundSort}
-                onSelect={(v) => setInboundSort(v as "default" | "time" | "qty" | "id" | "price")}
-                options={[
-                  { value: "default", label: "默认排序" },
-                  { value: "time", label: "按入库时间" },
-                  { value: "qty", label: "按入库数量" },
-                  { value: "id", label: "按编号" },
-                  { value: "price", label: "按进价" },
-                ]}
-              />
-            </div>
+          <>
             <button onClick={() => { setInboundEditMode(!inboundEditMode); setEditSaveMsg(""); }}
-              className={`h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] font-extrabold transition-all ${
-                inboundEditMode
-                  ? "bg-[#4A90E2] text-white border-[#4A90E2] shadow-[3px_3px_0px_0px_rgba(74,144,226,1)]"
-                  : "border-[#4A90E2] bg-white text-[#4A90E2] hover:bg-[#4A90E2]/5 shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]"
+              className={`hidden lg:inline-flex items-center gap-1 px-2 h-9 rounded-lg text-xs font-extrabold transition-all whitespace-nowrap ${
+                inboundEditMode ? "bg-gray-900 text-white" : "text-white hover:bg-black/10"
               }`}>
               {inboundEditMode ? <><Save className="h-4 w-4" />保存</> : <><Edit3 className="h-4 w-4" />修改</>}
             </button>
             <button onClick={() => setExportModal(true)}
-              className="h-11 hidden lg:inline-flex items-center gap-1 text-xs sm:text-sm px-3 rounded-xl border-[3px] border-[#4A90E2] bg-white text-[#4A90E2] font-extrabold hover:bg-[#4A90E2]/5 transition-all shadow-[3px_3px_0px_0px_rgba(74,144,226,0.4)]">
+              className="hidden lg:inline-flex items-center gap-1 px-2 h-9 rounded-lg text-xs font-extrabold text-white hover:bg-black/10 transition-all whitespace-nowrap">
               <Download className="h-4 w-4" />导出
             </button>
-          </div>
+          </>
         )}
 
         {editSaveMsg && (
-          <span className={`text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
+          <span className={`hidden lg:inline text-xs font-bold px-2 py-1 rounded ${editSaveMsg.includes("失败") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-600"}`}>
             {editSaveMsg}
           </span>
         )}
         {editSaving && (
-          <span className="inline-flex items-center gap-1 text-xs text-blue-500 font-bold">
+          <span className="hidden lg:inline-flex items-center gap-1 text-xs text-blue-500 font-bold">
             <RefreshCw className="h-3 w-3 animate-spin" />保存中...
           </span>
         )}
+          </div>
+          {/* 筛选/排序行: 移动端在搜索框下面一行 */}
+          <div className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+            {folderFilterRow}
+          </div>
+        </div>
       </div>
+
+
       </div>
 
       {/* ===== 总表 - 桌面端 ===== */}
@@ -2175,22 +3023,34 @@ export default function FinancePage() {
                   ) : (
                     pagedSummary.map((row, idx) => {
                       const isError = hasErrorStock(row);
+                      // 备注: 字母→尺码映射(如"S对应尺码90"→90列下方红字S)
+                      const noteLetterBySize: Record<string, string> = {};
+                      for (const e of parseNoteEntries(String(row.notes || ""))) {
+                        noteLetterBySize[e.size] = noteLetterBySize[e.size] ? `${noteLetterBySize[e.size]}/${e.tag}` : e.tag;
+                      }
                       return (
                         <Fragment key={row.sale_id}>
                         {/* 每行商品的尺码列表头(80-180), 便于逐行对照 */}
                         <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
                           <td colSpan={6} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
                           {ALL_SIZES.map((s) => (
-                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">
+                              {s}
+                              {/* 备注对应字母: 该行尺码表头下方红色小字 */}
+                              {noteLetterBySize[String(s)] && <div className="text-[9px] leading-none font-extrabold text-red-500">{noteLetterBySize[String(s)]}</div>}
+                            </td>
                           ))}
                           <td colSpan={7} />
                         </tr>
                         <tr className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} ${isError ? "bg-red-50" : ""}`}>
                           <td className="px-2 py-2.5">
-                            <HoverImage src={row.photo} alt="" />
+                            <HoverImage src={row.photo} alt="" notes={row.notes} />
                           </td>
                           <td className="px-2 py-1.5 font-extrabold text-gray-900 leading-tight">
-                            <div className="text-base">{row.sale_id}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-base">{row.sale_id}</span>
+                              {renderColorTagBox(row.sale_id)}
+                            </div>
                             {row.name && <div className="text-xs text-gray-400 font-normal leading-tight">{row.name}</div>}
                             <div className="text-xs text-gray-400 font-normal leading-tight">入库 {row.inbound_date ? String(row.inbound_date).slice(0, 10).replace(/-/g, "/") : "-"}</div>
                             <div className="text-xs text-gray-400 font-normal leading-tight">售卖 {row.last_order_time ? String(row.last_order_time).slice(0, 10).replace(/-/g, "/") : "-"}</div>
@@ -2306,14 +3166,18 @@ export default function FinancePage() {
                           onClick={uninboundFilter && !salesEditMode ? () => jumpToInbound(row) : undefined}
                         >
                           <td className="px-2 py-2.5">
-                            <HoverImage src={photo} alt="" />
+                            <HoverImage src={photo} alt="" notes={summaryRow?.notes} hoverSlot={summaryRow ? renderSummaryCardMobile(summaryRow) : undefined} />
                           </td>
                           <td className="px-2 py-2.5 font-extrabold text-gray-900">
                             <div>{row.sale_id}</div>
                             {row.name && <div className="text-xs text-gray-400 font-normal">{row.name}</div>}
                             {row.manufacturer && <div className="text-xs text-gray-300">{row.manufacturer}</div>}
                           </td>
-                          <td className="px-1.5 py-2.5 text-center font-extrabold text-green-600">{row.total}</td>
+                          <td
+                            className={`px-1.5 py-2.5 text-center font-extrabold text-green-600 ${row.total > 0 ? "cursor-pointer hover:underline" : ""}`}
+                            title={row.total > 0 ? "点击查看售卖明细" : undefined}
+                            onClick={() => row.total > 0 && fetchDetail("sales", row.sale_id)}
+                          >{row.total}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
                             if (salesEditMode) {
@@ -2393,14 +3257,18 @@ export default function FinancePage() {
                         </tr>
                         <tr className={`border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td className="px-2 py-2.5">
-                            <HoverImage src={photo} alt="" />
+                            <HoverImage src={photo} alt="" notes={summaryRow?.notes} hoverSlot={summaryRow ? renderSummaryCardMobile(summaryRow) : undefined} />
                           </td>
                           <td className="px-2 py-2.5 font-extrabold text-gray-900">
                             <div>{row.sale_id}</div>
                             {summaryRow?.name && <div className="text-xs text-gray-400 font-normal">{summaryRow.name}</div>}
                             {summaryRow?.manufacturer && <div className="text-xs text-gray-300">{summaryRow.manufacturer}</div>}
                           </td>
-                          <td className="px-1.5 py-2.5 text-center font-extrabold text-yellow-600">{row.total}</td>
+                          <td
+                            className={`px-1.5 py-2.5 text-center font-extrabold text-yellow-600 ${row.total > 0 ? "cursor-pointer hover:underline" : ""}`}
+                            title={row.total > 0 ? "点击查看退货明细" : undefined}
+                            onClick={() => row.total > 0 && fetchDetail("returns", row.sale_id)}
+                          >{row.total}</td>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
                             if (returnsEditMode) {
@@ -2466,6 +3334,11 @@ export default function FinancePage() {
                   ) : (
                     pagedInbound.map((row, idx) => {
                       const summaryRow = summaryBySaleId.get(row.sale_id);
+                      // 备注: 字母→尺码映射(如"S对应尺码90"→该行尺码表头90下方红字S)
+                      const noteLetterBySize: Record<string, string> = {};
+                      for (const e of parseNoteEntries(String(summaryRow?.notes || ""))) {
+                        noteLetterBySize[e.size] = noteLetterBySize[e.size] ? `${noteLetterBySize[e.size]}/${e.tag}` : e.tag;
+                      }
                       const photo = row.photo || summaryRow?.photo || "";
                       const shelfNo = (row as Record<string, unknown>).shelf_no as string || "";
                       const season = (row as Record<string, unknown>).season as string || "";
@@ -2476,7 +3349,11 @@ export default function FinancePage() {
                         <tr className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
                           <td colSpan={3} className="px-2 py-0.5 text-right text-[10px] font-bold text-gray-400">尺码 →</td>
                           {ALL_SIZES.map((s) => (
-                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">{s}</td>
+                            <td key={s} className="w-12 px-1 py-0.5 text-center text-[10px] font-extrabold text-gray-500 border-x border-gray-200 bg-gray-100">
+                              {s}
+                              {/* 备注对应字母: 该行尺码表头下方红色小字 */}
+                              {noteLetterBySize[String(s)] && <div className="text-[9px] leading-none font-extrabold text-red-500">{noteLetterBySize[String(s)]}</div>}
+                            </td>
                           ))}
                           <td colSpan={6} />
                         </tr>
@@ -2484,7 +3361,7 @@ export default function FinancePage() {
                           <td className="px-2 py-2.5">
                             {inboundEditMode ? (
                               <div className="flex flex-col gap-1 items-center">
-                                <HoverImage src={photo} alt="" />
+                                <HoverImage src={photo} alt="" notes={summaryRow?.notes} />
                                 <input
                                   type="text" defaultValue={photo}
                                   onBlur={(e) => {
@@ -2497,7 +3374,7 @@ export default function FinancePage() {
                                 />
                               </div>
                             ) : (
-                              <HoverImage src={photo} alt="" />
+                              <HoverImage src={photo} alt="" notes={summaryRow?.notes} />
                             )}
                           </td>
                           <td className="px-2 py-2.5 font-extrabold text-gray-900">
@@ -2631,231 +3508,218 @@ export default function FinancePage() {
         </div>
       )}
 
-      {/* ===== 移动端卡片 ===== */}
-      <div className="lg:hidden space-y-3">
+      {/* ===== 补录表 - 桌面端(商品卡片, 一行三个, 框内上下滚动) ===== */}
+      {viewMode === "restock" && (
+        <div className="hidden lg:block">
+          {restockGroups.length === 0 ? (
+            <div className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] py-12 text-center text-gray-400 font-bold">暂无补录商品</div>
+          ) : !restockShowAll && focusGroup ? (
+            /* 单日期模式: 不显示文件夹框, 直接平铺该日期的全部商品卡片 */
+            <div className="pb-24">
+              <div className="mb-2 flex items-center justify-center gap-2">
+                <span className="text-base font-extrabold text-gray-900">{focusGroup.date}</span>
+                {focusGroup.date === restockToday && (
+                  <span className="shrink-0 rounded-md border-2 border-gray-900 bg-[#FFC93C] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-gray-900">今天</span>
+                )}
+                <span className="shrink-0 text-xs font-bold text-gray-500">{focusGroup.items.length}款</span>
+                <span className="shrink-0 text-xs font-extrabold text-red-500">补入+{focusGroup.items.reduce((s, r) => s + r.restock_total, 0)}</span>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                {focusGroup.items.map((r) => {
+                          const salesAgg = salesAggBySaleId.get(r.sale_id);
+                          // 最新售价(与总表同源: 售出聚合 sell_price_info 中时间最新的价格)
+                          let latestSellPrice = salesAgg?.sell_price || 0;
+                          const restockPriceInfo = (salesAgg as Record<string, unknown> | undefined)?.sell_price_info as Record<string, string> | undefined;
+                          if (restockPriceInfo) {
+                            let maxTime = "";
+                            for (const [p, t] of Object.entries(restockPriceInfo)) {
+                              if (t && String(t) > maxTime) { maxTime = String(t); const n = Number(p); if (n > 0) latestSellPrice = n; }
+                            }
+                          }
+                          const stockAfter = r.before_total + r.restock_total;
+                          return (
+                            <div key={r.sale_id} className="relative bg-white p-2.5 border-[3px] border-gray-900 rounded-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                              <div>
+                                <div className="flex gap-2.5">
+                                  {/* 图片区域 */}
+                                  <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
+                                    {r.photo ? <img src={r.photo} alt={r.name || "商品图"} loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(r.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
+                                  </div>
+                                  {/* 右侧规范化格子区 */}
+                                  <div className="flex-1 min-w-0 flex flex-col">
+                                    <div className="min-w-0">
+                                      <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{r.sale_id}</div>
+                                      {r.name && <div className="text-sm text-gray-500 truncate mt-1">{r.name}</div>}
+                                    </div>
+                                    <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
+                                      <div className="flex divide-x-2 divide-gray-200">
+                                        <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0 text-[13px] font-bold">补录人</span>
+                                          <span className="font-extrabold text-[13px] text-gray-900 truncate">{r.operator || "-"}</span>
+                                        </div>
+                                        <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0 text-[13px] font-bold">补入</span>
+                                          <span className="font-extrabold text-[13px] text-red-500 truncate">+{r.restock_total}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex divide-x-2 divide-gray-200">
+                                        <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0 text-[13px] font-bold">进价</span>
+                                          <span className="font-extrabold text-[13px] text-green-600 truncate">¥{fmt(r.cost_price)}</span>
+                                        </div>
+                                        <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0 text-[13px] font-bold">售价</span>
+                                          <span className="font-extrabold text-[13px] text-red-500 truncate">¥{fmt(latestSellPrice)}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex">
+                                        <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0">补录时间</span>
+                                          <span className="font-medium text-gray-700 truncate">{r.restock_time || "-"}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex bg-gray-100">
+                                        <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0">入库时间</span>
+                                          <span className="font-medium text-gray-700 truncate">{r.inbound_time || "-"}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex">
+                                        <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0">厂家</span>
+                                          <span className="font-medium text-gray-700 truncate">{r.manufacturer || "-"}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex bg-gray-100">
+                                        <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0">货架号</span>
+                                          <span className="font-medium text-gray-700 truncate">{r.shelf_no || "-"}</span>
+                                        </div>
+                                      </div>
+                                      <div className="flex">
+                                        <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
+                                          <span className="text-gray-500 shrink-0">销量</span>
+                                          <span className="font-extrabold text-green-600 truncate">{salesAgg?.total || 0}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                                {/* 尺码格: 补录新增库存→红框(补录前有货)/绿框(补录前为0), 格式 100:3+5 = 补录前剩余3件+补入5件; 未补录尺码显示那天时点的剩余 */}
+                                <div className="mt-1.5 grid grid-cols-5 gap-1">
+                                  {ALL_SIZES.map((s) => {
+                                    const orig = r.before_sizes[s] || 0;
+                                    const add = r.restock_sizes[s] || 0;
+                                    if (add > 0) {
+                                      const hasOrig = orig > 0;
+                                      return (
+                                        <span key={s} className={`text-[10px] px-1 py-1 rounded border-2 font-extrabold text-center whitespace-nowrap ${hasOrig ? "bg-red-50 border-red-500 text-red-600" : "bg-green-50 border-green-500 text-green-600"}`}>
+                                          {s}:{orig}+{add}
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${orig < 0 ? "bg-red-50 border-red-300 text-red-600" : orig > 0 ? "bg-gray-100 border-gray-300 text-gray-700" : "bg-white border-gray-200 text-gray-300"}`}>
+                                        {s}:{orig}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              {/* 底部汇总条: 补录前剩余 / 补入 / 补后剩余(那天时点) */}
+                              <div className="mt-1.5 pt-1.5 border-t-2 border-dashed border-gray-200 flex justify-between items-center text-[10px]">
+                                <div>
+                                  <span className="text-gray-400">剩余 </span>
+                                  <span className="font-extrabold text-blue-600">{r.before_total}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400">补入 </span>
+                                  <span className="font-extrabold text-red-500">+{r.restock_total}</span>
+                                </div>
+                                <div>
+                                  <span className="text-gray-400">补后剩余 </span>
+                                  <span className="font-extrabold text-gray-900">{stockAfter}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+            </div>
+          ) : (
+            /* 全部日期模式: 只显示日期文件夹条(不渲染卡片), 点击文件夹条=选择该日期, 进入单日期卡片模式 */
+            <div className="pb-24 space-y-2">
+              {restockGroups.map((group) => {
+                const dayTotal = group.items.reduce((s, r) => s + r.restock_total, 0);
+                return (
+                  <button
+                    key={group.date}
+                    onClick={() => selectRestockDay(group.date)}
+                    className="w-full flex items-center justify-between px-4 py-3 gap-2 bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-base font-extrabold text-gray-900">{group.date}</span>
+                      {group.date === restockToday && (
+                        <span className="shrink-0 rounded-md border-2 border-gray-900 bg-[#FFC93C] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-gray-900">今天</span>
+                      )}
+                      <span className="shrink-0 text-xs font-bold text-gray-500">{group.items.length}款</span>
+                      <span className="shrink-0 text-xs font-extrabold text-red-500">补入+{dayTotal}</span>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {/* 底部固定按钮(同直播选品): 显示全部日期 ↔ 显示当日补录(最新补录日期) */}
+          {restockGroups.length > 0 && (
+            <div className="fixed bottom-0 inset-x-0 z-30 bg-white border-t-[3px] border-gray-900">
+              <div className="max-w-7xl mx-auto px-4 py-2.5">
+                <button
+                  onClick={toggleRestockShowAll}
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-[3px] border-gray-900 bg-[#FFC93C] text-sm font-extrabold text-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                >
+                  <ChevronDown className={`h-4 w-4 transition-transform ${restockShowAll ? "" : "rotate-180"}`} />
+                  {restockShowAll ? `显示当日补录 (${restockGroups[0].date})` : "显示全部日期"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== 移动端卡片(左右滑动切换视图: 右滑下一个/左滑上一个, 新卡片按方向滑入) ===== */}
+      <div
+        className="lg:hidden"
+        onTouchStart={(e) => { const t = e.touches[0]; swipeRef.current = { x: t.clientX, y: t.clientY }; }}
+        onTouchEnd={(e) => {
+          const s = swipeRef.current;
+          swipeRef.current = null;
+          if (!s) return;
+          const t = e.changedTouches[0];
+          const dx = t.clientX - s.x, dy = t.clientY - s.y;
+          // 水平位移 ≥60px 且明显大于垂直位移才判定为滑动切换, 避免与上下滚动/点击冲突
+          // 左滑(向左划)看下一个视图, 右滑(向右划)回上一个视图
+          if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+          const idx = VIEW_ORDER.indexOf(viewMode);
+          if (dx < 0 && idx < VIEW_ORDER.length - 1) switchView(VIEW_ORDER[idx + 1]);
+          else if (dx > 0 && idx > 0) switchView(VIEW_ORDER[idx - 1]);
+        }}
+      >
+        <motion.div
+          key={viewMode}
+          initial={{ x: viewDir * 60, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="space-y-3"
+        >
         {/* 总表移动端 */}
         {viewMode === "summary" && (
           <>
             {filteredSummary.length === 0 ? (
               <div className="text-center py-12 text-gray-400">暂无数据</div>
             ) : (
-              pagedSummary.map((row) => {
-                const isError = hasErrorStock(row);
-                const returnRate = row.sold_total > 0 ? row.return_total / row.sold_total : 0;
-                const profitRate = row.sell_price > 0 ? (row.sell_price as number - row.cost_price as number) / row.sell_price : 0;
-                // 备注展开区状态
-                const hasNotes = !!(row.notes && String(row.notes).trim());
-                const notesExpanded = expandedNotesId === row.sale_id;
-                // 最新售价与售卖日期（来自售出聚合）、入库日期（来自入库聚合）
-                const salesAgg = salesAggBySaleId.get(row.sale_id.toUpperCase());
-                const inboundAgg = inboundBySaleId.get(row.sale_id.toUpperCase());
-                let latestSellPrice = row.sell_price || 0;
-                let lastOrderTime = salesAgg?.last_order_time || "";
-                const priceInfo = (salesAgg as Record<string, unknown> | undefined)?.sell_price_info as Record<string, string> | undefined;
-                if (priceInfo) {
-                  let maxTime = "";
-                  for (const [p, t] of Object.entries(priceInfo)) {
-                    if (t && String(t) > maxTime) { maxTime = String(t); const n = Number(p); if (n > 0) latestSellPrice = n; }
-                  }
-                }
-                const inboundDate = inboundAgg?.inbound_date || "";
-                // 渠道角标: 红=拼多多(多多面单号), 绿=抖音/其他(=售出总数-拼多多)
-                const pddQty = Number(row.pdd_sold) || 0;
-                const dyQty = Math.max(0, row.sold_total - pddQty);
-                const fmtDate = (d: string) => {
-                  if (!d) return "-";
-                  const dt = new Date(d);
-                  if (isNaN(dt.getTime())) return "-";
-                  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
-                };
-                // 票根齿口: 18×8矩形块组成虚线(2px黑内描边, 无备注灰#E5E7EB/有备注红#EF4444),
-                // 整线=左右竖裁半块(9px)+中间均分13块; 整线横向裁成上下各4px半线,
-                // 上半线绑定上半张底部、下半线绑定下半张顶部, 展开时跟随卡片分离, 缺口直接填同色
-                const PERF_FILL = hasNotes ? "#EF4444" : "#E5E7EB";
-                return (
-                  <div key={row.sale_id} className="relative">
-                    {/* 上半张(撕口以上): 图片/信息/尺码 */}
-                    <div className={`relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
-                    <div className="flex gap-2.5">
-                      {/* 图片区域: 再拉宽为更大方形, 右侧格子区相应变窄 */}
-                      <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
-                        {row.photo ? <img src={row.photo} alt="" loading="lazy" className="w-full h-full object-cover cursor-pointer" onClick={() => setImgPreview(row.photo)} /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-16 w-16 text-gray-300" /></div>}
-                      </div>
-                      {/* 右侧规范化格子区 */}
-                      <div className="flex-1 min-w-0 flex flex-col">
-                        {/* 编号/名称 + 渠道角标(卡片右上角) */}
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="min-w-0">
-                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
-                          </div>
-                          {selectionMode ? (
-                            <div className="relative flex flex-col items-end gap-1 shrink-0">
-                              <button
-                                onClick={() => toggleLiveSelection(row.sale_id)}
-                                disabled={selectingIds.has(row.sale_id)}
-                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap disabled:opacity-60 ${
-                                  liveSelectedIds.has(row.sale_id)
-                                    ? "border-gray-400 bg-gray-300 text-gray-500"
-                                    : "border-gray-900 bg-[#4A90E2] text-white hover:bg-[#3A80D2] shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                                }`}
-                              >
-                                {selectingIds.has(row.sale_id) ? "选品中..." : liveSelectedIds.has(row.sale_id) ? "已选" : "选品"}
-                              </button>
-                              <button
-                                onClick={() => openPriceEdit({ sale_id: row.sale_id, name: row.name, sellPrice: row.sell_price, costPrice: Number(row.cost_price) || 0 })}
-                                className={`rounded-lg border-2 px-2.5 py-1 text-xs leading-none font-extrabold transition-all whitespace-nowrap ${
-                                  livePrices[row.sale_id] != null
-                                    ? "border-gray-900 bg-yellow-300 text-gray-900 shadow-[2px_2px_0px_0px_rgba(0,0,0,0.3)]"
-                                    : "border-gray-900 bg-white text-gray-700 hover:bg-gray-50"
-                                }`}
-                              >
-                                {livePrices[row.sale_id] != null ? `改价 ¥${livePrices[row.sale_id]}` : "改价"}
-                              </button>
-                            </div>
-                          ) : row.sold_total > 0 ? (
-                            <div className="flex flex-col items-end gap-0.5 shrink-0">
-                              <span className="rounded-md border-2 border-gray-900 bg-[#FF6B7A] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">多多{pddQty}</span>
-                              <span className="rounded-md border-2 border-gray-900 bg-[#4CD964] px-1.5 py-0.5 text-[10px] leading-none font-extrabold text-white">抖音{dyQty}</span>
-                            </div>
-                          ) : null}
-                        </div>
-                        {/* 规范格子: 每行两格, 隔行浅灰底 */}
-                        <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
-                          {/* 售出 / 利润率 (竖杠左移: 售出格窄, 利润率格宽) */}
-                          <div className="flex divide-x-2 divide-gray-200">
-                            <div
-                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.sold_total > 0 ? "cursor-pointer" : ""}`}
-                              onClick={() => row.sold_total > 0 && fetchDetail("sales", row.sale_id)}
-                            >
-                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
-                              <span className="font-extrabold text-[13px] text-green-600 truncate">{row.sold_total}</span>
-                            </div>
-                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">利润率</span>
-                              <span className={`font-extrabold text-[13px] truncate ${profitRate >= 0 ? "text-green-600" : "text-red-500"}`}>{pct(profitRate)}</span>
-                            </div>
-                          </div>
-                          {/* 退货 / 退货率 (竖杠左移: 退货格窄, 退货率格宽) */}
-                          <div className="flex divide-x-2 divide-gray-200">
-                            <div
-                              className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.return_total > 0 ? "cursor-pointer" : ""}`}
-                              onClick={() => row.return_total > 0 && fetchDetail("returns", row.sale_id)}
-                            >
-                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
-                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.return_total}</span>
-                            </div>
-                            <div className="flex-1 flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货率</span>
-                              <span className="font-extrabold text-[13px] text-yellow-600 truncate">{pct(returnRate)}</span>
-                            </div>
-                          </div>
-                          {/* 进价(浅灰底,全宽) */}
-                          <div className="flex bg-gray-100">
-                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">进价</span>
-                              <span className="font-bold text-gray-700 truncate">¥{fmt(row.cost_price)}</span>
-                            </div>
-                          </div>
-                          {/* 售价(浅灰底,全宽) */}
-                          <div className="flex bg-gray-100">
-                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                              <span className="text-red-500 shrink-0">售价</span>
-                              <span className="font-extrabold text-red-500 truncate">¥{fmt(latestSellPrice)}</span>
-                            </div>
-                          </div>
-                          {/* 入库时间(全宽) */}
-                          <div className="flex">
-                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">入库时间</span>
-                              <span className="font-medium text-gray-700 truncate">{fmtDate(inboundDate)}</span>
-                            </div>
-                          </div>
-                          {/* 售出时间(全宽) */}
-                          <div className="flex">
-                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">售出时间</span>
-                              <span className="font-medium text-gray-700 truncate">{fmtDate(lastOrderTime)}</span>
-                            </div>
-                          </div>
-                          {/* 货架号(浅灰底) */}
-                          <div className="flex bg-gray-100">
-                            <div className="w-full flex items-center justify-between gap-1 px-1.5 py-1 min-w-0">
-                              <span className="text-gray-500 shrink-0">货架号</span>
-                              <span className="font-medium text-gray-700 truncate">{row.shelf_no || "-"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 尺码全宽5列换行显示(点击展开/收起备注) */}
-                    <div
-                      className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer"
-                      onClick={() => setExpandedNotesId(notesExpanded ? null : row.sale_id)}
-                    >
-                      {ALL_SIZES.map((s) => {
-                        const val = Number(row[`size_${s}`]) || 0;
-                        return (
-                          <span key={s} className={`text-[10px] px-1 py-1 rounded border font-bold text-center whitespace-nowrap ${
-                            val < 0 ? "bg-red-50 border-red-300 text-red-600" :
-                            val > 0 ? "bg-gray-100 border-gray-300 text-gray-700" :
-                            "bg-white border-gray-200 text-gray-300"
-                          }`}>{s}:{val}</span>
-                        );
-                      })}
-                    </div>
-
-                      {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
-                      <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={PERF_FILL} /></div>
-                    </div>{/* /上半张 */}
-
-                    {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
-                    <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${notesExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-                      <div className="overflow-hidden">
-                        <div className="relative" style={{ backgroundColor: PERF_FILL }}>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedNotesId(null)}
-                            className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${hasNotes ? "text-white" : "text-gray-500"}`}
-                          >
-                            {hasNotes ? String(row.notes) : "暂无备注"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* 下半张(撕口以下): 入库/剩余/价值 */}
-                    <div className={`relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] ${isError ? "border-red-400" : "border-gray-900"}`}>
-                      {/* 收起时点撕口处展开 */}
-                      {!notesExpanded && (
-                        <button
-                          type="button"
-                          aria-label="展开备注"
-                          onClick={() => setExpandedNotesId(row.sale_id)}
-                          className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
-                        />
-                      )}
-                      {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
-                      <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={PERF_FILL} /></div>
-                      <div className="flex justify-between items-center text-[10px]">
-                        <div>
-                          <span className="text-gray-400">入库 </span>
-                          <span className="font-extrabold text-blue-600">{row.inbound_total}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">剩余 </span>
-                          <span className="font-extrabold text-gray-900">{row.remaining}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">价值 </span>
-                          <span className="font-extrabold text-red-500">¥{fmt(row.inventory_value)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
+              pagedSummary.map((row) => renderSummaryCardMobile(row))
             )}
           </>
         )}
@@ -2914,14 +3778,27 @@ export default function FinancePage() {
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <div className="min-w-0">
-                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="min-w-0">
+                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                              {row.name && <div className="text-sm text-gray-500 truncate mt-1">{row.name}</div>}
+                            </div>
+                            {/* 详情按钮: 弹出该商品在总表中的商品卡片(含备注) */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSummaryCardSaleId(row.sale_id); }}
+                              className="shrink-0 rounded-lg border-2 border-gray-900 bg-[#4A90E2] px-2.5 py-1.5 text-xs leading-none font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-transform"
+                            >
+                              详情
+                            </button>
                           </div>
-                          {/* 规范格子: 售出/剩余 + 货架号/售卖时间 (对齐总表) */}
+                          {/* 规范格子: 售出/剩余 + 货架号/售卖时间 (对齐总表); 售出数字可点开明细(同总表) */}
                           <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
                             <div className="flex divide-x-2 divide-gray-200">
-                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                              <div
+                                className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.total > 0 ? "cursor-pointer active:opacity-60" : ""}`}
+                                title={row.total > 0 ? "点击查看售卖明细" : undefined}
+                                onClick={(e) => { e.stopPropagation(); if (row.total > 0) fetchDetail("sales", row.sale_id); }}
+                              >
                                 <span className="text-gray-500 shrink-0 text-[13px] font-bold">售出</span>
                                 <span className="font-extrabold text-[13px] text-green-600 truncate">{row.total}</span>
                               </div>
@@ -3026,12 +3903,34 @@ export default function FinancePage() {
                   <div key={row.sale_id}>
                     <div
                       onClick={() => {
+                        // 右滑弹出分析卡片后的 click 不当作点击(避免松手误触编辑弹窗)
+                        if (analysisSwipeRef.current) { analysisSwipeRef.current = false; return; }
                         const vals: Record<number, number> = {};
                         for (const s of ALL_SIZES) {
                           vals[s] = Number(row[`size_${s}`]) || 0;
                         }
                         setEditSizeValues(vals);
                         setReturnsEditModal(row.sale_id);
+                      }}
+                      // 右滑弹出退货分析卡片(横向手势: ≥60px 且明显大于垂直位移; touchAction pan-y 保纵向滚动)
+                      style={{ touchAction: "pan-y" }}
+                      onTouchStart={(e) => {
+                        const t = e.touches[0];
+                        analysisTouchRef.current = { x: t.clientX, y: t.clientY, id: row.sale_id };
+                        analysisSwipeRef.current = false;
+                      }}
+                      onTouchEnd={(e) => {
+                        const s = analysisTouchRef.current;
+                        analysisTouchRef.current = null;
+                        if (!s || s.id !== row.sale_id) return;
+                        const t = e.changedTouches[0];
+                        const dx = t.clientX - s.x, dy = t.clientY - s.y;
+                        if (dx >= 60 && dx > Math.abs(dy) * 1.5) {
+                          // 阻止冒泡: 避免外层容器的右滑手势把视图切回上一栏
+                          e.stopPropagation();
+                          analysisSwipeRef.current = true;
+                          openReturnAnalysis(row);
+                        }
                       }}
                       className="bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5 cursor-pointer active:scale-[0.98] transition-transform"
                     >
@@ -3040,14 +3939,27 @@ export default function FinancePage() {
                           {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                         </div>
                         <div className="flex-1 min-w-0 flex flex-col">
-                          <div className="min-w-0">
-                            <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
-                            {summaryRow?.name && <div className="text-sm text-gray-500 truncate mt-1">{summaryRow.name}</div>}
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="min-w-0">
+                              <div className="text-2xl leading-none font-extrabold text-gray-900 truncate">{row.sale_id}</div>
+                              {summaryRow?.name && <div className="text-sm text-gray-500 truncate mt-1">{summaryRow.name}</div>}
+                            </div>
+                            {/* 详情按钮: 弹出该商品在总表中的商品卡片(含备注) */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setSummaryCardSaleId(row.sale_id); }}
+                              className="shrink-0 rounded-lg border-2 border-gray-900 bg-[#4A90E2] px-2.5 py-1.5 text-xs leading-none font-extrabold text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:scale-95 transition-transform"
+                            >
+                              详情
+                            </button>
                           </div>
-                          {/* 规范格子: 退货/剩余 + 货架号/退货时间 (对齐总表) */}
+                          {/* 规范格子: 退货/剩余 + 货架号/退货时间 (对齐总表); 退货数字可点开明细(同总表) */}
                           <div className="mt-1 rounded-lg border-2 border-gray-200 overflow-hidden text-xs divide-y-2 divide-gray-200">
                             <div className="flex divide-x-2 divide-gray-200">
-                              <div className="w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0">
+                              <div
+                                className={`w-[40%] flex items-center justify-between gap-0.5 px-1 py-1 min-w-0 ${row.total > 0 ? "cursor-pointer active:opacity-60" : ""}`}
+                                title={row.total > 0 ? "点击查看退货明细" : undefined}
+                                onClick={(e) => { e.stopPropagation(); if (row.total > 0) fetchDetail("returns", row.sale_id); }}
+                              >
                                 <span className="text-gray-500 shrink-0 text-[13px] font-bold">退货</span>
                                 <span className="font-extrabold text-[13px] text-yellow-600 truncate">{row.total}</span>
                               </div>
@@ -3109,10 +4021,14 @@ export default function FinancePage() {
                         })}
                       </div>
 
-                      {/* 底部：进价 退货率 */}
+                      {/* 底部：进价 退货率 + 右滑提示 */}
                       <div className="flex justify-between items-center text-[10px] mt-1.5 pt-1.5 border-t border-gray-200">
                         <span className="text-gray-400">进价: <span className="font-bold text-gray-700">¥{fmt(cp)}</span></span>
                         <span className="font-bold text-yellow-600">退货率: {pct(returnRate)}</span>
+                      </div>
+                      <div className="mt-1.5 flex items-center justify-end gap-1 text-[9px] font-bold text-gray-300">
+                        <MoveHorizontal className="h-3 w-3" />
+                        右滑查看退货分析
                       </div>
                     </div>
                   </div>
@@ -3139,7 +4055,7 @@ export default function FinancePage() {
                 const inbNotes = summaryRow?.notes;
                 const inbHasNotes = !!(inbNotes && String(inbNotes).trim());
                 const inbFill = inbHasNotes ? "#EF4444" : "#E5E7EB";
-                const inbExpanded = expandedNotesId === row.sale_id;
+                const inbExpanded = notesIsExpanded(row.sale_id, inbHasNotes);
                 // 点击卡片打开编辑弹窗(撕口线与备注区域单独拦截, 不触发编辑)
                 const openInboundEdit = () => {
                   // 解析货架号 - 兼容 "B02-4" 和 "B-2-4" 两种格式
@@ -3177,8 +4093,9 @@ export default function FinancePage() {
                   <div key={row.sale_id}>
                     <div className="relative">
                       {/* 上半张(撕口以上): 图片/信息/尺码 */}
-                      <div onClick={openInboundEdit} className="relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] cursor-pointer">
-                        <div className="flex gap-2.5 mb-2">
+                      <div className="relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+                        {/* 尺码上方区域(图片/信息): 点击弹出编辑弹窗 */}
+                        <div onClick={openInboundEdit} className="flex gap-2.5 mb-2 cursor-pointer">
                           <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
                             {photo ? <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Package className="h-20 w-20 text-gray-300" /></div>}
                           </div>
@@ -3211,8 +4128,8 @@ export default function FinancePage() {
                             </div>
                           </div>
                         </div>
-                        {/* 尺码全宽5列换行显示(对齐总表) */}
-                        <div className="mt-1.5 grid grid-cols-5 gap-1">
+                        {/* 尺码全宽5列换行显示(点击展开/收起备注, 对齐总表) */}
+                        <div className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer" onClick={() => toggleNotes(row.sale_id, inbHasNotes)}>
                           {ALL_SIZES.map((s) => {
                             const val = Number(row[`size_${s}`]) || 0;
                             return (
@@ -3222,21 +4139,38 @@ export default function FinancePage() {
                             );
                           })}
                         </div>
-                        {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
-                        <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={inbFill} /></div>
+                        {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围; 点击待裁线展开/收起备注(线向上加12px触控区) */}
+                        <div className="absolute bottom-0 left-[-3px] right-[-6px] z-20 flex h-[16px] cursor-pointer items-end" onClick={() => toggleNotes(row.sale_id, inbHasNotes)}>
+                          <PerfHalfLine part="top" fill={inbFill} />
+                        </div>
                       </div>
 
                       {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
                       <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${inbExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
                         <div className="overflow-hidden">
                           <div className="relative" style={{ backgroundColor: inbFill }}>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setExpandedNotesId(null); }}
-                              className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${inbHasNotes ? "text-white" : "text-gray-500"}`}
-                            >
-                              {inbHasNotes ? String(inbNotes) : "暂无备注"}
-                            </button>
+                            {inbHasNotes && parseNoteEntries(String(inbNotes)).length > 0 ? (
+                              /* 有备注: 条目式圆角矩形(S/90:裤长80), 一排最多3条, 多的换行 */
+                              <button
+                                type="button"
+                                onClick={() => toggleNotes(row.sale_id, inbHasNotes)}
+                                className="relative z-10 grid w-full grid-cols-3 gap-1.5 px-3 py-2 border-0 cursor-pointer bg-transparent"
+                              >
+                                {parseNoteEntries(String(inbNotes)).map((e, i) => (
+                                  <span key={i} className="rounded-md border-2 border-white px-0.5 py-0.5 text-[10px] leading-tight font-extrabold text-white text-center truncate" title={fmtNoteEntry(e)}>
+                                    {fmtNoteEntry(e)}
+                                  </span>
+                                ))}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleNotes(row.sale_id, inbHasNotes)}
+                                className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${inbHasNotes ? "text-white" : "text-gray-500"}`}
+                              >
+                                {inbHasNotes ? String(inbNotes) : "暂无备注"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -3247,7 +4181,7 @@ export default function FinancePage() {
                           <button
                             type="button"
                             aria-label="展开备注"
-                            onClick={(e) => { e.stopPropagation(); setExpandedNotesId(row.sale_id); }}
+                            onClick={(e) => { e.stopPropagation(); toggleNotes(row.sale_id, inbHasNotes); }}
                             className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
                           />
                         )}
@@ -3269,6 +4203,7 @@ export default function FinancePage() {
             )}
           </>
         )}
+        </motion.div>
       </div>
 
       {/* 分页控制 */}
@@ -3709,13 +4644,33 @@ export default function FinancePage() {
         {styleOptions.map((v) => <option key={v} value={v} />)}
       </datalist>
 
-      {/* 明细弹窗 */}
+      {/* 拍照识图弹窗: 点结果卡片 → 编号填入搜索框定位该商品; 售出/退货无匹配时点总表回退卡片 → 跳总表并填编号 */}
+      <ImageSearchDialog
+        open={imgSearchOpen}
+        onClose={() => setImgSearchOpen(false)}
+        onPick={(saleId) => setSearch(saleId)}
+        onFallbackPick={(saleId) => { setViewMode("summary"); setSearch(saleId); }}
+        scope={imgSearchScope}
+      />
+
+      {/* 调整/补充备注弹窗(总表移动端卡片入口; 保存后刷新总表数据) */}
+      {remarkTarget && (
+        <RemarkQuickDialog
+          saleId={remarkTarget.id}
+          hasNotes={remarkTarget.hasNotes}
+          onClose={() => setRemarkTarget(null)}
+          onSaved={() => { setRemarkTarget(null); fetchSummary(); }}
+        />
+      )}
+
+      {/* 明细弹窗(z-120: 高于商品详情悬浮窗z-105/大图预览z-110, 详情卡片内点售出/退货时列表浮在卡片上方) */}
       {detailType && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={closeDetail}>
+        <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4" onClick={closeDetail}>
           <div className="bg-white rounded-2xl border-[3px] border-gray-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b-2 border-gray-200">
               <h3 className="text-base font-extrabold">
                 {detailType === "sales" ? "售卖明细" : "退货明细"} - {detailSaleId}
+                {detailDateRange && <span className="ml-2 text-xs font-bold text-[#4A90E2]">（已按筛选日期 {detailDateRange} 过滤）</span>}
               </h3>
               <button onClick={closeDetail} className="flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white hover:bg-gray-100">
                 <X className="h-4 w-4" />
@@ -3833,6 +4788,132 @@ export default function FinancePage() {
           </div>
         </div>
       )}
+
+      {/* 商品详情悬浮窗: 售出/退货移动端卡片"详情"按钮调出, 渲染该商品在总表中的商品卡片(含备注); 点击卡片以外区域关闭 */}
+      {summaryCardSaleId && (
+        <div className="fixed inset-0 z-[105]" onClick={() => setSummaryCardSaleId(null)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+            <div
+              className="w-full max-w-[400px] max-h-[88vh] overflow-y-auto no-scrollbar pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {detailRow && renderSummaryCardMobile(detailRow)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 退货分析卡片(移动端退货卡片右滑弹出): 固定大小内部上下滑动,
+          每尺码售出/退货对比条(参考仪表栏退货尺码分布样式) + 品退/无理由/尺码不符件数(旧记录计默认) */}
+      {analysisRow && (() => {
+        const summaryRow = summaryBySaleId.get(analysisRow.sale_id);
+        const chartData = ALL_SIZES.map((sz) => {
+          const returns = Number(analysisRow[`size_${sz}`]) || 0;
+          const sales = Number(summaryRow?.[`size_${sz}`]) || 0;
+          return { size: `${sz}`, quantity: returns, sales };
+        }).filter((d) => d.quantity > 0 || d.sales > 0);
+        const maxV = Math.max(...chartData.map((x) => Math.max(x.sales, x.quantity)), 1);
+        const barW = (v: number) => `${Math.max((v / maxV) * 100, v > 0 ? 2 : 0)}%`;
+        const reasons = [
+          { label: "品退", count: analysisReasons?.pinhui ?? 0 },
+          { label: "无理由", count: analysisReasons?.wuliyoubuyao ?? 0 },
+          { label: "尺码不符", count: analysisReasons?.chima ?? 0 },
+          { label: "默认", count: analysisReasons?.moren ?? 0 },
+        ];
+        return (
+          <div className="fixed inset-0 z-[115] flex items-center justify-center p-4" onClick={closeReturnAnalysis}>
+            <div className="absolute inset-0 bg-black/50" />
+            <div
+              className="relative w-full max-w-[380px] h-[72vh] bg-white rounded-2xl border-[3px] border-gray-900 shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 头部 */}
+              <div className="flex items-center justify-between gap-2 px-4 py-3 border-b-[3px] border-gray-900 bg-[#FFC93C] shrink-0">
+                <div className="min-w-0">
+                  <h3 className="text-base font-extrabold text-gray-900 truncate">退货分析 - {analysisRow.sale_id}</h3>
+                  <p className="text-[10px] font-bold text-gray-600 truncate">{analysisRow.name || analysisRow.manufacturer || "未命名"}</p>
+                </div>
+                <button
+                  onClick={closeReturnAnalysis}
+                  className="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border-2 border-gray-900 bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all"
+                  title="关闭"
+                >
+                  <X className="h-4 w-4 text-gray-900" />
+                </button>
+              </div>
+              {/* 内容区: 固定大小, 内部上下滑动 */}
+              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+                {/* 退货原因件数 */}
+                <div>
+                  <p className="text-xs font-extrabold text-gray-900 mb-1.5">退货原因件数</p>
+                  {analysisLoading ? (
+                    <p className="text-xs font-bold text-gray-400 py-2">加载中...</p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {reasons.map((r) => (
+                        <div key={r.label} className="rounded-lg border-2 border-gray-900 bg-gray-50 px-1 py-1.5 text-center">
+                          <p className="text-[10px] font-bold text-gray-500 truncate">{r.label}</p>
+                          <p className={`text-xl leading-tight font-extrabold ${r.count > 0 ? "text-red-500" : "text-gray-300"}`}>{r.count}</p>
+                          <p className="text-[9px] font-bold text-gray-400">件</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* 每尺码售出 vs 退货占比 */}
+                <div>
+                  <div className="flex items-center justify-end gap-3 text-[10px] font-bold text-gray-500 mb-2">
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-[#4CD964]" />售卖</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-[#FF6B6B]" />退货</span>
+                  </div>
+                  {chartData.length === 0 ? (
+                    <p className="py-6 text-center text-xs font-bold text-gray-400">暂无该商品尺码数据</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {chartData.map((d, i) => {
+                        const rateNum = d.sales > 0 ? (d.quantity / d.sales) * 100 : null;
+                        const rateColor =
+                          rateNum == null ? "bg-gray-100 text-gray-400"
+                          : rateNum < 5 ? "bg-emerald-100 text-emerald-600"
+                          : rateNum < 15 ? "bg-amber-100 text-amber-600"
+                          : "bg-rose-100 text-rose-600";
+                        return (
+                          <div key={d.size} className={`flex items-center gap-2 rounded-lg px-1.5 py-1 ${i % 2 === 0 ? "bg-gray-100/70" : "bg-white"}`}>
+                            <span className="w-8 shrink-0 text-xs font-extrabold text-gray-900">{d.size}</span>
+                            <div className="flex-1 min-w-0 space-y-1">
+                              {/* 售卖绿条 */}
+                              <div className="relative h-3.5">
+                                <div className="h-3.5 rounded-r-md bg-gray-100" style={{ width: barW(d.sales) }} />
+                                {d.sales > 0 && <div className="absolute inset-y-0 left-0 rounded-r-md bg-[#4CD964]" style={{ width: barW(d.sales) }} />}
+                                <span className="absolute top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-gray-700 whitespace-nowrap" style={{ left: `calc(${barW(d.sales)} + 4px)` }}>
+                                  {d.sales}件
+                                </span>
+                              </div>
+                              {/* 退货红条 */}
+                              <div className="relative h-3.5">
+                                <div className="h-3.5 rounded-r-md bg-gray-100" style={{ width: barW(d.quantity) }} />
+                                {d.quantity > 0 && <div className="absolute inset-y-0 left-0 rounded-r-md bg-[#FF6B6B]" style={{ width: barW(d.quantity) }} />}
+                                <span className="absolute top-1/2 -translate-y-1/2 text-[10px] font-extrabold text-gray-700 whitespace-nowrap" style={{ left: `calc(${barW(d.quantity)} + 4px)` }}>
+                                  {d.quantity}件
+                                </span>
+                              </div>
+                            </div>
+                            {/* 退货率徽章(<5%绿 / 5-15%黄 / ≥15%红) */}
+                            <span className={`w-14 shrink-0 text-center text-[10px] font-extrabold rounded-full py-0.5 ${rateColor}`}>
+                              {rateNum == null ? "未售" : `${rateNum.toFixed(1)}%`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 图片大图预览（独立于明细弹窗，避免状态残留导致打开明细时误弹照片） */}
       <div

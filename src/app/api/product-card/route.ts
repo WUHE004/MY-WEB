@@ -128,6 +128,26 @@ async function buildSummaryRow(code: string): Promise<Row | null> {
   return row;
 }
 
+// 附带备注(inbound_records.notes, 与管理栏总表实时聚合同源, 供卡片待裁线展示; 早期自由文本备注原样透出)
+async function attachNotes(rows: Row[]): Promise<Row[]> {
+  if (rows.length === 0) return rows;
+  const ids = rows.map((r) => r.sale_id);
+  const { data } = await supabase
+    .from("inbound_records")
+    .select("sale_id, notes, inbound_date, id")
+    .in("sale_id", ids)
+    .order("inbound_date", { ascending: false })
+    .order("id", { ascending: false });
+  const map = new Map<string, string>();
+  for (const n of ((data || []) as unknown as Record<string, unknown>[])) {
+    const sid = String(n.sale_id || "").toUpperCase();
+    if (!sid || map.has(sid)) continue;
+    if (String(n.notes || "").trim()) map.set(sid, String(n.notes));
+  }
+  for (const r of rows) r.notes = map.get(r.sale_id.toUpperCase()) || "";
+  return rows;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -139,7 +159,7 @@ export async function GET(request: NextRequest) {
     // 精确匹配优先
     const exact = await buildSummaryRow(code);
     if (exact) {
-      return NextResponse.json({ found: true, rows: [exact] });
+      return NextResponse.json({ found: true, rows: await attachNotes([exact]) });
     }
 
     // 精确未命中时模糊兜底(包含匹配, 最多 5 条), 方便只记得部分编号
@@ -153,9 +173,9 @@ export async function GET(request: NextRequest) {
       const ids = Array.from(
         new Set(((candidates || []) as unknown as Record<string, unknown>[]).map((r) => String(r.sale_id || "").toUpperCase()))
       ).filter(Boolean);
-      const rows = (await Promise.all(ids.map((id) => buildSummaryRow(id)))).filter(Boolean);
+      const rows = (await Promise.all(ids.map((id) => buildSummaryRow(id)))).filter(Boolean) as Row[];
       if (rows.length > 0) {
-        return NextResponse.json({ found: true, rows });
+        return NextResponse.json({ found: true, rows: await attachNotes(rows) });
       }
     }
 

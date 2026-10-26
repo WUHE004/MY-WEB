@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 // GET: 获取所有成员的选品列表
 export async function GET() {
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       if (ids.length > 0) {
         const rows = ids.map((sid) => ({ member_name, sale_id: sid }));
         const { error: insErr } = await supabase.from("live_selections").insert(rows);
+        void logOp(request, { action: "live_batch", label: "批量选品", operator: member_name, target: `${ids.length} 个编号`, detail: ids.join("、") });
         if (insErr) {
           // 旧唯一约束(member_name, sale_id)还在(未执行迁移005)时整批会原子失败;
           // 降级为逐条插入, 跳过撞键编号, 其余正常入库; 迁移005后此分支不再触发
@@ -117,6 +119,7 @@ export async function POST(request: NextRequest) {
         .eq("key", "live_prices")
         .single();
       const map: Record<string, number> = { ...((cur?.value as Record<string, number>) || {}) };
+      const prevPrice = map[sale_id];
       if (price === null || price === undefined || Number.isNaN(Number(price))) {
         delete map[sale_id];
       } else {
@@ -128,6 +131,17 @@ export async function POST(request: NextRequest) {
       if (upErr) {
         return NextResponse.json({ error: upErr.message }, { status: 500 });
       }
+      // 改价历史目前无处可查(每次覆盖 live_prices), 日志是改价历史的第一份记录
+      void logOp(request, {
+        action: price == null ? "live_price_clear" : "live_price",
+        label: price == null ? "清除改价" : "改价",
+        table: "settings",
+        id: "live_prices",
+        target: sale_id,
+        detail: price == null
+          ? [{ field: "直播价", from: prevPrice != null ? String(prevPrice) : "未改价", to: "清除" }]
+          : [{ field: "直播价", from: prevPrice != null ? String(prevPrice) : "未改价", to: String(price) }],
+      });
       return NextResponse.json({ success: true });
     }
 
@@ -145,6 +159,7 @@ export async function POST(request: NextRequest) {
       if (delErr) {
         return NextResponse.json({ error: delErr.message }, { status: 500 });
       }
+      void logOp(request, { action: "live_unselect", label: "取消选品", operator: member_name, table: "live_selections", target: sale_id });
       return NextResponse.json({ success: true });
     }
 
@@ -185,6 +200,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    void logOp(request, { action: "live_select", label: "选品", operator: member_name, table: "live_selections", target: sale_id });
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -219,6 +235,7 @@ export async function DELETE(request: NextRequest) {
       if (delErr) {
         return NextResponse.json({ error: delErr.message }, { status: 500 });
       }
+      void logOp(request, { action: "live_unselect", label: "删除选品记录", table: "live_selections", target: `${ids.length} 条记录`, detail: ids.join("、") });
       return NextResponse.json({ success: true });
     }
 
@@ -239,6 +256,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    void logOp(request, { action: "live_clear", label: clearAll ? "清空选品(全部)" : "清空选品", operator: clearAll ? undefined : member_name || undefined, table: "live_selections", target: clearAll ? "全部成员" : member_name || "" });
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

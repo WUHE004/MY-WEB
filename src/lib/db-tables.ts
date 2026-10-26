@@ -3,7 +3,7 @@
 export const SIZE_COLS = ["size_80", "size_90", "size_95", "size_100", "size_105", "size_110", "size_120", "size_130", "size_140", "size_150", "size_160", "size_170", "size_180"];
 
 export const TABLE_COLUMNS: Record<string, string[]> = {
-  inbound_records: ["id", "inbound_date", "sale_id", "manufacturer", "photo", "name", "total_stock", "shelf_no", ...SIZE_COLS, "cost_price", "season", "style_category", "notes", "created_at"],
+  inbound_records: ["id", "inbound_date", "sale_id", "manufacturer", "photo", "name", "total_stock", "shelf_no", ...SIZE_COLS, "cost_price", "season", "style_category", "notes", "operator", "before_sizes", "created_at"],
   sales_records: ["id", "registration_date", "sale_id", "photo", "product_name", "size", "quantity", "sell_price", "cost_price", "profit", "total_profit", "manufacturer", "notes", "order_time", "tracking_number", "registrant", "created_at", "shelf_no"],
   return_records: ["id", "sale_id", "size", "quantity", "return_price", "remarks", "registrant", "created_at", "return_time"],
   members: ["id", "name", "phone", "password", "role", "address", "recipient", "recipient_phone", "douyin", "created_at", "updated_at", "is_online", "last_online", "phone_verified"],

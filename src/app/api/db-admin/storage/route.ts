@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 // GET: 获取所有 storage buckets 和文件列表
 export async function GET(request: NextRequest) {
@@ -100,6 +101,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    void logOp(request, { action: "storage_del", label: "删除存储文件", table: "storage", target: `${bucket}/${filePath}` });
     return NextResponse.json({ success: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { upsertSalesSummary } from "@/app/api/sales-summary/route";
+import { logOp } from "@/lib/operation-log";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -15,17 +16,51 @@ export async function GET(request: NextRequest) {
   const pageSize = 1000;
 
   if (search) {
-    // 模糊匹配编号, 限制返回500条防止响应过大
-    const { data, error } = await supabase
-      .from("sales_records")
-      .select("*")
-      .ilike("sale_id", `%${search}%`)
-      .order("registration_date", { ascending: false })
-      .limit(500);
+    // 1) 模糊匹配编号; 2) 商品名称匹配: 先查 inbound_records.name 拿编号再查售卖记录(退货登记可按名称退货)
+    // 限制返回500条防止响应过大
+    const [idRes, nameRes] = await Promise.all([
+      supabase
+        .from("sales_records")
+        .select("*")
+        .ilike("sale_id", `%${search}%`)
+        .order("registration_date", { ascending: false })
+        .limit(500),
+      supabase
+        .from("inbound_records")
+        .select("sale_id")
+        .ilike("name", `%${search}%`)
+        .limit(100),
+    ]);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (idRes.error) {
+      return NextResponse.json({ error: idRes.error.message }, { status: 500 });
     }
+    if (nameRes.error) {
+      return NextResponse.json({ error: nameRes.error.message }, { status: 500 });
+    }
+
+    let data: Record<string, any>[] = idRes.data || [];
+    const nameSaleIds = [...new Set((nameRes.data || []).map((p: any) => String(p.sale_id || "").toUpperCase()).filter(Boolean))];
+    if (nameSaleIds.length > 0) {
+      const { data: byName, error: byNameErr } = await supabase
+        .from("sales_records")
+        .select("*")
+        .in("sale_id", nameSaleIds)
+        .order("registration_date", { ascending: false })
+        .limit(500);
+      if (byNameErr) {
+        return NextResponse.json({ error: byNameErr.message }, { status: 500 });
+      }
+      // 合并去重(编号命中优先, 名称命中补足), 合计仍限500条
+      const seen = new Set(data.map((r: Record<string, any>) => r.id));
+      for (const r of byName || []) {
+        if (!seen.has(r.id)) {
+          data.push(r);
+          seen.add(r.id);
+        }
+      }
+    }
+    data = data.slice(0, 500);
 
     // 关联产品信息
     if (data && data.length > 0) {
@@ -94,6 +129,24 @@ export async function GET(request: NextRequest) {
               record.shelf_no = product.shelf_no || "";
               record.product_name = product.name || record.product_name || "";
             }
+          }
+        }
+        // 关联备注(inbound_records.notes, 与管理栏总表实时聚合同源, 供打包找货卡片展示; 早期自由文本备注原样透出)
+        const { data: inbNotes } = await supabase
+          .from("inbound_records")
+          .select("sale_id, notes, inbound_date, id")
+          .in("sale_id", saleIds)
+          .order("inbound_date", { ascending: false })
+          .order("id", { ascending: false });
+        if (inbNotes) {
+          const notesMap = new Map<string, string>();
+          for (const n of inbNotes as any[]) {
+            const sid = String(n.sale_id || "").toUpperCase();
+            if (!sid || notesMap.has(sid)) continue;
+            if (String(n.notes || "").trim()) notesMap.set(sid, String(n.notes));
+          }
+          for (const record of data) {
+            record.notes = notesMap.get(String(record.sale_id || "").toUpperCase()) || "";
           }
         }
       }
@@ -193,11 +246,21 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: retryErr.message }, { status: 400 });
           }
           inserted.push(retryData);
+          void logOp(request, {
+            action: "sale_add", label: "售卖登记", table: "sales_records", id: String((retryData as { id?: unknown }).id ?? ""),
+            target: `${record.sale_id} · 尺码${record.size}`,
+            detail: [{ field: "数量", from: "新增", to: String(record.quantity) }, { field: "售价", from: "新增", to: String(record.sell_price) }],
+          });
           continue;
         }
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       inserted.push(data);
+      void logOp(request, {
+        action: "sale_add", label: "售卖登记", table: "sales_records", id: String((data as { id?: unknown }).id ?? ""),
+        target: `${record.sale_id} · 尺码${record.size}`,
+        detail: [{ field: "数量", from: "新增", to: String(record.quantity) }, { field: "售价", from: "新增", to: String(record.sell_price) }],
+      });
 
       // 更新售卖总表（同步等待，避免 Serverless 超时导致汇总表未更新）
       await upsertSalesSummary(record.sale_id || "").catch((e) => console.error("upsert sales summary error:", e));
@@ -214,6 +277,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
+
     const { sale_id, size, quantity } = body;
 
     if (!sale_id || !size) {
@@ -269,6 +333,10 @@ export async function PUT(request: NextRequest) {
       // 更新售卖总表（同步等待，避免汇总表数据不一致）
       await upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
+      void logOp(request, {
+        action: "sale_edit", label: "修改售卖记录", table: "sales_records", target: `${sale_id} · 尺码${size}`,
+        detail: [{ field: "数量", from: String(currentTotal), to: String(newQty) }],
+      });
       return NextResponse.json({ message: "已增加", delta, currentTotal, newTotal: newQty });
     } else {
       // 需要减少：从最新记录开始扣减
@@ -300,8 +368,48 @@ export async function PUT(request: NextRequest) {
       // 更新售卖总表（同步等待，避免汇总表数据不一致）
       await upsertSalesSummary(sale_id).catch((e) => console.error("upsert sales summary error:", e));
 
+      void logOp(request, {
+        action: "sale_edit", label: "修改售卖记录", table: "sales_records", target: `${sale_id} · 尺码${size}`,
+        detail: [{ field: "数量", from: String(currentTotal), to: String(newQty) }],
+      });
       return NextResponse.json({ message: "已减少", delta, currentTotal, newTotal: newQty });
     }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: msg }, { status: 400 });
+  }
+}
+
+// DELETE: 面单退货(发货前退货, 不计入退货表)按记录 id 直接删除售卖记录
+// 删除后 /api/summary 与打包找货(按 tracking_number 查售卖记录)自动同步生效
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = Number(searchParams.get("id"));
+    if (!id || Number.isNaN(id)) {
+      return NextResponse.json({ error: "id 不能为空" }, { status: 400 });
+    }
+
+    // 先查记录拿到 sale_id, 删除后刷新汇总表
+    const { data: existing, error: fetchErr } = await supabase
+      .from("sales_records")
+      .select("id, sale_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !existing) {
+      return NextResponse.json({ error: "记录不存在" }, { status: 404 });
+    }
+
+    const { error } = await supabase.from("sales_records").delete().eq("id", id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    await upsertSalesSummary(String(existing.sale_id || "")).catch((e) => console.error("upsert sales summary error:", e));
+
+    void logOp(request, { action: "sale_del", label: "删除售卖记录", table: "sales_records", id: String(id), target: `#${id} · ${existing.sale_id}` });
+    return NextResponse.json({ message: "已删除", id });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: msg }, { status: 400 });

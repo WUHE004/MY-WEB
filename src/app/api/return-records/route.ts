@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { upsertReturnsSummary } from "@/app/api/returns-summary/route";
+import { logOp } from "@/lib/operation-log";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
     };
     for (const record of records) {
-      const row = {
+      const row: Record<string, unknown> = {
         sale_id: record.sale_id || "",
         size: Number(record.size) || 0,
         quantity: Number(record.quantity) || 0,
@@ -67,18 +68,40 @@ export async function POST(request: NextRequest) {
         remarks: record.remarks || "",
         registrant: record.registrant || "",
         return_time: (record.return_time && record.return_time !== "0") ? toUtcIso(String(record.return_time)) : new Date().toISOString(),
+        sale_method: record.sale_method || "",
+        return_reason: record.return_reason || "",
       };
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("return_records")
         .insert(row)
         .select()
         .single();
 
+      // 迁移 009 未执行时(表无 sale_method/return_reason 列), 降级为不写这两个字段
+      if (error && /sale_method|return_reason|PGRST204/i.test(error.message || "")) {
+        const { sale_method: _sm, return_reason: _rr, ...rest } = row;
+        ({ data, error } = await supabase
+          .from("return_records")
+          .insert(rest)
+          .select()
+          .single());
+      }
+
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
       inserted.push(data);
+      void logOp(request, {
+        action: "return_add", label: "退货登记", table: "return_records", id: String((data as { id?: unknown }).id ?? ""),
+        target: `${record.sale_id} · 尺码${record.size}`,
+        detail: [
+          { field: "数量", from: "新增", to: String(record.quantity) },
+          { field: "退货价", from: "新增", to: String(record.return_price) },
+          { field: "售卖方式", from: "新增", to: String(record.sale_method || "-") },
+          { field: "退货原因", from: "新增", to: String(record.return_reason || "-") },
+        ],
+      });
 
       // 更新退货总表
       upsertReturnsSummary(record.sale_id || "").catch((e) => console.error("upsert returns summary error:", e));
@@ -146,6 +169,10 @@ export async function PUT(request: NextRequest) {
       // 更新退货总表
       upsertReturnsSummary(sale_id).catch((e) => console.error("upsert returns summary error:", e));
 
+      void logOp(request, {
+        action: "return_edit", label: "修改退货记录", table: "return_records", target: `${sale_id} · 尺码${size}`,
+        detail: [{ field: "数量", from: String(currentTotal), to: String(newQty) }],
+      });
       return NextResponse.json({ message: "已增加", delta, currentTotal, newTotal: newQty });
     } else {
       // 需要减少：从最新记录开始扣减
@@ -171,6 +198,10 @@ export async function PUT(request: NextRequest) {
       // 更新退货总表
       upsertReturnsSummary(sale_id).catch((e) => console.error("upsert returns summary error:", e));
 
+      void logOp(request, {
+        action: "return_edit", label: "修改退货记录", table: "return_records", target: `${sale_id} · 尺码${size}`,
+        detail: [{ field: "数量", from: String(currentTotal), to: String(newQty) }],
+      });
       return NextResponse.json({ message: "已减少", delta, currentTotal, newTotal: newQty });
     }
   } catch (error) {

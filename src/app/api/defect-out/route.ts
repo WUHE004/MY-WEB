@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 // 瑕疵出库: 瑕疵商品退回厂家
 // GET    -> 出库记录列表 + 累计出库件数
@@ -137,6 +138,13 @@ export async function POST(request: NextRequest) {
     }
 
     const totalQty = items.reduce((s, it) => s + it.quantity, 0);
+    void logOp(request, {
+      action: "defect_out", label: "次品出库", table: "defect_out_records", target: saleId,
+      detail: [
+        ...items.map((it) => ({ field: `${it.size}码`, from: "", to: `出库 ${it.quantity} 件` })),
+        ...(defectType ? [{ field: "次品类型", from: "", to: defectType }] : []),
+      ],
+    });
     return NextResponse.json({ success: true, total_qty: totalQty });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

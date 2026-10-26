@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { upsertSalesSummary } from "@/app/api/sales-summary/route";
 import { upsertReturnsSummary } from "@/app/api/returns-summary/route";
+import { logOp } from "@/lib/operation-log";
 
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
   const lines = text.trim().split(/\r?\n/);
@@ -82,7 +83,16 @@ const TABLES: Record<string, string> = {
 function normalizeTimestamp(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
   if (!s || s === "0") return null;
-  const normalized = s.replace(/\//g, "-").replace(" ", "T");
+  let normalized = s.replace(/[/年月]/g, "-").replace(/日/g, "").replace(" ", "T");
+  // 补零: ISO 8601 要求月/日/时/分两位数("2026-10-19T9:39"非法),
+  // 平台导出的单数字段(如 "2026/10/19 9:39")不补零会解析失败被当成脏值
+  normalized = normalized.replace(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:T(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
+    (_m, y: string, mo: string, d: string, h?: string, mi?: string, sec?: string) => {
+      const p = (v?: string) => (v ? v.padStart(2, "0") : "");
+      return `${y}-${p(mo)}-${p(d)}${h != null ? `T${p(h)}:${p(mi ?? "0")}${sec ? ":" + p(sec) : ""}` : ""}`;
+    }
+  );
   // 无时区后缀的裸时间(如 Excel 里填的 "2026-09-30 18:09")是北京时间,
   // 必须显式 +08:00, 否则 UTC 服务器的 new Date() 会按 UTC 解析导致 +8h 偏差
   const hasTZ = /(?:Z$|[+-]\d{2}:?\d{2}$)/i.test(normalized);
@@ -102,16 +112,55 @@ const NUMBER_COLUMNS_BY_TYPE: Record<string, string[]> = {
   returns: RETURNS_NUMBER_COLUMNS,
 };
 
+// 同文件防重复导入 + 并发锁(内存态, 重启清空):
+// 2026-10-19 事故: 时间格式警告导致整体显示"导入失败", 客户误以为没导成连续导入3次 → 189条重复数据
+// ①文件hash: 30分钟内同一份内容(csvContent)重复导入直接拒绝; ②并发锁: 上一次还在处理中时拒绝新请求
+const IMPORT_DUP_TTL_MS = 30 * 60_000;
+const importHashes = new Map<string, number>(); // hash(csvContent+type) -> 上次导入时间戳
+let importing = false;
+
+// FNV-1a 简易文本哈希(仅用于防重比对, 无安全性要求)
+function fnvHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
+// 警告数组: 数据已导入但不完美(如时间格式无法识别已用当前时间代替)。
+// 警告不影响 success, 避免客户把"部分警告"误读为"导入失败"而重复导入
+let warnings: string[] = [];
+
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { csvContent, columnMap, importType, registrant, photoFilter } = body as {
-      csvContent: string;
-      columnMap: Record<string, string>;
-      importType?: string;
-      registrant?: string;
-      photoFilter?: Record<string, string>;
-    };
+    if (importing) {
+      return NextResponse.json({ error: "上一次导入还在处理中，请稍候几秒再操作，请勿重复点击" }, { status: 409 });
+    }
+    importing = true;
+    try {
+      const body = await request.json();
+      const { csvContent, columnMap, importType, registrant, photoFilter } = body as {
+        csvContent: string;
+        columnMap: Record<string, string>;
+        importType?: string;
+        registrant?: string;
+        photoFilter?: Record<string, string>;
+      };
+
+      // 同文件防重: 30分钟内同一份文件内容(同类型)已导入过 → 拒绝
+      const dupKey = `${importType || "inbound"}:${fnvHash(String(csvContent || ""))}`;
+      const lastImportAt = importHashes.get(dupKey);
+      if (lastImportAt && Date.now() - lastImportAt < IMPORT_DUP_TTL_MS) {
+        const mins = Math.max(1, Math.round((Date.now() - lastImportAt) / 60_000));
+        return NextResponse.json(
+          { error: `这份文件 ${mins} 分钟前已经导入过了，请勿重复导入。如果确实需要重新导入（例如刚清空过数据），请等 30 分钟后再试或联系管理员` },
+          { status: 409 }
+        );
+      }
+
+      warnings = [];
 
     const type = importType || "inbound";
     const tableName = TABLES[type] || "inbound_records";
@@ -221,7 +270,7 @@ export async function POST(request: NextRequest) {
           const normalizedInboundDate = normalizeTimestamp(record.inbound_date);
           if (!normalizedInboundDate) {
             if (record.inbound_date !== undefined && String(record.inbound_date).trim() !== "" && record.inbound_date !== "0") {
-              errors.push(`第 ${r + 2} 行入库日期无法识别（"${String(record.inbound_date).trim()}"），已用当前日期代替`);
+              warnings.push(`第 ${r + 2} 行入库日期无法识别（"${String(record.inbound_date).trim()}"），已用当前日期代替`);
             }
             record.inbound_date = new Date().toISOString();
           } else {
@@ -271,7 +320,7 @@ export async function POST(request: NextRequest) {
           const normalizedOrderTime = normalizeTimestamp(record.order_time);
           if (!normalizedOrderTime) {
             if (record.order_time !== undefined && String(record.order_time).trim() !== "" && record.order_time !== "0") {
-              errors.push(`第 ${r + 2} 行下单时间无法识别（"${String(record.order_time).trim()}"），已用当前时间代替`);
+              warnings.push(`第 ${r + 2} 行下单时间无法识别（"${String(record.order_time).trim()}"），已用当前时间代替`);
             }
             record.order_time = new Date().toISOString();
           } else {
@@ -297,7 +346,7 @@ export async function POST(request: NextRequest) {
           const normalizedReturnTime = normalizeTimestamp(record.return_time);
           if (!normalizedReturnTime) {
             if (record.return_time !== undefined && String(record.return_time).trim() !== "" && record.return_time !== "0") {
-              errors.push(`第 ${r + 2} 行退货时间无法识别（"${String(record.return_time).trim()}"），已用当前时间代替`);
+              warnings.push(`第 ${r + 2} 行退货时间无法识别（"${String(record.return_time).trim()}"），已用当前时间代替`);
             }
             record.return_time = new Date().toISOString();
           } else {
@@ -360,14 +409,32 @@ export async function POST(request: NextRequest) {
       console.log(`[import] 退货导入完成，${returnIds.length} 个 sale_id 待汇总，前端将自动触发同步`);
     }
 
+    if (successCount > 0) {
+      const typeCn = type === "sales" ? "售卖" : type === "returns" ? "退货" : "入库";
+      void logOp(request, {
+        action: `import_${type}`, label: `导入${typeCn}数据`, table: tableName,
+        target: `导入 ${successCount} 条记录`,
+        detail: `共 ${rows.length} 行, 成功 ${successCount} 条${skipCount > 0 ? `, 跳过 ${skipCount} 条` : ""}${warnings.length > 0 ? `, 警告 ${warnings.length} 条` : ""}${errors.length > 0 ? `, 失败 ${errors.length} 条` : ""}`,
+      });
+      // 成功导入后记录文件hash, 用于30分钟内同文件防重
+      importHashes.set(dupKey, Date.now());
+    }
+
     return NextResponse.json({
       success: errors.length === 0,
       total: rows.length,
       actualCount: successCount,
       importType: type,
+      warnings: warnings.length > 0 ? warnings.slice(0, 5) : undefined,
+      warningCount: warnings.length,
       errors: errors.length > 0 ? errors.slice(0, 5) : undefined,
     });
+    } finally {
+      // 释放并发锁(无论成功失败)
+      importing = false;
+    }
   } catch (error) {
+    importing = false;
     const errorMsg = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ error: `导入失败: ${errorMsg}` }, { status: 500 });
   }

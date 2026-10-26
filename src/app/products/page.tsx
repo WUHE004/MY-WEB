@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Search, Package, X, Settings, AlertTriangle, ExternalLink, QrCode } from "lucide-react";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
+import { PhotoPreloader } from "@/components/photo-preloader";
 import { NeoImage } from "@/components/neo-image";
 import Link from "next/link";
 
@@ -103,7 +104,7 @@ export default function ProductsPage() {
       fetchMemberInfo(name);
     }
 
-    // 每15秒轮询刷新库存数据（仅页面可见时）
+    // 每30秒轮询刷新库存数据（仅页面可见时）
     const interval = setInterval(() => {
       if (document.hidden) return;
       fetch("/api/summary")
@@ -124,7 +125,7 @@ export default function ProductsPage() {
           }
         })
         .catch(() => {});
-    }, 15000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, []);
@@ -368,6 +369,8 @@ export default function ProductsPage() {
 
   return (
     <PageWrapper>
+      {/* 商品图后台预载: 数据就绪后低并发把所有图攒进本地 SW 缓存(弱网客户图片秒开) */}
+      <PhotoPreloader photos={products.map((p) => p.photo)} />
       {/* 暂停售卖警戒线 */}
       {isPaused && (
         <div className="mb-4 rounded-xl border-[3px] border-[#FF6B7A] bg-[#FF6B7A]/10 p-4">

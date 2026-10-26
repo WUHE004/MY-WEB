@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { getSummaryCache, setSummaryCache } from "./cache";
 
 const SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
@@ -32,6 +33,23 @@ interface SummaryRow {
 // 并行拉取全表：先 count 总数，再并行请求所有分页
 // （取代逐页串行，2万+条记录的拉取耗时从 ~15s 降到 ~2s）
 const PAGE_SIZE = 1000;
+// 并发池上限: 2核2G 小机器上 30+ 并发查询会互相争 CPU 反而更慢, 限流后总耗时更低
+const DB_POOL_LIMIT = 8;
+
+// 简单并发池: 按上限逐个领取任务执行, 保持 results 与任务顺序对应
+// (任务为 PromiseLike: supabase 查询 builder 是 thenable 而非 Promise)
+async function runPool<T>(tasks: (() => PromiseLike<T>)[], limit: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (next < tasks.length) {
+      const idx = next++;
+      results[idx] = await tasks[idx]();
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 async function fetchAllRows(
   table: string,
@@ -46,19 +64,20 @@ async function fetchAllRows(
   if (countErr) return { rows: [], error: countErr.message };
   if (!count || count === 0) return { rows: [], error: null };
 
-  // 2. 按总页数并行拉取（多拉一页防止 count 后有新数据导致末页遗漏）
+  // 2. 按总页数经并发池拉取（多拉一页防止 count 后有新数据导致末页遗漏）
   // orderCol 不唯一(如批量导入产生842行同 registration_date),必须加 id 次级排序键,
   // 否则 Postgres 对同值行的顺序无保证,分页边界落在同值组内时会跳行/重复
   const pages = Math.ceil(count / PAGE_SIZE) + 1;
-  const results = await Promise.all(
-    Array.from({ length: pages }, (_, p) =>
+  const results = await runPool(
+    Array.from({ length: pages }, (_, p) => () =>
       supabase
         .from(table)
         .select(select)
         .order(orderCol, { ascending: false })
         .order("id", { ascending: false })
         .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
-    )
+    ),
+    DB_POOL_LIMIT
   );
 
   const rows: Record<string, any>[] = [];
@@ -70,6 +89,13 @@ async function fetchAllRows(
 }
 
 export async function GET() {
+  // 内存缓存命中(45s TTL, 写路由主动失效): 首次组装 ~1.5s, 命中后 ~10ms
+  const hit = getSummaryCache();
+  if (hit) {
+    const cached = NextResponse.json(hit.data);
+    cached.headers.set("Cache-Control", "no-store");
+    return cached;
+  }
   try {
     // 三张表并行拉取（原先串行等待）
     // select 只取聚合需要的列，减少传输量（sales_records 需舍弃 waybill/tracking 等大字段）
@@ -289,10 +315,13 @@ export async function GET() {
     // 按 sale_id 排序
     result.sort((a, b) => a.sale_id.localeCompare(b.sale_id));
 
-    // CDN 缓存 15 秒，过期后 30 秒内仍返回旧数据并后台刷新
-    // 商品页每 15 秒轮询，缓存可大幅减轻 Serverless 函数压力
+    // 写入内存缓存(45s TTL), 写路由成功后经 invalidateSummaryCache() 主动失效
+    setSummaryCache(result);
+
+    // CDN 缓存 60 秒，过期后 60 秒内仍返回旧数据并后台刷新
+    // 商品页每 15 秒轮询，缓存可大幅减轻 Serverless 函数压力（CPU 额度）
     const response = NextResponse.json(result);
-    response.headers.set("Cache-Control", "s-maxage=15, stale-while-revalidate=30");
+    response.headers.set("Cache-Control", "s-maxage=60, stale-while-revalidate=60");
     return response;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

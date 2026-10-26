@@ -64,7 +64,8 @@ export async function GET(request: NextRequest) {
     const [sales, inbound, returns] = await Promise.all([
       readAll("sales_records", "sale_id, sell_price, quantity, tracking_number, registration_date, order_time"),
       readAll("inbound_records", "sale_id, cost_price"),
-      readAll("return_records", "sale_id, quantity, return_price, return_time, created_at"),
+      // "*": return_reason(品退快递费, 迁移009)存在则自动带上, 不存在也不报错
+      readAll("return_records", "*"),
     ]);
 
     const rows = computeDailyChannelStats(sales, inbound, returns, { rate1, rate2, rate3, platformRate: rate, ddRate, ddShip });

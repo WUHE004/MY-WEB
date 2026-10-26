@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 // GET: 获取所有打包记录（含关联商品）
 export async function GET() {
@@ -35,13 +36,29 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { tracking_number, items, submitter, status } = body;
+    const { tracking_number, items, submitter, status, auto } = body;
 
     if (!tracking_number) {
       return NextResponse.json({ error: "面单号不能为空" }, { status: 400 });
     }
 
     const tn = tracking_number.trim();
+
+    // 自动提交找齐(auto=true): 该面单已有任意状态记录(找齐/挂起/发货)时直接跳过,
+    // 不重复提交、不改变原状态与原提交日期(created_at)
+    if (auto) {
+      const { data: anyExisting } = await supabase
+        .from("pack_records")
+        .select("id, tracking_number, status, submitter, packer, created_at")
+        .eq("tracking_number", tn)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (anyExisting && anyExisting.length > 0) {
+        return NextResponse.json({ ...anyExisting[0], items: [], skipped: true }, { status: 200 });
+      }
+    }
+
     const buildItems = (packId: number) =>
       items && Array.isArray(items) && items.length > 0
         ? items.map((item: Record<string, unknown>) => ({
@@ -93,6 +110,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      void logOp(request, { action: "pack_add", label: "打包登记", table: "pack_records", id: String(rid), target: `运单号 ${tn}`, detail: `${(items || []).length} 件商品` });
       return NextResponse.json({ ...record, items: items || [] }, { status: 200 });
     }
 
@@ -121,6 +139,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    void logOp(request, { action: "pack_add", label: "打包登记", table: "pack_records", id: String(record.id), target: `运单号 ${tn}`, detail: `${(items || []).length} 件商品` });
     return NextResponse.json({ ...record, items: items || [] }, { status: 201 });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -156,6 +175,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    void logOp(request, {
+      action: "pack_edit", label: "修改打包", table: "pack_records", id: String(id),
+      target: `运单号 ${(data as { tracking_number?: string }).tracking_number || ""}`,
+      detail: [
+        ...(status ? [{ field: "状态", from: "原状态", to: String(status) }] : []),
+        ...(packer !== undefined ? [{ field: "打包人", from: "", to: String(packer) }] : []),
+      ],
+    });
     return NextResponse.json(data);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -181,6 +208,7 @@ export async function DELETE(request: NextRequest) {
       if (recordErr) {
         return NextResponse.json({ error: recordErr.message }, { status: 400 });
       }
+      void logOp(request, { action: "pack_clear", label: "清空打包记录", table: "pack_records", target: "全部" });
       return NextResponse.json({ success: true, cleared: true });
     }
 
@@ -208,6 +236,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: recordErr.message }, { status: 400 });
     }
 
+    void logOp(request, { action: "pack_del", label: "删除打包记录", table: "pack_records", id });
     return NextResponse.json({ success: true });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

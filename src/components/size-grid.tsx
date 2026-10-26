@@ -26,6 +26,8 @@ export interface SizeGridProps {
   subLabelOf?: (size: number) => string;
   /** 强调色: purple 用于补录弹窗(数量>0 时紫框紫字) */
   accent?: "purple";
+  /** 空格(数量0且未禁用)边框灰色, 加数量后变黑(入库登记样式) */
+  grayEmpty?: boolean;
   /** 网格列数类名, 默认 3/7/7 */
   gridClassName?: string;
   /** 是否包裹数量变化脉冲动画, 默认 true */
@@ -46,6 +48,7 @@ export function SizeGrid({
   badgeOf,
   subLabelOf,
   accent,
+  grayEmpty,
   gridClassName = "grid grid-cols-3 sm:grid-cols-7 lg:grid-cols-7 gap-2 lg:gap-3",
   pulse = true,
 }: SizeGridProps) {
@@ -64,7 +67,11 @@ export function SizeGrid({
         const cellCls = isPurple
           ? `rounded-xl border-[3px] p-1.5 lg:p-2 transition-colors ${qty > 0 ? "border-[#7B61FF] bg-purple-50" : "border-gray-900 bg-white"}`
           : `rounded-xl border-[3px] bg-white p-1.5 lg:p-2 transition-all ${
-              disabled ? "border-gray-200 bg-gray-100 opacity-50" : "border-gray-900"
+              disabled
+                ? "border-gray-200 bg-gray-100 opacity-50"
+                : grayEmpty && qty === 0
+                  ? "border-gray-300"
+                  : "border-gray-900"
             }`;
 
         const body = (

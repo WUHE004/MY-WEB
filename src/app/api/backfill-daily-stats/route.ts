@@ -46,7 +46,8 @@ export async function POST() {
     while (true) {
       const { data: chunk, error } = await supabase
         .from("return_records")
-        .select("sale_id, quantity, return_price, return_time, created_at")
+        // "*": return_reason(品退快递费, 迁移009)存在则自动带上, 不存在也不报错
+        .select("*")
         .range(page * pageSize, (page + 1) * pageSize - 1);
       if (error || !chunk || chunk.length === 0) break;
       allReturns = allReturns.concat(chunk);

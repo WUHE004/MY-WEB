@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { logOp } from "@/lib/operation-log";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
@@ -175,6 +176,11 @@ export async function PUT(request: NextRequest) {
       .ilike("sale_id", saleId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+    void logOp(request, {
+      action: "stocktake_shelf", label: "盘点改货架", table: "inbound_records", target: saleId,
+      detail: [{ field: "货架", from: "原货架", to: shelfNo }],
+    });
+
     // 返回更新行数不可靠(ilike 匹配), 查一下确认
     const { count } = await supabase
       .from("inbound_records")
@@ -222,6 +228,10 @@ export async function POST(request: NextRequest) {
 
     const ok = await writeCalibrations(filtered);
     if (!ok) return NextResponse.json({ error: "保存校准记录失败" }, { status: 500 });
+    void logOp(request, {
+      action: "stocktake_calibrate", label: "提交库存校准", table: "inbound_records", target: saleId,
+      detail: clean.map((c: { size: number; old_qty: number; new_qty: number }) => ({ field: `${c.size}码`, from: String(c.old_qty), to: String(c.new_qty) })),
+    });
     return NextResponse.json({ ok: true, total: filtered.length });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

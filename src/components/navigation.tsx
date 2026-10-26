@@ -51,7 +51,7 @@ export function Navigation() {
       }
     };
 
-    const interval = setInterval(checkRole, 30000);
+    const interval = setInterval(checkRole, 120000);
     const handleVisibility = () => {
       if (!document.hidden) checkRole();
     };

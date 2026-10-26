@@ -30,8 +30,8 @@ export function HeartbeatProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // 首次发送
     sendHeartbeat();
-    // 每60秒发送一次心跳（从30秒延长到60秒减少资源消耗）
-    intervalRef.current = setInterval(sendHeartbeat, 60000);
+    // 每120秒发送一次心跳(降频省 CPU 额度; 页面隐藏时跳过, 切回前台立即补发)
+    intervalRef.current = setInterval(sendHeartbeat, 120000);
 
     // 页面从隐藏恢复到可见时立即发送一次心跳
     const handleVisibilityChange = () => {

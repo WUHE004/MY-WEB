@@ -27,6 +27,8 @@ interface SummaryProduct {
   shelf_no: string;
   inbound_date: string;
   last_order_time: string;
+  // 入库备注(取最新一条非空, 票根撕断备注带展示)
+  notes: string;
   [key: string]: unknown;
 }
 
@@ -86,6 +88,43 @@ const dayKey = (iso: string) => {
 
 const fmtDate = (d: string) => dayKey(d) || "-";
 
+// 备注解析: "S对应尺码120裤长61建议身高110" → [{ tag:"S", size:"120", pants:"61", height:"110" }](与管理栏总表同款, 显示为 "S/120:裤长61:建议110")
+// 兼容旧身高按钮独立行 "100建议身高90" → [{ tag:"", size:"100", pants:"", height:"90" }], 显示为 "100:建议90"
+function parseNoteEntries(notes: string): { tag: string; size: string; pants: string; height: string }[] {
+  const out: { tag: string; size: string; pants: string; height: string }[] = [];
+  const re = /(?:([0-9A-Z]+)对应尺码(\d+)(?:裤长(\d+))?(?:建议身高(\d+))?|(\d+)建议身高(\d+))/g;
+  const src = String(notes || "");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    if (m[1]) out.push({ tag: m[1], size: m[2], pants: m[3] || "", height: m[4] || "" });
+    else out.push({ tag: "", size: m[5], pants: "", height: m[6] });
+  }
+  return out;
+}
+const fmtNoteEntry = (e: { tag: string; size: string; pants: string; height?: string }) => {
+  let s = e.pants ? `${e.tag}/${e.size}:裤长${e.pants}` : `${e.tag}/${e.size}`;
+  if (e.height) s += `:建议${e.height}`;
+  return s;
+};
+
+// 票根齿口半线: 18×8矩形虚线整线横切的一半(高4px), 2px黑内描边;
+// 左右端为四分之一块(9px, 仅内侧竖边+横边描边), 中间13块在整个空档内均分(与管理栏总表同款)
+function PerfHalfLine({ part, fill }: { part: "top" | "bottom"; fill: string }) {
+  const hEdge = part === "top" ? "border-t-2" : "border-b-2";
+  const st = { backgroundColor: fill, borderColor: "#111827" };
+  return (
+    <div aria-hidden className="flex items-stretch w-full h-[4px]">
+      <div className={`shrink-0 w-[9px] ${hEdge} border-r-2`} style={st} />
+      <div className="flex-1 flex justify-evenly min-w-0">
+        {Array.from({ length: 13 }, (_, i) => (
+          <div key={i} className={`shrink-0 w-[18px] ${hEdge} border-x-2`} style={st} />
+        ))}
+      </div>
+      <div className={`shrink-0 w-[9px] ${hEdge} border-l-2`} style={st} />
+    </div>
+  );
+}
+
 // 商品卡片 - 一比一复刻管理栏总表卡片(渠道角标位置改为直播价角标)
 function ProductCard({
   product,
@@ -110,9 +149,15 @@ function ProductCard({
 }) {
   const returnRate = product.sold_total > 0 ? product.return_total / product.sold_total : 0;
   const profitRate = product.sell_price > 0 ? (product.sell_price - product.cost_price) / product.sell_price : 0;
+  // 票根撕断结构(与管理栏总表移动端卡片一致): 备注默认展开(有备注)/收起(无备注), 点击撕口或尺码区切换
+  const hasNotes = !!(product.notes && String(product.notes).trim());
+  const [notesOpen, setNotesOpen] = useState(hasNotes);
+  const toggleNotes = () => setNotesOpen((v) => !v);
+  // 齿口填充色: 有备注红/无备注灰
+  const PERF_FILL = hasNotes ? "#EF4444" : "#E5E7EB";
 
   return (
-    <div className="relative bg-white rounded-xl border-[3px] border-gray-900 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] p-2.5">
+    <div className="relative">
       {/* 编辑模式: 右上角变为 取消/改价 按钮(替换选品人角标) */}
       {editMode ? (
         <div className="absolute -top-2 -right-2 flex flex-col gap-1 z-10">
@@ -157,6 +202,8 @@ function ProductCard({
           </div>
         )
       )}
+      {/* 上半张(撕口以上): 图片/信息/尺码 */}
+      <div className="relative bg-white p-2.5 border-[3px] border-b-0 rounded-t-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
       <div className="flex gap-2.5">
         {/* 图片区域 */}
         <div className="w-[50%] aspect-[4/5] rounded-lg border-2 border-gray-200 overflow-hidden bg-gray-100 shrink-0">
@@ -239,8 +286,11 @@ function ProductCard({
         </div>
       </div>
 
-      {/* 尺码全宽5列换行显示 */}
-      <div className="mt-1.5 grid grid-cols-5 gap-1">
+      {/* 尺码全宽5列换行显示(点击展开/收起备注) */}
+      <div
+        className="mt-1.5 grid grid-cols-5 gap-1 cursor-pointer"
+        onClick={toggleNotes}
+      >
         {ALL_SIZES.map((s) => {
           const val = Number(product[`size_${s}`]) || 0;
           return (
@@ -253,19 +303,66 @@ function ProductCard({
         })}
       </div>
 
-      {/* 入库/剩余/价值 均匀排开 */}
-      <div className="flex justify-between items-center text-[10px] pt-1.5 mt-1.5 border-t border-gray-200">
-        <div>
-          <span className="text-gray-400">入库 </span>
-          <span className="font-extrabold text-blue-600">{product.inbound_total}</span>
+      {/* 上半虚线(齿口横切上半)绑定上半张下端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+      <div className="absolute bottom-0 left-[-3px] right-[-6px]"><PerfHalfLine part="top" fill={PERF_FILL} /></div>
+      </div>{/* /上半张 */}
+
+      {/* 备注带: 展开缺口直接填齿口同色(有备注红/无备注灰), 右端拉长3px对齐投影最右侧 */}
+      <div className={`mr-[-3px] grid transition-[grid-template-rows] duration-300 ease-out ${notesOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="overflow-hidden">
+          <div className="relative" style={{ backgroundColor: PERF_FILL }}>
+            {hasNotes && parseNoteEntries(String(product.notes)).length > 0 ? (
+              /* 有备注: 条目式圆角矩形(S/90:裤长80), 一排最多3条, 多的换行 */
+              <button
+                type="button"
+                onClick={toggleNotes}
+                className="relative z-10 grid w-full grid-cols-3 gap-1.5 px-3 py-2 border-0 cursor-pointer bg-transparent"
+              >
+                {parseNoteEntries(String(product.notes)).map((e, i) => (
+                  <span key={i} className="rounded-md border-2 border-white px-0.5 py-0.5 text-[10px] leading-tight font-extrabold text-white text-center truncate" title={fmtNoteEntry(e)}>
+                    {fmtNoteEntry(e)}
+                  </span>
+                ))}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleNotes}
+                className={`relative z-10 block w-full text-left px-4 py-2.5 text-xs leading-relaxed whitespace-pre-wrap break-words border-0 cursor-pointer bg-transparent ${hasNotes ? "text-white" : "text-gray-500"}`}
+              >
+                {hasNotes ? String(product.notes) : "暂无备注"}
+              </button>
+            )}
+          </div>
         </div>
-        <div>
-          <span className="text-gray-400">剩余 </span>
-          <span className="font-extrabold text-gray-900">{product.remaining}</span>
-        </div>
-        <div>
-          <span className="text-gray-400">价值 </span>
-          <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
+      </div>
+
+      {/* 下半张(撕口以下): 入库/剩余/价值 */}
+      <div className="relative bg-white px-2.5 py-2 border-[3px] border-t-0 rounded-b-xl shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
+        {/* 收起时点撕口处展开 */}
+        {!notesOpen && (
+          <button
+            type="button"
+            aria-label="展开备注"
+            onClick={toggleNotes}
+            className="absolute top-0 left-0 right-0 z-20 h-[12px] p-0 border-0 cursor-pointer bg-transparent"
+          />
+        )}
+        {/* 下半虚线(齿口横切下半)绑定下半张上端; 左右端延伸盖过边框与投影, 贴齐卡片最外围 */}
+        <div aria-hidden className="absolute top-0 left-[-3px] right-[-6px]"><PerfHalfLine part="bottom" fill={PERF_FILL} /></div>
+        <div className="flex justify-between items-center text-[10px]">
+          <div>
+            <span className="text-gray-400">入库 </span>
+            <span className="font-extrabold text-blue-600">{product.inbound_total}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">剩余 </span>
+            <span className="font-extrabold text-gray-900">{product.remaining}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">价值 </span>
+            <span className="font-extrabold text-red-500">¥{fmt(product.inventory_value)}</span>
+          </div>
         </div>
       </div>
     </div>

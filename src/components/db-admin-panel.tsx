@@ -1,30 +1,36 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download, Gauge, ArrowRight } from "lucide-react";
+import { Database, Search, Plus, Trash2, Edit3, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Loader2, X, HardDrive, Image, FolderOpen, RefreshCw, Eye, Download, Gauge, Server, Activity, Cpu, MemoryStick } from "lucide-react";
 import { authFetch } from "@/lib/auth-fetch";
 import type { LucideIcon } from "lucide-react";
 
-// Supabase 用量仪表盘数据
+// 服务器用量仪表盘数据
 interface UsageData {
   dbSize: number | null;
-  dbSizeLimit: number;
+  dbSizeLimit: number | null;
   rpcMissing: boolean;
   totalRows: number;
   tableCount: number;
   tables: { name: string; count: number }[];
   storageUsed: number;
-  storageLimit: number;
+  storageLimit: number | null;
   storageFiles: number;
   storageError: string;
+  diskTotal: number | null;
+  diskFree: number | null;
+  diskUsed: number | null;
+  cpu: { usagePct: number | null; cores: number };
+  mem: { used: number | null; total: number | null };
+  net: { mbps: number | null; limitMbps: number };
 }
 
-// 用量仪表卡片: 有 used+limit 时显示横条进度(Supabase 控制台风格), 否则显示提示文字
+// 用量仪表卡片: 有 used+limit 时显示横条进度, 否则显示提示文字
 function UsageMeter({ title, icon: Icon, used, limit, format, note, badge }: {
   title: string;
   icon: LucideIcon;
   used?: number | null;
-  limit?: number;
+  limit?: number | null;
   format: (n: number) => string;
   note?: string;
   badge?: string;
@@ -135,7 +141,7 @@ export function DbAdminPanel() {
   const [storageTotalPages, setStorageTotalPages] = useState(1);
   const [validSaleIds, setValidSaleIds] = useState<Set<string>>(new Set());
 
-  // ===== Supabase 用量仪表盘状态 =====
+  // ===== 服务器用量仪表盘状态 =====
   const [usage, setUsage] = useState<UsageData | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState("");
@@ -153,7 +159,7 @@ export function DbAdminPanel() {
 
   useEffect(() => { fetchTables(); }, [fetchTables]);
 
-  // ===== Supabase 用量: 未选表(显示仪表盘)时拉取 =====
+  // ===== 服务器用量: 未选表(显示仪表盘)时拉取 =====
   const fetchUsage = useCallback(async () => {
     setUsageLoading(true);
     setUsageError("");
@@ -523,14 +529,14 @@ export function DbAdminPanel() {
         {/* ===== 数据库模式 ===== */}
         {activePanel === "database" && (
           !selectedTable ? (
-            /* 未选表: Supabase 用量仪表盘(免费额度用量一览) */
+            /* 未选表: 服务器用量仪表盘(当前服务器资源用量) */
             <div className="flex-1 overflow-y-auto p-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <Gauge className="h-5 w-5 text-gray-900" />
                   <div>
-                    <h3 className="text-sm font-extrabold text-gray-900 leading-tight">Supabase 用量仪表盘</h3>
-                    <p className="text-[10px] text-gray-400 font-bold">免费额度用量一览 · 点击左侧表格可查看数据</p>
+                    <h3 className="text-sm font-extrabold text-gray-900 leading-tight">服务器用量仪表盘</h3>
+                    <p className="text-[10px] text-gray-400 font-bold">服务器资源用量 · 点击左侧表格可查看数据</p>
                   </div>
                 </div>
                 <button onClick={fetchUsage} disabled={usageLoading}
@@ -548,16 +554,39 @@ export function DbAdminPanel() {
                   <UsageMeter
                     title="数据库空间" icon={Database}
                     used={usage.dbSize} limit={usage.dbSizeLimit} format={formatSize}
-                    badge="免费 500 MB"
+                    badge="本机 PostgreSQL 17"
                     note={usage.rpcMissing
-                      ? "需要执行一次数据库迁移才能显示真实用量：打开 Supabase 控制台 → SQL Editor，粘贴运行项目文件 src/lib/migrations/004_db_usage_rpc.sql 后点刷新。"
+                      ? "数据库用量函数缺失：在服务器上执行 psql -U postgres -d inventory < src/lib/migrations/004_db_usage_rpc.sql 后点刷新。"
                       : undefined}
                   />
                   <UsageMeter
                     title="文件存储" icon={HardDrive}
                     used={usage.storageUsed} limit={usage.storageLimit} format={formatSize}
-                    badge={`免费 1 GB · ${usage.storageFiles} 个文件`}
+                    badge={`服务器本地磁盘 · ${usage.storageFiles} 个文件`}
                     note={usage.storageError || undefined}
+                  />
+                  {/* 峰值公网带宽: /proc/net/dev 采样瞬时速率, 上限为套餐峰值 */}
+                  <UsageMeter
+                    title="峰值公网带宽" icon={Activity}
+                    used={usage.net.mbps} limit={usage.net.limitMbps}
+                    format={(n) => `${n.toFixed(2)} Mbps`}
+                    badge="轻量服务器 20M 峰值"
+                    note={usage.net.mbps == null ? "无法读取网卡流量（本地开发环境）。" : undefined}
+                  />
+                  {/* CPU: os.cpus() 两次采样差值算使用率 */}
+                  <UsageMeter
+                    title="CPU" icon={Cpu}
+                    used={usage.cpu.usagePct} limit={100}
+                    format={(n) => `${n.toFixed(1)}%`}
+                    badge={`${usage.cpu.cores} 核`}
+                    note={usage.cpu.usagePct == null ? "无法读取 CPU 信息。" : undefined}
+                  />
+                  {/* 内存: /proc/meminfo 的 MemTotal-MemAvailable, 同阿里云控制台口径 */}
+                  <UsageMeter
+                    title="内存" icon={MemoryStick}
+                    used={usage.mem.used} limit={usage.mem.total} format={formatSize}
+                    badge="系统内存"
+                    note={usage.mem.total == null ? "无法读取内存信息（本地开发环境）。" : undefined}
                   />
                   {/* 数据库总行数 + 行数最多的表 */}
                   <div className="rounded-2xl border-[3px] border-gray-900 bg-white p-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)]">
@@ -578,12 +607,12 @@ export function DbAdminPanel() {
                       ))}
                     </div>
                   </div>
-                  {/* 月带宽: Supabase 不开放用量 API, 提示到控制台查看 */}
+                  {/* 系统盘: 数据库 + 文件存储 + 系统共用, statfs 实时读取, 口径同阿里云控制台 */}
                   <UsageMeter
-                    title="月带宽(带宽流量)" icon={ArrowRight}
-                    format={formatSize}
-                    badge="免费 5 GB / 月"
-                    note="带宽用量 Supabase 未开放接口查询，请到 Supabase 控制台 → Reports 查看。"
+                    title="系统盘" icon={Server}
+                    used={usage.diskUsed} limit={usage.diskTotal} format={formatSize}
+                    badge="40 GB SSD"
+                    note={usage.diskTotal == null ? "无法读取服务器磁盘信息。" : undefined}
                   />
                 </div>
               ) : null}

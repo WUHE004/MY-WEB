@@ -633,10 +633,8 @@ export async function POST(request: Request) {
       const sDdShip = Number(ddShipResult.data?.value) || 2;
 
       // 退货记录(利润要扣退货损失; 独立拉取, 不依赖上方退货汇总分支是否执行)
-      const returnRows = await readAllPages(
-        "return_records",
-        "sale_id,quantity,return_price,return_time,created_at"
-      );
+      // select("*"): return_reason(品退快递费5元/件, 迁移009)存在则自动带上, 不存在也不报错
+      const returnRows = await readAllPages("return_records", "*");
       diagnostics.push(`读取 ${returnRows.length} 条退货记录(利润扣减用)`);
 
       const rows = computeDailyChannelStats(

@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_BUILD_TS: String(Math.floor(Date.now() / 1000)),
   },
+  // [临时-部署用] 部署时在上方加 output: "standalone" + distDir: ".next-deploy" 两行，完成后删除还原
   // sharp 的 libvips 二进制（.so）通过 dlopen 动态加载，文件追踪无法自动发现，
   // 需显式包含进 serverless 函数包，否则 Vercel 上报 ERR_DLOPEN_FAILED: libvips-cpp.so
   outputFileTracingIncludes: {

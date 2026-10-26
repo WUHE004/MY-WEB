@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { invalidateSummaryCache } from "@/app/api/summary/cache";
 
 // GET /api/product-display - 获取所有商品展示售价
 export async function GET() {
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    invalidateSummaryCache();
     return NextResponse.json(data, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -62,5 +64,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  invalidateSummaryCache();
   return NextResponse.json({ success: true, message: "已删除" });
 }

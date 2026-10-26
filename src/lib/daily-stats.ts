@@ -45,7 +45,11 @@ export interface ReturnRowLike {
   return_price?: unknown;
   return_time?: unknown;
   created_at?: unknown;
+  return_reason?: unknown; // 品退（瑕疵/破损）/七天无理由/尺码（尺码不符）; 旧数据为空按默认处理
 }
+
+// 品退(瑕疵/破损)退货快递费: 每件 5 元, 计入退货损失(与退货损失一起分摊到渠道日统计)
+export const PINHUI_EXPRESS_FEE_PER_ITEM = 5;
 
 // 时区安全取日期(北京时间): 数据库返回 UTC ISO 字符串, 直接 slice 会差一天
 export function toDateStrBJ(v: unknown): string {
@@ -151,6 +155,7 @@ export function computeDailyChannelStats(
   }
 
   // 2. 退货损失: 扣在退货发生日, 按(退货价或均价-成本)×件数计损失,
+  // 品退(瑕疵/破损)另加退货快递费 5 元/件,
   // 编号两渠道都卖过时按"退货日(含)之前"各渠道累计售出件数比例分摊
   // (退货早于该编号所有销售记录时, 回退到全量渠道比例)。
   // 注意: 退货日当天无销售时也创建独立行(total_amount=0, total_quantity=0, total_profit=-loss),
@@ -166,7 +171,9 @@ export function computeDailyChannelStats(
     const avg = qtySumMap.has(sid) ? (priceSumMap.get(sid) || 0) / qtySumMap.get(sid)! : 0;
     const unitPrice = rp > 0 ? rp : avg;
     const cost = costMap.get(sid) || 0;
-    const loss = (unitPrice - cost) * qty;
+    // 品退: 每件加 5 元退货快递费(旧记录无退货原因不计)
+    const expressFee = String(r.return_reason || "").startsWith("品退") ? PINHUI_EXPRESS_FEE_PER_ITEM * qty : 0;
+    const loss = (unitPrice - cost) * qty + expressFee;
 
     // 时点渠道比例: 只统计退货日(含)之前卖出的部分
     let cq: { douyin: number; duoduo: number } | undefined;

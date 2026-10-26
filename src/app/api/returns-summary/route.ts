@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { invalidateSummaryCache } from "@/app/api/summary/cache";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
 // 汇总单个 sale_id 的退货数据并 upsert 到 returns_summary 表
 export async function upsertReturnsSummary(saleId: string) {
+  // 退货数据已变更: 立即失效总表内存缓存(退货写路径的公共汇总点)
+  invalidateSummaryCache();
   if (!saleId) return;
 
   const sid = saleId.toUpperCase();

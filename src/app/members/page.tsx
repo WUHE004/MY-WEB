@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { Settings, Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle, Database } from "lucide-react";
+import { Shield, User, UserCog, Crown, ArrowLeft, Trash2, Eye, EyeOff, Circle, Database, FileClock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageWrapper, showToast } from "@/components/page-wrapper";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DbAdminPanel } from "@/components/db-admin-panel";
+import { OperationLogPanel } from "@/components/operation-log-panel";
 import { authFetch } from "@/lib/auth-fetch";
 
 interface Member {
@@ -34,7 +35,7 @@ export default function MembersPage() {
   const [currentRole, setCurrentRole] = useState("");
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
   const [editingPassword, setEditingPassword] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<"members" | "database">("members");
+  const [activeTab, setActiveTab] = useState<"members" | "database" | "logs">("members");
   // 二次确认: 角色变更 / 删除成员
   const [pendingRole, setPendingRole] = useState<{ id: string; name: string; role: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -161,19 +162,25 @@ export default function MembersPage() {
 
   return (
     <PageWrapper>
-      <div className="mb-6 lg:mb-8">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-900 mb-3"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          返回首页
-        </Link>
+      <div className="mb-4 lg:mb-6">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-gray-900">
-            <Settings className="h-6 w-6 lg:h-8 lg:w-8 inline mr-2" />
-            后台管理
-          </h1>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border-[3px] border-gray-900 bg-white shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+              title="返回首页"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <div>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 leading-none">
+                后台管理
+              </h1>
+              <p className="text-[10px] sm:text-xs text-gray-600 font-medium mt-1 leading-none">
+                成员权限 · 数据库 · 存储管理
+              </p>
+            </div>
+          </div>
           {/* Tab 切换 右对齐 */}
           <div className="flex items-center gap-2">
             <button
@@ -188,27 +195,39 @@ export default function MembersPage() {
               成员管理
             </button>
             {isAdmin && (
-              <button
-                onClick={() => setActiveTab("database")}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
-                  activeTab === "database"
-                    ? "border-gray-900 bg-gray-900 text-white"
-                    : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
-                }`}
-              >
-                <Database className="h-4 w-4" />
-                数据库管理
-              </button>
+              <>
+                <button
+                  onClick={() => setActiveTab("database")}
+                  className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
+                    activeTab === "database"
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
+                  }`}
+                >
+                  <Database className="h-4 w-4" />
+                  数据库管理
+                </button>
+                <button
+                  onClick={() => setActiveTab("logs")}
+                  className={`flex items-center gap-1.5 px-4 py-2 text-sm font-extrabold rounded-xl border-[3px] transition-colors ${
+                    activeTab === "logs"
+                      ? "border-gray-900 bg-gray-900 text-white"
+                      : "border-gray-200 bg-white text-gray-500 hover:border-gray-400"
+                  }`}
+                >
+                  <FileClock className="h-4 w-4" />
+                  操作日志
+                </button>
+              </>
             )}
           </div>
         </div>
-        <p className="text-sm lg:text-lg text-gray-600 font-medium mt-1">
-          成员权限 · 数据库 · 存储管理
-        </p>
       </div>
 
       {activeTab === "database" ? (
         <DbAdminPanel />
+      ) : activeTab === "logs" ? (
+        <OperationLogPanel />
       ) : (
         <>
           {error && (

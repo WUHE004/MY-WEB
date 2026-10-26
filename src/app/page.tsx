@@ -164,7 +164,8 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    const interval = setInterval(refreshHotProducts, 30000);
+    // 60 秒自动刷新(页面隐藏时跳过, 省服务器 CPU 额度)
+    const interval = setInterval(() => { if (!document.hidden) refreshHotProducts(); }, 60000);
     return () => clearInterval(interval);
   }, []);
 

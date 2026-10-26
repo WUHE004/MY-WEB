@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { invalidateSummaryCache } from "@/app/api/summary/cache";
 
 const ALL_SIZES = [80, 90, 95, 100, 105, 110, 120, 130, 140, 150, 160, 170, 180];
 
@@ -54,6 +55,8 @@ async function detectSummaryColumns(): Promise<string[]> {
 
 // 汇总单个 sale_id 的售出数据并 upsert 到 sales_summary 表
 export async function upsertSalesSummary(saleId: string) {
+  // 售卖数据已变更: 立即失效总表内存缓存(所有售卖写路径的公共汇总点)
+  invalidateSummaryCache();
   if (!saleId) {
     console.log("upsertSalesSummary: empty sale_id");
     return false;

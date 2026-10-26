@@ -246,7 +246,7 @@ export function BarcodeScanner({ open, onClose, onResult, title = "扫描条形�
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
       <style>{`@keyframes bc-scanline { 0%,100% { top: 10%; } 50% { top: 88%; } } @keyframes bc-slide-up { from { transform: translate(-50%, 24px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }`}</style>
 
       {/* 顶栏 */}

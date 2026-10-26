@@ -158,7 +158,7 @@ export default function DataImportPage() {
   const hasImportData = Boolean(csvContent) || allRows.length > 0;
   const [columnMap, setColumnMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ success: boolean; total: number; actualCount: number; errors?: string[] } | null>(null);
+  const [result, setResult] = useState<{ success: boolean; total: number; actualCount: number; warnings?: string[]; warningCount?: number; errors?: string[] } | null>(null);
   const [error, setError] = useState("");
   const [showAllFields, setShowAllFields] = useState(false);
   const [photoFolderName, setPhotoFolderName] = useState("");
@@ -896,6 +896,18 @@ export default function DataImportPage() {
                   : `❌ 导入失败`}
                 {result.total > 0 && `（处理 ${result.total} 行）`}
               </Badge>
+              {/* 警告: 数据已导入但不完美(如个别时间格式无法识别已用当前时间代替), 不算失败, 勿重复导入 */}
+              {result.warnings && result.warnings.length > 0 && (
+                <div className="p-2 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+                  <p className="text-xs font-bold text-yellow-800 mb-1">⚠️ 已导入，但有 {result.warningCount ?? result.warnings.length} 条提示（数据已入库，请勿重复导入）：</p>
+                  <ul className="text-[10px] text-yellow-700 list-disc list-inside">
+                    {result.warnings.slice(0, 5).map((warn, i) => (
+                      <li key={i}>{warn}</li>
+                    ))}
+                    {(result.warningCount ?? result.warnings!.length) > 5 && <li>... 还有 {(result.warningCount ?? result.warnings!.length) - 5} 条提示</li>}
+                  </ul>
+                </div>
+              )}
               {result.errors && result.errors.length > 0 && (
                 <div className="p-2 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
                   <p className="text-xs font-bold text-yellow-800 mb-1">⚠️ 部分错误：</p>
